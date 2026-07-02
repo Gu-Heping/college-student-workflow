@@ -86,6 +86,12 @@ If a repository already uses a different structure, the skill is designed to map
 
 ## Quick start
 
+Install the file-ingestion helper dependencies before using the PDF, DOCX, XLSX, or PPTX scripts:
+
+```bash
+pip install -r requirements.txt
+```
+
 ### 1. Inspect an existing vault
 
 ```bash
