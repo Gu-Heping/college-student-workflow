@@ -7,6 +7,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+
+def yaml_string(value: str) -> str:
+    return json.dumps(value)
+
+
 def render_frontmatter(source_file: str, import_method: str, repair_status: str, derived_from_import: str) -> str:
     return "\n".join(
         [
@@ -17,10 +22,10 @@ def render_frontmatter(source_file: str, import_method: str, repair_status: str,
             "created:",
             "updated:",
             "tags: [import, pdf]",
-            f"source_file: {source_file}",
+            f"source_file: {yaml_string(source_file)}",
             f"import_method: {import_method}",
             f"repair_status: {repair_status}",
-            f"derived_from_import: {derived_from_import}",
+            f"derived_from_import: {yaml_string(derived_from_import)}",
             "---",
             "",
         ]
@@ -48,6 +53,8 @@ def run_repair(input_path: Path, output_path: Path) -> dict[str, object]:
         str(output_path),
         "--summary-path",
         str(summary_path),
+        "--derived-from",
+        str(input_path),
     ]
     completed = subprocess.run(command, check=True, capture_output=True, text=True)
     payload = json.loads(completed.stdout)
@@ -100,10 +107,21 @@ def main() -> int:
         for page_number in range(page_start, min(last_page, page_total) + 1):
             page = pdf.pages[page_number - 1]
             text = page.extract_text() or ""
+            image_count = len(page.images)
+            image_lines: list[str] = []
+            if image_count:
+                image_lines.extend(
+                    [
+                        f"- Image placeholders: {image_count} image(s) detected on this page.",
+                        *[f"- [Image {index} placeholder retained from source PDF]" for index in range(1, image_count + 1)],
+                        "",
+                    ]
+                )
             body_lines.extend(
                 [
                     f"## Page {page_number}",
                     "",
+                    *image_lines,
                     text.strip() if text.strip() else "[No extractable text found on this page.]",
                     "",
                 ]

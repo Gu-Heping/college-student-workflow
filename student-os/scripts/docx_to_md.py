@@ -8,6 +8,10 @@ from pathlib import Path
 from xml.etree.ElementTree import QName
 
 
+def yaml_string(value: str) -> str:
+    return json.dumps(value)
+
+
 def load_document():
     try:
         from docx import Document
@@ -74,7 +78,7 @@ def main() -> int:
         "created:",
         "updated:",
         "tags: [import, reference]",
-        f"source_file: {docx_path}",
+        f"source_file: {yaml_string(str(docx_path))}",
         "import_method: docx-to-md",
         "repair_status:",
         "derived_from_import:",

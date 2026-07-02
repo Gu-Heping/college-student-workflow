@@ -7,6 +7,10 @@ import re
 from pathlib import Path
 
 
+def yaml_string(value: str) -> str:
+    return json.dumps(value)
+
+
 def repair_text(text: str) -> tuple[str, list[str]]:
     summary: list[str] = []
     original = text
@@ -51,6 +55,7 @@ def main() -> int:
     parser.add_argument("input_md", help="Input markdown path")
     parser.add_argument("--output", required=True, help="Output markdown path")
     parser.add_argument("--summary-path", help="Optional path for a markdown repair summary")
+    parser.add_argument("--derived-from", help="Optional raw import path to write into derived_from_import")
     args = parser.parse_args()
 
     input_path = Path(args.input_md).resolve()
@@ -60,6 +65,10 @@ def main() -> int:
     repaired, summary = repair_text(input_path.read_text(encoding="utf-8"))
     repaired = repaired.replace("repair_status: raw", "repair_status: repaired", 1)
     repaired = repaired.replace("- Repair status: raw", "- Repair status: repaired", 1)
+    if args.derived_from:
+        derived_line = f"derived_from_import: {yaml_string(str(Path(args.derived_from).resolve()))}"
+        repaired = re.sub(r"(?m)^derived_from_import:\s*$", derived_line, repaired, count=1)
+        repaired = repaired.replace('derived_from_import: ""', derived_line, 1)
     output_path.write_text(repaired, encoding="utf-8")
 
     if args.summary_path:

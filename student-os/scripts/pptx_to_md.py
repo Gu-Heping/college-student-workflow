@@ -5,6 +5,11 @@ import argparse
 import json
 from pathlib import Path
 
+
+def yaml_string(value: str) -> str:
+    return json.dumps(value)
+
+
 def load_presentation():
     try:
         from pptx import Presentation
@@ -35,7 +40,7 @@ def main() -> int:
         "created:",
         "updated:",
         "tags: [import, slides]",
-        f"source_file: {pptx_path}",
+        f"source_file: {yaml_string(str(pptx_path))}",
         "import_method: pptx-to-md",
         "repair_status:",
         "derived_from_import:",
