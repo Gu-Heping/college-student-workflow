@@ -11,6 +11,12 @@ def list_children(path: Path) -> list[Path]:
     return sorted([p for p in path.iterdir() if p.is_dir()])
 
 
+def list_markdown_files(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    return sorted([p.name for p in path.glob("*.md") if p.is_file()])
+
+
 def write_index(path: Path, title: str, items: list[str]) -> None:
     body = [f"# {title}", "", "## Entries", ""]
     if items:
@@ -31,6 +37,7 @@ def main() -> int:
     write_index(index_dir / "courses.md", "Course Index", [p.name for p in list_children(root / "courses")])
     write_index(index_dir / "projects.md", "Project Index", [p.name for p in list_children(root / "projects")])
     write_index(index_dir / "tasks.md", "Task Index", [p.name for p in list_children(root / "tasks")])
+    write_index(index_dir / "dashboards.md", "Dashboard Index", list_markdown_files(root / "dashboards"))
 
     recent = sorted(
         [p for p in root.rglob("*.md") if ".student-os\\index" not in str(p)],

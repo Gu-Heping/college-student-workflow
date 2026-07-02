@@ -25,8 +25,10 @@ tags: [course/{{course_slug}}]
 
 - Notes: `notes/`
 - Homework: `homework/`
+- Labs: `labs/`
 - Reviews: `reviews/`
 - References: `references/`
+- Dashboard: `dashboard.md`
 
 ## Active Items
 
