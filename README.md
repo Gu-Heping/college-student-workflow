@@ -4,6 +4,8 @@
 
 The first artifact in this repo is [`student-os`](./student-os/), a cross-agent skill designed for `Codex`, `Claude Code`, `OpenCode`, and similar tools. Its job is to help an agent treat a note vault as a markdown-first working repository for course work, homework, reviews, projects, planning, and repository hygiene.
 
+Recent notable changes are tracked in [CHANGELOG.md](./CHANGELOG.md).
+
 ## One-command install
 
 `student-os` now ships with a cross-agent installer.
