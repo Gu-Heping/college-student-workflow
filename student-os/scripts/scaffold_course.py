@@ -58,6 +58,7 @@ def main() -> int:
 
     if args.semester:
         semester_path = repo / "dashboards" / f"semester-{repl['course_slug']}.md"
+        semester_path.parent.mkdir(parents=True, exist_ok=True)
         if not semester_path.exists():
             semester_path.write_text(
                 f"# Semester Link - {args.course_name}\n\n- Semester: {args.semester}\n- Course path: courses/{repl['course_slug']}\n",

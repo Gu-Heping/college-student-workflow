@@ -6,7 +6,7 @@ created: {{date}}
 updated: {{date}}
 tags: [course/{{course_slug}}, homework, solution]
 source_artifacts: []
-solution_status: derived
+solution_status: needs-review
 review_scope:
 ---
 

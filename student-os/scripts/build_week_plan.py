@@ -37,7 +37,7 @@ def main() -> int:
             due_date = datetime.fromisoformat(due).date()
         except ValueError:
             continue
-        if due_date <= today + timedelta(days=args.days):
+        if today <= due_date <= today + timedelta(days=args.days):
             deadlines.append((due_date, path))
 
     courses = sorted([p.name for p in (repo / "courses").iterdir() if p.is_dir()]) if (repo / "courses").exists() else []

@@ -72,12 +72,12 @@ def main() -> int:
         "review_title": args.homework_title,
         "lab_title": args.homework_title,
         "topic_title": args.homework_title,
-        "solution_status": "derived",
+        "solution_status": "needs-review",
     }
 
     homework_path = course_dir / "homework" / f"{homework_slug}.md"
     solution_path = course_dir / "homework" / f"{homework_slug}-solution.md"
-    task_path = repo / "tasks" / "deadlines" / f"{course_slug}-{homework_slug}.md"
+    task_path = repo / "tasks" / "deadlines" / f"{course_slug}-{homework_slug}.md" if args.due else None
 
     homework_text = fill_template(template_root / "homework.md", replacements)
     if args.due:
@@ -85,6 +85,8 @@ def main() -> int:
     if args.problems:
         problem_lines = "\n".join([f"- [ ] {p.strip()}" for p in args.problems.split(",") if p.strip()])
         homework_text += f"\n## Problem List\n\n{problem_lines}\n"
+    homework_text = homework_text.replace("- Course home:", f"- Course home: ../index.md")
+    homework_text = homework_text.replace("- Related task:", f"- Related task: ../../../tasks/deadlines/{course_slug}-{homework_slug}.md" if args.due else "- Related task:")
     write_if_missing(homework_path, homework_text)
 
     solution_text = fill_template(template_root / "homework-solution.md", replacements)
@@ -98,20 +100,27 @@ def main() -> int:
         end = solution_text.find("## Self-check")
         if start != -1 and end != -1:
             solution_text = solution_text[:start] + "\n".join(blocks) + "\n\n" + solution_text[end:]
+    solution_text = solution_text.replace("- Homework page:", f"- Homework page: {homework_path.name}")
+    solution_text = solution_text.replace("- Deadline task:", f"- Deadline task: ../../../tasks/deadlines/{course_slug}-{homework_slug}.md" if args.due else "- Deadline task:")
     write_if_missing(solution_path, solution_text)
 
-    task_text = fill_template(template_root / "task.md", replacements)
-    if args.due:
+    if task_path is not None:
+        task_text = fill_template(template_root / "task.md", replacements)
         task_text = task_text.replace("- Due:", f"- Due: {args.due}")
-    task_text = task_text.replace("- Area:", "- Area: homework")
-    write_if_missing(task_path, task_text)
+        task_text = task_text.replace("- Area:", "- Area: homework")
+        task_text = task_text.replace("- Course:", f"- Course: ../../courses/{course_slug}/index.md")
+        task_text = task_text.replace("- Source file:", f"- Source file: ../../courses/{course_slug}/homework/{homework_slug}.md")
+        write_if_missing(task_path, task_text)
 
     append_backlink(course_dir / "index.md", "## Active Items", f"- [ ] [{args.homework_title} homework](homework/{homework_slug}.md)")
+    append_backlink(course_dir / "index.md", "## Active Items", f"- [ ] [{args.homework_title} solution](homework/{homework_slug}-solution.md)")
     append_backlink(course_dir / "dashboard.md", "## Open Homework", f"- [{args.homework_title}](homework/{homework_slug}.md)")
+    append_backlink(course_dir / "dashboard.md", "## Review Queue", f"- [{args.homework_title} solution](homework/{homework_slug}-solution.md)")
 
     print(homework_path)
     print(solution_path)
-    print(task_path)
+    if task_path is not None:
+        print(task_path)
     return 0
 
 

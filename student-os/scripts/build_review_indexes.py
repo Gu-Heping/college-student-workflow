@@ -3,10 +3,17 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import re
 
 
 def stem_without_suffix(name: str, suffix: str) -> str:
     return name[: -len(suffix)] if name.endswith(suffix) else name
+
+
+def review_matches(base: str, review_name: str) -> bool:
+    review_stem = stem_without_suffix(review_name, ".md")
+    pattern = rf"(^|-)({re.escape(base)})(-|$)"
+    return re.search(pattern, review_stem) is not None
 
 
 def files_in(path: Path) -> list[str]:
@@ -45,7 +52,7 @@ def main() -> int:
             for name in assignments:
                 base = stem_without_suffix(name, ".md")
                 related_solution = f"{base}-solution.md" if f"{base}-solution.md" in solutions else "None"
-                related_review = next((review for review in reviews if base in review), "None")
+                related_review = next((review for review in reviews if review_matches(base, review)), "None")
                 summary.append(f"- {name} -> solution: {related_solution} -> review: {related_review}")
         else:
             summary.append("- None")

@@ -8,16 +8,18 @@ from pathlib import Path
 
 
 GROUP_RULES = [
-    ("homework", ["/homework/", "homework/", "-solution.md", "problem-analysis", "homework-and-reviews.md"]),
+    ("ops", [".student-os/", "/scripts/", "scripts/", "/templates/", "templates/", "repo-profile.md"]),
+    ("notes", ["/notes/", "notes/", "class-note"]),
+    ("report", ["/labs/", "labs/", "lab-report"]),
+    ("homework", ["/homework/", "homework/", "-solution.md", "problem-analysis"]),
     ("review", ["/reviews/", "reviews/", "chapter-review", "weekly-review-digest", "review-sheet"]),
     ("tasks", ["/tasks/", "tasks/", "weekly-plan"]),
     ("course", ["/courses/", "courses/", "dashboard.md", "/index.md"]),
-    ("notes", ["/notes/", "notes/", "class-note"]),
-    ("ops", [".student-os/", "/scripts/", "scripts/", "/templates/", "templates/", "repo-profile.md"]),
 ]
 
 PREFIX = {
     "notes": "notes:",
+    "report": "report:",
     "homework": "homework:",
     "review": "review:",
     "tasks": "tasks:",
@@ -32,6 +34,13 @@ def detect_group(path: str) -> str:
         if any(needle in normalized for needle in needles):
             return group
     return "ops"
+
+
+def parse_status_path(line: str) -> str:
+    payload = line[3:].strip()
+    if " -> " in payload:
+        return payload.split(" -> ", 1)[1].strip()
+    return payload
 
 
 def main() -> int:
@@ -49,7 +58,7 @@ def main() -> int:
     lines = [line for line in result.stdout.splitlines() if line.strip()]
     groups: dict[str, list[str]] = {}
     for line in lines:
-        path = line[3:].strip()
+        path = parse_status_path(line)
         group = detect_group(path)
         groups.setdefault(group, []).append(path)
 
