@@ -5,7 +5,53 @@ import argparse
 import json
 from pathlib import Path
 
-from docx import Document
+from xml.etree.ElementTree import QName
+
+
+def load_document():
+    try:
+        from docx import Document
+    except ImportError as exc:
+        raise SystemExit(
+            "Missing dependency 'python-docx'. Install the packages from requirements.txt before running this script."
+        ) from exc
+    return Document
+
+
+def markdown_cell(text: str) -> str:
+    return text.replace("|", "\\|").replace("\n", "<br>")
+
+
+def iter_block_items(document):
+    body = document.element.body
+    for child in body.iterchildren():
+        if child.tag == QName(
+            "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+            "p",
+        ).text:
+            yield "paragraph", child
+        elif child.tag == QName(
+            "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+            "tbl",
+        ).text:
+            yield "table", child
+
+
+def paragraph_text(document, element) -> str:
+    for para in document.paragraphs:
+        if para._element is element:
+            return para.text.strip()
+    return ""
+
+
+def table_rows(document, element) -> list[list[str]]:
+    for table in document.tables:
+        if table._element is element:
+            return [
+                [markdown_cell(cell.text.strip()) for cell in row.cells]
+                for row in table.rows
+            ]
+    return []
 
 
 def main() -> int:
@@ -18,6 +64,7 @@ def main() -> int:
     output_path = Path(args.output).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    Document = load_document()
     doc = Document(str(docx_path))
     lines = [
         "---",
@@ -44,20 +91,24 @@ def main() -> int:
         "",
     ]
 
-    for para in doc.paragraphs:
-        text = para.text.strip()
-        if text:
-            lines.extend([text, ""])
+    table_index = 0
+    for block_type, element in iter_block_items(doc):
+        if block_type == "paragraph":
+            text = paragraph_text(doc, element)
+            if text:
+                lines.extend([text, ""])
+            continue
 
-    for table_index, table in enumerate(doc.tables, start=1):
+        table_index += 1
+        rows = table_rows(doc, element)
         lines.extend([f"## Table {table_index}", ""])
-        rows = [[cell.text.strip().replace("\n", " ") for cell in row.cells] for row in table.rows]
         if rows:
             header = rows[0]
             lines.append("| " + " | ".join(header) + " |")
             lines.append("| " + " | ".join(["---"] * len(header)) + " |")
             for row in rows[1:]:
-                lines.append("| " + " | ".join(row) + " |")
+                values = row[: len(header)] + ([""] * max(0, len(header) - len(row)))
+                lines.append("| " + " | ".join(values) + " |")
             lines.append("")
 
     output_path.write_text("\n".join(lines), encoding="utf-8")

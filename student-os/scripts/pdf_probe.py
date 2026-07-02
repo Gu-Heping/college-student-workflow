@@ -5,7 +5,14 @@ import argparse
 import json
 from pathlib import Path
 
-from pypdf import PdfReader
+def load_pdf_reader():
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise SystemExit(
+            "Missing dependency 'pypdf'. Install the packages from requirements.txt before running this script."
+        ) from exc
+    return PdfReader
 
 
 def main() -> int:
@@ -14,6 +21,7 @@ def main() -> int:
     args = parser.parse_args()
 
     pdf_path = Path(args.pdf).resolve()
+    PdfReader = load_pdf_reader()
     reader = PdfReader(str(pdf_path))
     payload = {
         "source_file": str(pdf_path),

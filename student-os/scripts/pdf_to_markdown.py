@@ -3,10 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
+import sys
 from pathlib import Path
-
-import pdfplumber
-
 
 def render_frontmatter(source_file: str, import_method: str, repair_status: str, derived_from_import: str) -> str:
     return "\n".join(
@@ -26,6 +25,34 @@ def render_frontmatter(source_file: str, import_method: str, repair_status: str,
             "",
         ]
     )
+
+
+def load_pdfplumber():
+    try:
+        import pdfplumber
+    except ImportError as exc:
+        raise SystemExit(
+            "Missing dependency 'pdfplumber'. Install the packages from requirements.txt before running this script."
+        ) from exc
+    return pdfplumber
+
+
+def run_repair(input_path: Path, output_path: Path) -> dict[str, object]:
+    script_path = Path(__file__).with_name("repair_markdown_import.py")
+    summary_path = output_path.with_name(f"{output_path.stem}-repair-summary.md")
+    command = [
+        sys.executable,
+        str(script_path),
+        str(input_path),
+        "--output",
+        str(output_path),
+        "--summary-path",
+        str(summary_path),
+    ]
+    completed = subprocess.run(command, check=True, capture_output=True, text=True)
+    payload = json.loads(completed.stdout)
+    payload["summary_path"] = str(summary_path)
+    return payload
 
 
 def main() -> int:
@@ -50,6 +77,8 @@ def main() -> int:
     mode = args.mode
     if mode == "auto":
         mode = "mineru-style"
+
+    pdfplumber = load_pdfplumber()
 
     body_lines = [
         render_frontmatter(str(pdf_path), mode, "raw", ""),
@@ -80,8 +109,34 @@ def main() -> int:
                 ]
             )
 
-    output_path.write_text("\n".join(body_lines), encoding="utf-8")
-    print(json.dumps({"output": str(output_path), "mode": mode}, ensure_ascii=False, indent=2))
+    raw_output_path = output_path
+    final_output_path = output_path
+    result: dict[str, object] = {"mode": mode}
+
+    if mode == "mineru-style":
+        if output_path.parent.name == "raw":
+            final_output_path = output_path.parent.parent / "repaired" / output_path.name
+        elif output_path.parent.name != "repaired":
+            raw_output_path = output_path.with_name(f"{output_path.stem}.raw{output_path.suffix}")
+        if final_output_path == raw_output_path:
+            raw_output_path = final_output_path.with_name(f"{final_output_path.stem}.raw{final_output_path.suffix}")
+        raw_output_path.parent.mkdir(parents=True, exist_ok=True)
+        final_output_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_output_path.write_text("\n".join(body_lines), encoding="utf-8")
+        repair_payload = run_repair(raw_output_path, final_output_path)
+        result.update(
+            {
+                "raw_output": str(raw_output_path),
+                "output": str(final_output_path),
+                "repair_summary": repair_payload["summary_path"],
+                "repairs": repair_payload["repairs"],
+            }
+        )
+    else:
+        final_output_path.write_text("\n".join(body_lines), encoding="utf-8")
+        result["output"] = str(final_output_path)
+
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 

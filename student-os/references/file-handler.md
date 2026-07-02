@@ -9,6 +9,10 @@ Use this reference when the request starts from a PDF, DOCX, XLSX, or PPTX file 
 - Prefer conservative transformations that preserve meaning over aggressive rewriting.
 - Hand the imported result back to the main study/review/planning workflows.
 
+## Runtime expectation
+
+- Install the optional converter dependencies from the repository `requirements.txt` before running the import scripts.
+
 ## Default landing zones
 
 - Course-local source material:

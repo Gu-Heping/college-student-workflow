@@ -3,13 +3,25 @@ from __future__ import annotations
 
 import argparse
 import json
+from itertools import islice
 from pathlib import Path
 
-from openpyxl import load_workbook
+def load_workbook_module():
+    try:
+        from openpyxl import load_workbook
+    except ImportError as exc:
+        raise SystemExit(
+            "Missing dependency 'openpyxl'. Install the packages from requirements.txt before running this script."
+        ) from exc
+    return load_workbook
 
 
 def stringify(value: object) -> str:
     return "" if value is None else str(value)
+
+
+def markdown_cell(value: object) -> str:
+    return stringify(value).replace("|", "\\|").replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
 
 
 def main() -> int:
@@ -23,6 +35,7 @@ def main() -> int:
     output_path = Path(args.output).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    load_workbook = load_workbook_module()
     wb = load_workbook(filename=str(xlsx_path), data_only=True)
     lines = [
         "---",
@@ -51,15 +64,16 @@ def main() -> int:
 
     for ws in wb.worksheets:
         lines.extend([f"## Sheet: {ws.title}", ""])
-        rows = list(ws.iter_rows(values_only=True))[: args.max_rows]
+        rows = list(islice(ws.iter_rows(values_only=True), args.max_rows))
         if not rows:
             lines.extend(["- Empty sheet", ""])
             continue
-        header = [stringify(v) for v in rows[0]]
+        header = [markdown_cell(v) for v in rows[0]]
         lines.append("| " + " | ".join(header) + " |")
         lines.append("| " + " | ".join(["---"] * len(header)) + " |")
         for row in rows[1:]:
-            values = [stringify(v) for v in row[: len(header)]]
+            padded = list(row[: len(header)]) + ([None] * max(0, len(header) - len(row)))
+            values = [markdown_cell(v) for v in padded]
             lines.append("| " + " | ".join(values) + " |")
         if ws.max_row > args.max_rows:
             lines.extend(["", f"- Truncated after {args.max_rows} rows.", ""])

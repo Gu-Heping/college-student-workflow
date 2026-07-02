@@ -5,7 +5,14 @@ import argparse
 import json
 from pathlib import Path
 
-from pptx import Presentation
+def load_presentation():
+    try:
+        from pptx import Presentation
+    except ImportError as exc:
+        raise SystemExit(
+            "Missing dependency 'python-pptx'. Install the packages from requirements.txt before running this script."
+        ) from exc
+    return Presentation
 
 
 def main() -> int:
@@ -18,6 +25,7 @@ def main() -> int:
     output_path = Path(args.output).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    Presentation = load_presentation()
     prs = Presentation(str(pptx_path))
     lines = [
         "---",
