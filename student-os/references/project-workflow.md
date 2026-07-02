@@ -2,6 +2,8 @@
 
 Use this reference for course projects, personal projects, research prototypes, and learning-by-building work.
 
+This iteration keeps project support intentionally narrower than course, review, and planning support.
+
 ## Default project layout
 
 - `projects/<project-slug>/index.md`

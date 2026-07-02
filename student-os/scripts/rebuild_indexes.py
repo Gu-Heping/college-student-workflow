@@ -31,6 +31,7 @@ def main() -> int:
     write_index(index_dir / "courses.md", "Course Index", [p.name for p in list_children(root / "courses")])
     write_index(index_dir / "projects.md", "Project Index", [p.name for p in list_children(root / "projects")])
     write_index(index_dir / "tasks.md", "Task Index", [p.name for p in list_children(root / "tasks")])
+    write_index(index_dir / "dashboards.md", "Dashboard Index", [p.name for p in list_children(root / "dashboards")])
 
     recent = sorted(
         [p for p in root.rglob("*.md") if ".student-os\\index" not in str(p)],

@@ -1,6 +1,6 @@
 ---
 name: student-os
-description: Git-first student knowledge base operating system for Claude Code, Codex, OpenCode, and similar agents. Use when an agent needs to initialize or govern a markdown-first knowledge repository; manage course notes, homework, reviews, reports, tasks, projects, and dashboards; inspect git status and separate task-specific changes from pre-existing dirty work; prepare branch names and commit messages; map an existing vault into a standardized repository contract without forcing a rename; or produce weekly summaries, progress snapshots, and cross-course knowledge links.
+description: Git-first student knowledge base operating system for Claude Code, Codex, OpenCode, and similar agents. Use when an agent needs to initialize or govern a markdown-first knowledge repository; create course spaces, lecture notes, homework pages, review sheets, lab reports, weekly plans, inbox tasks, dashboards, and learning summaries; route work across coordinator, course tutor, project helper, review coach, and planning assistant roles; inspect git status and separate task-specific changes from pre-existing dirty work; or prepare branch names, commit messages, and grouped change summaries for day-to-day student workflows.
 ---
 
 # Student OS
@@ -9,11 +9,12 @@ Run this skill as the single entry point for a university knowledge repository. 
 
 ## Core workflow
 
-1. Identify the request type: repository governance, daily academic work, project work, planning, knowledge operations, or git review.
+1. Identify the request type: repository governance, daily academic work, project work, planning, review work, knowledge operations, or git review.
 2. Inspect the target repository before editing anything.
-3. Resolve the target paths and templates that will be touched.
-4. Make or propose the knowledge-base updates.
-5. Summarize file changes and, when git is relevant, produce commit guidance without auto-committing unless the user explicitly asks.
+3. Choose the primary role and any supporting roles from the companion layer.
+4. Resolve the target paths and templates that will be touched.
+5. Make or propose the knowledge-base updates.
+6. Summarize file changes and, when git is relevant, produce commit guidance without auto-committing unless the user explicitly asks.
 
 ## Inspect first
 
@@ -26,6 +27,11 @@ Before writing:
 Use these scripts when helpful:
 - `scripts/inspect_repo.py` for repository shape, git state, and conflict detection.
 - `scripts/scaffold_repo.py` for creating the standard contract in a new or existing repository.
+- `scripts/scaffold_course.py` for setting up a new course space and starter artifacts.
+- `scripts/scaffold_homework.py` for creating homework, linked task artifacts, and basic backlinks.
+- `scripts/build_week_plan.py` for weekly plans, near-term deadlines, and exam countdown material.
+- `scripts/build_review_indexes.py` for homework and review indexes.
+- `scripts/group_git_changes.py` for student-task change grouping and commit prefix suggestions.
 - `scripts/rebuild_indexes.py` for regenerating course/project/task/activity indexes.
 - `scripts/summarize_activity.py` for weekly summaries and recent activity reports.
 
@@ -63,13 +69,18 @@ Handle:
 ### Academic workflow
 
 Use `references/academic-workflow.md`.
+Read the relevant course pack from `references/course-packs/` before producing course-specific homework or review artifacts.
 
 Handle:
 - course creation
 - lecture notes
 - homework pages
+- homework solution pages
+- problem analysis pages
 - lab/report scaffolds
+- course dashboards
 - review artifacts
+- weekly review digests
 - progress-linked course updates
 
 ### Project workflow
@@ -89,6 +100,7 @@ Use `references/task-and-planning.md`.
 
 Handle:
 - deadlines
+- inbox capture
 - reminders
 - weekly plans
 - exam countdowns
@@ -105,6 +117,38 @@ Handle:
 - reference digests
 - learning retrospectives
 
+## Course packs
+
+When a request targets one of the seed courses, read the matching course pack before drafting content:
+- `references/course-packs/analog-electronics.md`
+- `references/course-packs/calculus-ii.md`
+- `references/course-packs/data-structures.md`
+
+If the course is not covered yet, follow the generic workflow and note that a course pack may be needed later.
+
+## Companion role layer
+
+Use the companion documents to keep multi-agent work consistent across runtimes:
+- `companions/coordinator.md`
+- `companions/course-tutor.md`
+- `companions/project-helper.md`
+- `companions/review-coach.md`
+- `companions/planning-assistant.md`
+
+Use the command templates to expose common entry points:
+- `commands/study.md`
+- `commands/project.md`
+- `commands/review.md`
+- `commands/plan-week.md`
+- `commands/inbox.md`
+
+Default routing:
+- `study` -> `coordinator` with `course-tutor` as the usual primary specialist
+- `project` -> `coordinator` with `project-helper`
+- `review` -> `coordinator` with `review-coach`
+- `plan-week` -> `coordinator` with `planning-assistant`
+- `inbox` -> `coordinator` with `planning-assistant`
+
 ## File conventions
 
 Default every managed markdown artifact to YAML frontmatter with at least:
@@ -120,6 +164,21 @@ tags: []
 
 Prefer ISO dates in filenames when the artifact is date-bound.
 
+Common managed artifact types in this iteration:
+- `class-note`
+- `course-dashboard`
+- `homework`
+- `homework-solution`
+- `problem-analysis`
+- `review-sheet`
+- `chapter-review`
+- `weekly-review-digest`
+- `lab-report`
+- `weekly-plan`
+- `task`
+- `project`
+- `knowledge-link`
+
 ## Git-first rules
 
 - Inspect the working tree before and after the task.
@@ -131,16 +190,31 @@ Prefer ISO dates in filenames when the artifact is date-bound.
 
 Default naming:
 - branch prefixes: `task/`, `course/`, `review/`, `project/`, `ops/`
-- commit prefixes: `notes:`, `course:`, `review:`, `project:`, `tasks:`, `ops:`
+- commit prefixes: `course:`, `notes:`, `homework:`, `review:`, `tasks:`, `report:`, `project:`, `ops:`
+
+Suggested student-day grouping:
+- course-note updates
+- homework and linked deadline updates
+- homework-solution and problem-analysis updates
+- weekly planning or weekly review updates
+- review-sheet builds
+- repository ops and generated indexes
 
 ## Output contract
 
 When responding after work, prefer this order:
 1. `request_type`
-2. `paths_touched` or `paths_planned`
-3. `files_created_or_updated`
-4. `change_summary`
-5. `git_guidance`, when relevant:
+2. `task_mode`
+3. `primary_role`
+4. `supporting_roles`
+5. `paths_touched` or `paths_planned`
+6. `target_artifacts`
+7. `files_created_or_updated`
+8. `change_summary`
+9. `git_guidance`, when relevant:
+   - `artifact_grouping`
+   - `recommended_commit_split`
+   - `hold_back_files`
    - `staged_candidates`
    - `ignored_candidates`
    - `suggested_branch_name`
@@ -152,10 +226,21 @@ When responding after work, prefer this order:
 
 Use these templates when creating new artifacts:
 - `templates/course-home.md`
+- `templates/class-note.md`
+- `templates/course-dashboard.md`
 - `templates/homework.md`
+- `templates/homework-solution.md`
+- `templates/problem-analysis.md`
+- `templates/lab-report.md`
+- `templates/review-sheet.md`
+- `templates/chapter-review.md`
 - `templates/task.md`
+- `templates/inbox-task.md`
 - `templates/project.md`
+- `templates/weekly-plan.md`
 - `templates/weekly-review.md`
+- `templates/weekly-review-digest.md`
+- `templates/knowledge-link.md`
 - `templates/repo-profile.md`
 
 ## Validation mindset
@@ -166,3 +251,5 @@ When creating or updating a repository:
 - avoid irreversible migrations
 - preserve user-authored files
 - generate summaries that help a later agent understand what changed
+- keep companion outputs aligned with the same repository contract
+- never leave visible chain-of-thought, trial steps, or "wait/retry" traces inside final homework or review artifacts
