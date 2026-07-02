@@ -4,6 +4,39 @@
 
 The first artifact in this repo is [`student-os`](./student-os/), a cross-agent skill designed for `Codex`, `Claude Code`, `OpenCode`, and similar tools. Its job is to help an agent treat a note vault as a markdown-first working repository for course work, homework, reviews, projects, planning, and repository hygiene.
 
+## One-command install
+
+`student-os` now ships with a cross-agent installer.
+
+On Windows:
+
+```powershell
+./install.ps1
+```
+
+On macOS or Linux:
+
+```bash
+./install.sh
+```
+
+By default this installs the skill for these user-level locations:
+
+- Codex: `~/.agents/skills/student-os`
+- Claude Code: `~/.claude/skills/student-os`
+- OpenCode: `~/.config/opencode/skills/student-os`
+
+The installer targets the native discovery path for each tool and tries a symlink first, then falls back to a copy if symlinks are unavailable.
+
+Useful variants:
+
+```bash
+python scripts/install_student_os.py --agent codex
+python scripts/install_student_os.py --agent claude --scope project
+python scripts/install_student_os.py --agent opencode --scope both --force
+python scripts/install_student_os.py --agent all --json
+```
+
 ## Why this repo exists
 
 Most student note systems are either:
@@ -91,6 +124,8 @@ Install the file-ingestion helper dependencies before using the PDF, DOCX, XLSX,
 ```bash
 pip install -r requirements.txt
 ```
+
+If you want the skill to be discoverable by your agents before working in a repository, run the installer above first.
 
 ### 1. Inspect an existing vault
 
