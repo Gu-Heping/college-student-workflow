@@ -11,28 +11,30 @@ The first artifact in this repo is [`student-os`](./student-os/), a cross-agent 
 On Windows:
 
 ```powershell
-./install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 On macOS or Linux:
 
 ```bash
-./install.sh
+bash ./install.sh
 ```
 
 By default this installs the skill for these user-level locations:
 
-- Codex: `~/.agents/skills/student-os`
+- Codex: `$CODEX_HOME/skills/student-os` or `~/.codex/skills/student-os`
 - Claude Code: `~/.claude/skills/student-os`
-- OpenCode: `~/.config/opencode/skills/student-os`
 
-The installer targets the native discovery path for each tool and tries a symlink first, then falls back to a copy if symlinks are unavailable.
+OpenCode can consume the same skill from `~/.claude/skills`, so the default install avoids creating a duplicate `student-os` entry under both Claude and OpenCode.
+
+The installer targets the native discovery path for each tool. User-scoped installs try a symlink first, then fall back to a copy if symlinks are unavailable. Project-scoped installs default to copy so the installed skill stays portable with the repository.
 
 Useful variants:
 
 ```bash
 python scripts/install_student_os.py --agent codex
 python scripts/install_student_os.py --agent claude --scope project
+python scripts/install_student_os.py --agent opencode
 python scripts/install_student_os.py --agent opencode --scope both --force
 python scripts/install_student_os.py --agent all --json
 ```

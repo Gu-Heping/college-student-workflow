@@ -5,12 +5,14 @@ import argparse
 import json
 import shutil
 from dataclasses import dataclass
+import os
 from pathlib import Path
 
 
 SKILL_NAME = "student-os"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCE_SKILL_DIR = REPO_ROOT / SKILL_NAME
+CODEX_HOME = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
 
 
 @dataclass(frozen=True)
@@ -22,8 +24,8 @@ class InstallTarget:
 
 AGENT_PATHS = {
     "codex": {
-        "user": Path.home() / ".agents" / "skills",
-        "project": Path(".agents") / "skills",
+        "user": CODEX_HOME / "skills",
+        "project": Path(".codex") / "skills",
     },
     "claude": {
         "user": Path.home() / ".claude" / "skills",
@@ -36,7 +38,7 @@ AGENT_PATHS = {
 }
 
 AGENT_ALIASES = {
-    "all": ("codex", "claude", "opencode"),
+    "all": ("codex", "claude"),
     "claude-code": ("claude",),
     "claude": ("claude",),
     "codex": ("codex",),
@@ -113,6 +115,18 @@ def build_targets(agents: list[str], scope_selection: str, project_root: Path) -
     return targets
 
 
+def dedupe_targets(targets: list[InstallTarget]) -> list[InstallTarget]:
+    deduped: list[InstallTarget] = []
+    seen: set[tuple[str, str]] = set()
+    for target in targets:
+        destination_key = (target.scope, str((target.root / SKILL_NAME).resolve()))
+        if destination_key in seen:
+            continue
+        seen.add(destination_key)
+        deduped.append(target)
+    return deduped
+
+
 def ensure_skill_source() -> None:
     if not SOURCE_SKILL_DIR.exists():
         raise SystemExit(f"Skill source directory not found: {SOURCE_SKILL_DIR}")
@@ -138,6 +152,16 @@ def install_with_copy(source: Path, target: Path) -> str:
     return "copied"
 
 
+def preferred_methods(target: InstallTarget, mode: str) -> list[str]:
+    if mode == "copy":
+        return ["copy"]
+    if mode == "link":
+        return ["link"]
+    if target.scope == "project":
+        return ["copy"]
+    return ["link", "copy"]
+
+
 def install_one(target: InstallTarget, mode: str, force: bool) -> dict[str, str]:
     target.root.mkdir(parents=True, exist_ok=True)
     destination = target.root / SKILL_NAME
@@ -158,7 +182,7 @@ def install_one(target: InstallTarget, mode: str, force: bool) -> dict[str, str]
             )
         remove_existing(destination)
 
-    method_order = [mode] if mode != "auto" else ["link", "copy"]
+    method_order = preferred_methods(target, mode)
     last_error: Exception | None = None
     for method in method_order:
         try:
@@ -174,7 +198,7 @@ def install_one(target: InstallTarget, mode: str, force: bool) -> dict[str, str]
             last_error = exc
             if destination.exists() or destination.is_symlink():
                 remove_existing(destination)
-            if mode != "auto":
+            if mode != "auto" or len(method_order) == 1:
                 raise
 
     if last_error is not None:
@@ -188,7 +212,7 @@ def main() -> int:
 
     agents = expand_agents(args.agent or ["all"])
     project_root = Path(args.project_root).resolve()
-    targets = build_targets(agents, args.scope, project_root)
+    targets = dedupe_targets(build_targets(agents, args.scope, project_root))
     results = [install_one(target, args.mode, args.force) for target in targets]
 
     if args.json:
