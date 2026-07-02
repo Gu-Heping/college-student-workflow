@@ -48,3 +48,4 @@ Common outputs:
 - Preserve manual notes when refreshing generated pages by using dedicated generated sections or separate files.
 - Distinguish between "study plan", "weekly review", and "review sheet"; they serve different tasks and should not share one template.
 - A weekly review digest should mention source notes and homework artifacts, then distill them into action-oriented takeaways.
+- Imported references can feed review work, but raw imports and curated review outputs should remain separate artifacts.

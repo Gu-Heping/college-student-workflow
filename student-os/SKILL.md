@@ -1,6 +1,6 @@
 ---
 name: student-os
-description: Git-first student knowledge base operating system for Claude Code, Codex, OpenCode, and similar agents. Use when an agent needs to initialize or govern a markdown-first knowledge repository; create course spaces, lecture notes, homework pages, review sheets, lab reports, weekly plans, inbox tasks, dashboards, and learning summaries; route work across coordinator, course tutor, project helper, review coach, and planning assistant roles; inspect git status and separate task-specific changes from pre-existing dirty work; or prepare branch names, commit messages, and grouped change summaries for day-to-day student workflows.
+description: Git-first student knowledge base operating system for Claude Code, Codex, OpenCode, and similar agents. Use when an agent needs to initialize or govern a markdown-first knowledge repository; create course spaces, lecture notes, homework pages, review sheets, lab reports, weekly plans, inbox tasks, dashboards, and learning summaries; import or transform PDF, DOCX, XLSX, and PPTX materials into the repository; route work across coordinator, course tutor, project helper, review coach, planning assistant, and file operator roles; inspect git status and separate task-specific changes from pre-existing dirty work; or prepare branch names, commit messages, and grouped change summaries for day-to-day student workflows.
 ---
 
 # Student OS
@@ -9,7 +9,7 @@ Run this skill as the single entry point for a university knowledge repository. 
 
 ## Core workflow
 
-1. Identify the request type: repository governance, daily academic work, project work, planning, review work, knowledge operations, or git review.
+1. Identify the request type: repository governance, daily academic work, project work, planning, review work, file ingestion, knowledge operations, or git review.
 2. Inspect the target repository before editing anything.
 3. Choose the primary role and any supporting roles from the companion layer.
 4. Resolve the target paths and templates that will be touched.
@@ -29,6 +29,12 @@ Use these scripts when helpful:
 - `scripts/scaffold_repo.py` for creating the standard contract in a new or existing repository.
 - `scripts/scaffold_course.py` for setting up a new course space and starter artifacts.
 - `scripts/scaffold_homework.py` for creating homework, linked task artifacts, and basic backlinks.
+- `scripts/pdf_probe.py` for PDF file facts such as page count and metadata.
+- `scripts/pdf_to_markdown.py` for PDF import in generic or MinerU-style mode.
+- `scripts/repair_markdown_import.py` for conservative cleanup of imported markdown plus repair summaries.
+- `scripts/docx_to_md.py` for DOCX import into markdown reference drafts.
+- `scripts/xlsx_to_md.py` for XLSX import into markdown table summaries.
+- `scripts/pptx_to_md.py` for PPTX import into slide summaries.
 - `scripts/build_week_plan.py` for weekly plans, near-term deadlines, and exam countdown material.
 - `scripts/build_review_indexes.py` for homework and review indexes.
 - `scripts/group_git_changes.py` for student-task change grouping and commit prefix suggestions.
@@ -106,6 +112,18 @@ Handle:
 - exam countdowns
 - study schedules
 
+### Document ingestion
+
+Use `references/file-handler.md`.
+
+Handle:
+- PDF to markdown import
+- imported markdown repair
+- DOCX to markdown reference drafts
+- XLSX to markdown summaries
+- PPTX to slide summaries
+- routing imported artifacts back into courses, references, reviews, or dashboards
+
 ### Knowledge operations
 
 Use `references/knowledge-ops.md`.
@@ -123,6 +141,11 @@ When a request targets one of the seed courses, read the matching course pack be
 - `references/course-packs/analog-electronics.md`
 - `references/course-packs/calculus-ii.md`
 - `references/course-packs/data-structures.md`
+- `references/pdf-workflow.md`
+- `references/pdf-repair-rules.md`
+- `references/docx-workflow.md`
+- `references/xlsx-workflow.md`
+- `references/pptx-workflow.md`
 
 If the course is not covered yet, follow the generic workflow and note that a course pack may be needed later.
 
@@ -134,6 +157,7 @@ Use the companion documents to keep multi-agent work consistent across runtimes:
 - `companions/project-helper.md`
 - `companions/review-coach.md`
 - `companions/planning-assistant.md`
+- `companions/file-operator.md`
 
 Use the command templates to expose common entry points:
 - `commands/study.md`
@@ -141,6 +165,9 @@ Use the command templates to expose common entry points:
 - `commands/review.md`
 - `commands/plan-week.md`
 - `commands/inbox.md`
+- `commands/import-file.md`
+- `commands/pdf-to-md.md`
+- `commands/tabular-summary.md`
 
 Default routing:
 - `study` -> `coordinator` with `course-tutor` as the usual primary specialist
@@ -148,6 +175,9 @@ Default routing:
 - `review` -> `coordinator` with `review-coach`
 - `plan-week` -> `coordinator` with `planning-assistant`
 - `inbox` -> `coordinator` with `planning-assistant`
+- `import-file` -> `coordinator` with `file-operator`
+- `pdf-to-md` -> `coordinator` with `file-operator`
+- `tabular-summary` -> `coordinator` with `file-operator` and `planning-assistant` when the result is a planning or dashboard artifact
 
 ## File conventions
 
@@ -178,6 +208,10 @@ Common managed artifact types in this iteration:
 - `task`
 - `project`
 - `knowledge-link`
+- `pdf-import-note`
+- `imported-reference`
+- `imported-table-summary`
+- `slide-summary`
 
 ## Git-first rules
 
@@ -198,6 +232,7 @@ Suggested student-day grouping:
 - homework-solution and problem-analysis updates
 - weekly planning or weekly review updates
 - review-sheet builds
+- imported raw or repaired references
 - repository ops and generated indexes
 
 ## Output contract
@@ -241,6 +276,10 @@ Use these templates when creating new artifacts:
 - `templates/weekly-review.md`
 - `templates/weekly-review-digest.md`
 - `templates/knowledge-link.md`
+- `templates/pdf-import-note.md`
+- `templates/imported-reference.md`
+- `templates/imported-table-summary.md`
+- `templates/slide-summary.md`
 - `templates/repo-profile.md`
 
 ## Validation mindset

@@ -89,6 +89,7 @@ review_scope: chapter | week | topic | problem
 ## Quality rules
 
 - Keep source attribution visible when summarizing from class notes, homework, or textbooks.
+- Imported references from PDF, DOCX, XLSX, or PPTX should stay traceable through `source_file` or `derived_from_import`.
 - Prefer one artifact per task or class session over giant append-only files.
 - Do not fabricate grades, due dates, or coverage scope.
 - If a course already uses a different internal structure, respect it and record the mapping.
