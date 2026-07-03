@@ -6,6 +6,25 @@ The first artifact in this repo is [`student-os`](./student-os/), a cross-agent 
 
 Recent notable changes are tracked in [CHANGELOG.md](./CHANGELOG.md).
 
+## Feedback Loop
+
+`student-os` now supports a repository-native feedback loop for structured workflow improvement.
+
+- Feedback entries live under `feedback/`
+- New feedback defaults to `feedback/raw/`
+- Triaged feedback lives in `feedback/triaged/`
+- Resolved feedback lives in `feedback/resolved/`
+- Rollups live in `feedback/summaries/`
+
+You can capture feedback through the skill itself or by using the helper scripts directly:
+
+```bash
+python student-os/scripts/log_feedback.py /path/to/repo --title "PDF import lost diagram context"
+python student-os/scripts/summarize_feedback.py /path/to/repo --title "Weekly feedback review"
+```
+
+When a feedback item turns into a shipped improvement, summarize the user-visible outcome in [CHANGELOG.md](./CHANGELOG.md) instead of copying the full feedback entry.
+
 ## One-command install
 
 `student-os` now ships with a cross-agent installer.

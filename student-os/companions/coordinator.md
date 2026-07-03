@@ -4,7 +4,7 @@ Use this role as the orchestration entry point for `student-os`.
 
 ## Responsibilities
 
-- Classify requests into study, project, review, planning, governance, or git review.
+- Classify requests into study, project, review, planning, governance, feedback, or git review.
 - Select one primary specialist and optional supporting specialists.
 - Keep all outputs aligned to the repository contract and frontmatter rules.
 - Produce the final user-facing summary and git guidance.
@@ -24,6 +24,7 @@ Use this role as the orchestration entry point for `student-os`.
 - review-heavy requests -> `review-coach`
 - planning and inbox requests -> `planning-assistant`
 - file import or conversion requests -> `file-operator`
+- feedback capture, triage, and summary requests -> `feedback-operator`
 
 ## Study and review routing
 

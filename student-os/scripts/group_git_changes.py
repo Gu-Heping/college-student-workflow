@@ -9,6 +9,7 @@ from pathlib import Path
 
 GROUP_RULES = [
     ("ops", [".student-os/", "/scripts/", "scripts/", "/templates/", "templates/", "repo-profile.md"]),
+    ("feedback", ["/feedback/", "feedback/", "feedback-summary", "type: feedback"]),
     ("imports", ["/references/imports/", "references/imports/", "/references/textbooks/", "references/textbooks/", "/references/slides/", "references/slides/", "imported-reference", "imported-table-summary", "slide-summary", "pdf-import-note"]),
     ("notes", ["/notes/", "notes/", "class-note"]),
     ("report", ["/labs/", "labs/", "lab-report"]),
@@ -19,6 +20,7 @@ GROUP_RULES = [
 ]
 
 PREFIX = {
+    "feedback": "ops:",
     "imports": "imports:",
     "notes": "notes:",
     "report": "report:",

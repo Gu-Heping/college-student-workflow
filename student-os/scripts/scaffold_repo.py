@@ -18,6 +18,10 @@ DEFAULT_DIRS = [
     "references/textbooks",
     "references/slides",
     "dashboards",
+    "feedback/raw",
+    "feedback/triaged",
+    "feedback/resolved",
+    "feedback/summaries",
     ".student-os/index",
     ".student-os/state",
 ]
