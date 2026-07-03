@@ -3,6 +3,7 @@
 ## Entries
 
 - tasks/weekly/2026-07-03-plus-14d.md
+- dashboards/weekly/2026-07-03-plus-14d.md
 - courses/2026-fall/cs-101/dashboard.md
 - courses/2026-fall/cs-101/index.md
 - tasks/deadlines/2026-fall-cs-101-problem-set-1.md

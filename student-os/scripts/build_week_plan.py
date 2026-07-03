@@ -2,10 +2,50 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from course_layout import discover_course_dirs
+
+
+@dataclass
+class TaskEntry:
+    path: Path
+    rel: str
+    title: str
+    status: str
+    due_date: date | None
+    area: str
+    priority: str
+    tags: list[str]
+    course: str
+
+
+def parse_frontmatter(text: str) -> dict[str, str]:
+    normalized = text.replace("\r\n", "\n")
+    if not normalized.startswith("---\n"):
+        return {}
+    parts = normalized.split("---\n", 2)
+    if len(parts) < 3:
+        return {}
+    data: dict[str, str] = {}
+    for line in parts[1].splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        data[key.strip()] = value.strip()
+    return data
+
+
+def parse_yaml_list(value: str) -> list[str]:
+    text = value.strip()
+    if not text.startswith("[") or not text.endswith("]"):
+        return []
+    inner = text[1:-1].strip()
+    if not inner:
+        return []
+    return [item.strip().strip('"').strip("'") for item in inner.split(",") if item.strip()]
 
 
 def parse_due(text: str) -> str | None:
@@ -16,38 +56,207 @@ def parse_due(text: str) -> str | None:
     return None
 
 
+def parse_detail(text: str, label: str) -> str:
+    prefix = f"- {label.lower()}:"
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith(prefix):
+            return stripped.split(":", 1)[1].strip()
+    return ""
+
+
+def parse_title(text: str, fallback: str) -> str:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            return stripped[2:].strip()
+    return fallback
+
+
+def parse_iso_date(raw: str) -> date | None:
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw).date()
+    except ValueError:
+        return None
+
+
+def read_task(path: Path, repo: Path) -> TaskEntry:
+    text = path.read_text(encoding="utf-8")
+    frontmatter = parse_frontmatter(text)
+    tags = parse_yaml_list(frontmatter.get("tags", "[]"))
+    return TaskEntry(
+        path=path,
+        rel=path.relative_to(repo).as_posix(),
+        title=parse_title(text, path.stem.replace("-", " ").title()),
+        status=frontmatter.get("status", "active").strip('"').strip("'"),
+        due_date=parse_iso_date(parse_due(text)),
+        area=parse_detail(text, "Area"),
+        priority=parse_detail(text, "Priority"),
+        tags=tags,
+        course=frontmatter.get("course", "").strip('"').strip("'"),
+    )
+
+
+def read_exam_signals(paths: list[Path], repo: Path, horizon_end: date) -> list[tuple[date, str]]:
+    results: list[tuple[date, str]] = []
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        for line in text.splitlines():
+            stripped = line.strip()
+            lowered = stripped.lower()
+            if not lowered.startswith("- exam:") and not lowered.startswith("- next exam:"):
+                continue
+            raw = stripped.split(":", 1)[1].strip()
+            exam_date = parse_iso_date(raw)
+            if exam_date is None or exam_date > horizon_end:
+                continue
+            results.append((exam_date, path.relative_to(repo).as_posix()))
+    return results
+
+
+def imported_targets(repo: Path) -> list[str]:
+    targets: list[str] = []
+    roots = [
+        repo / "references" / "imports" / "repaired",
+        repo / "references" / "slides",
+    ]
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.glob("*.md"))[:10]:
+            targets.append(path.relative_to(repo).as_posix())
+    return targets
+
+
+def course_action_lines(course_dirs: list[Path], task_entries: list[TaskEntry], repo: Path) -> list[str]:
+    lines: list[str] = []
+    deadlines_by_course: dict[str, list[TaskEntry]] = {}
+    for entry in task_entries:
+        if entry.course:
+            deadlines_by_course.setdefault(entry.course, []).append(entry)
+    for course_dir in course_dirs:
+        rel = course_dir.relative_to(repo / "courses").as_posix()
+        course_name = rel.split("/")[-1].replace("-", " ")
+        matching = [
+            entry for entry in deadlines_by_course.get(course_name.title(), []) + deadlines_by_course.get(course_name, [])
+            if entry.status != "done"
+        ]
+        if matching:
+            nearest = sorted((entry for entry in matching if entry.due_date is not None), key=lambda item: item.due_date or date.max)
+            if nearest:
+                lines.append(f"- `{rel}` -> prioritize {nearest[0].title} ({nearest[0].due_date.isoformat()})")
+                continue
+        lines.append(f"- `{rel}` -> review notes, homework, and imports for the next concrete study step")
+    return lines or ["- No courses found"]
+
+
+def render_task_line(entry: TaskEntry) -> str:
+    due = entry.due_date.isoformat() if entry.due_date else "no-date"
+    suffix = f" [{entry.priority}]" if entry.priority else ""
+    return f"- {due} :: {entry.title} -> {entry.rel}{suffix}"
+
+
+def write_dashboard(repo: Path, week_label: str, today: date, overdue: list[TaskEntry], upcoming: list[TaskEntry], inbox: list[TaskEntry], exam_count: int, imports: list[str], weekly_plan_rel: str) -> Path:
+    dashboard_dir = repo / "dashboards" / "weekly"
+    dashboard_dir.mkdir(parents=True, exist_ok=True)
+    dashboard_path = dashboard_dir / f"{week_label}.md"
+    lines = [
+        "---",
+        "type: weekly-dashboard",
+        "course:",
+        "status: active",
+        f"created: {today.isoformat()}",
+        f"updated: {today.isoformat()}",
+        "tags: [planning, weekly, dashboard]",
+        "---",
+        "",
+        f"# Weekly Dashboard - {week_label}",
+        "",
+        "## Snapshot",
+        "",
+        f"- Weekly plan: {weekly_plan_rel}",
+        f"- Overdue tasks: {len(overdue)}",
+        f"- Upcoming deadlines: {len(upcoming)}",
+        f"- Inbox items: {len(inbox)}",
+        f"- Exams in range: {exam_count}",
+        f"- Imported materials to review: {len(imports)}",
+        "",
+        "## Immediate Focus",
+        "",
+    ]
+    if overdue:
+        for entry in overdue[:5]:
+            lines.append(f"- Overdue -> {entry.title} :: {entry.rel}")
+    elif upcoming:
+        for entry in upcoming[:5]:
+            lines.append(f"- Upcoming -> {entry.title} :: {entry.rel}")
+    else:
+        lines.append("- No urgent deadlines.")
+
+    lines.extend(["", "## Inbox Queue", ""])
+    if inbox:
+        for entry in inbox[:5]:
+            lines.append(f"- {entry.title} :: {entry.rel}")
+    else:
+        lines.append("- Inbox is clear.")
+
+    dashboard_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return dashboard_path
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build a weekly planning page from tasks and courses.")
+    parser = argparse.ArgumentParser(description="Build a weekly planning page and weekly dashboard from tasks, courses, and imports.")
     parser.add_argument("repo", help="Target repository root")
     parser.add_argument("--days", type=int, default=7, help="Deadline window in days")
     args = parser.parse_args()
 
     repo = Path(args.repo).resolve()
     today = date.today()
+    horizon_end = today + timedelta(days=args.days)
     week_label = f"{today.isoformat()}-plus-{args.days}d"
     weekly_dir = repo / "tasks" / "weekly"
     weekly_dir.mkdir(parents=True, exist_ok=True)
     weekly_plan = weekly_dir / f"{week_label}.md"
 
-    deadlines = []
-    for path in sorted((repo / "tasks").rglob("*.md")):
-        text = path.read_text(encoding="utf-8")
-        due = parse_due(text)
-        if not due:
-            continue
-        try:
-            due_date = datetime.fromisoformat(due).date()
-        except ValueError:
-            continue
-        if today <= due_date <= today + timedelta(days=args.days):
-            deadlines.append((due_date, path))
+    task_entries: list[TaskEntry] = []
+    task_root = repo / "tasks"
+    if task_root.exists():
+        for path in sorted(task_root.rglob("*.md")):
+            if "/weekly/" in path.as_posix().replace("\\", "/"):
+                continue
+            task_entries.append(read_task(path, repo))
+
+    overdue = sorted(
+        [entry for entry in task_entries if entry.due_date and entry.due_date < today and entry.status != "done"],
+        key=lambda entry: entry.due_date or date.max,
+    )
+    upcoming = sorted(
+        [entry for entry in task_entries if entry.due_date and today <= entry.due_date <= horizon_end and entry.status != "done"],
+        key=lambda entry: entry.due_date or date.max,
+    )
+    exam_entries = [
+        entry for entry in task_entries
+        if entry.due_date and today <= entry.due_date <= horizon_end and entry.status != "done"
+        and ("exam" in entry.area.lower() or "exam" in entry.title.lower() or "exam" in [tag.lower() for tag in entry.tags])
+    ]
+    inbox_entries = [
+        entry for entry in task_entries
+        if entry.path.parent.name == "inbox" and entry.status != "done"
+    ]
 
     course_dirs = discover_course_dirs(repo / "courses")
-    courses = [path.relative_to(repo / "courses").as_posix() for path in course_dirs]
     reviews = []
     for course_dir in course_dirs:
         for review_file in sorted((course_dir / "reviews").glob("*.md")):
             reviews.append(review_file.relative_to(repo).as_posix())
+    imports = imported_targets(repo)
+    exam_paths = [course_dir / "index.md" for course_dir in course_dirs if (course_dir / "index.md").exists()]
+    if (repo / "semesters").exists():
+        exam_paths.extend(path for path in (repo / "semesters").rglob("*.md") if path.exists())
+    exam_signals = sorted(read_exam_signals(exam_paths, repo, horizon_end), key=lambda item: item[0])
+
     lines = [
         "---",
         "type: weekly-plan",
@@ -60,22 +269,33 @@ def main() -> int:
         "",
         f"# Weekly Plan - {week_label}",
         "",
-        "## Deadlines This Week",
+        "## Overdue Carryover",
         "",
     ]
-    if deadlines:
-        for due_date, path in deadlines:
-            rel = path.relative_to(repo).as_posix()
-            lines.append(f"- {due_date.isoformat()} :: {rel}")
+    if overdue:
+        for entry in overdue:
+            lines.append(render_task_line(entry))
     else:
         lines.append("- None")
 
-    lines.extend(["", "## Course Actions", ""])
-    if courses:
-        for course in courses:
-            lines.append(f"- Review current tasks and notes for `{course}`")
+    lines.extend(["", "## Deadlines This Week", ""])
+    if upcoming:
+        for entry in upcoming:
+            lines.append(render_task_line(entry))
     else:
-        lines.append("- No courses found")
+        lines.append("- None")
+
+    lines.extend(["", "## Exams And Countdowns", ""])
+    if exam_entries or exam_signals:
+        for entry in exam_entries:
+            lines.append(render_task_line(entry))
+        for exam_date, rel in exam_signals:
+            lines.append(f"- {exam_date.isoformat()} :: {rel}")
+    else:
+        lines.append("- No exam signals found")
+
+    lines.extend(["", "## Course Actions", ""])
+    lines.extend(course_action_lines(course_dirs, task_entries, repo))
 
     lines.extend(["", "## Review Targets", ""])
     if reviews:
@@ -84,9 +304,44 @@ def main() -> int:
     else:
         lines.append("- No review artifacts found")
 
-    lines.extend(["", "## Project Actions", "", "- Review active project milestones", "", "## Inbox To Triage", "", "- Review tasks/inbox/"])
+    lines.extend(["", "## Imported Materials To Curate", ""])
+    if imports:
+        for item in imports:
+            lines.append(f"- {item}")
+    else:
+        lines.append("- No imported materials found")
+
+    lines.extend(["", "## Project Actions", ""])
+    project_paths = sorted((repo / "projects").rglob("*.md")) if (repo / "projects").exists() else []
+    if project_paths:
+        for path in project_paths[:5]:
+            lines.append(f"- {path.relative_to(repo).as_posix()}")
+    else:
+        lines.append("- Review active project milestones")
+
+    lines.extend(["", "## Inbox To Triage", ""])
+    if inbox_entries:
+        for entry in inbox_entries:
+            lines.append(f"- {entry.title} :: {entry.rel}")
+    else:
+        lines.append("- Inbox is clear")
+
+    dashboard_path = write_dashboard(
+        repo=repo,
+        week_label=week_label,
+        today=today,
+        overdue=overdue,
+        upcoming=upcoming,
+        inbox=inbox_entries,
+        exam_count=len(exam_entries) + len(exam_signals),
+        imports=imports,
+        weekly_plan_rel=weekly_plan.relative_to(repo).as_posix(),
+    )
+    lines.extend(["", "## Dashboard Link", "", f"- {dashboard_path.relative_to(repo).as_posix()}"])
+
     weekly_plan.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(weekly_plan)
+    print(dashboard_path)
     return 0
 
 

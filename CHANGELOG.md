@@ -10,6 +10,7 @@
 - 为反馈条目新增稳定 `feedback_id`、开发者摘要、修复版本和 changelog 提示位，便于长期跟踪和开发回流。
 - 为反馈汇总新增 `--audience developer` 视图，便于生成 issue-ready 的开发者交接摘要。
 - 为 `PDF`、`DOCX`、`XLSX`、`PPTX` 导入链补充真实 fixture 驱动的 smoke coverage，并将导入产物纳入示例仓库。
+- 为 `build_week_plan.py` 增加强化版规划工作台输出，补充 overdue carryover、exam countdown、inbox triage、import triage 与 `dashboards/weekly/` 周面板。
 
 ### Changed
 
@@ -17,6 +18,7 @@
 - 扩展 smoke test，将反馈生命周期纳入示例仓库与回归验证。
 - 重写 `CHANGELOG.md` 为规范 UTF-8 中文版本，便于后续按 Keep a Changelog 持续维护。
 - 扩展 smoke runner 与 `examples/single-semester-demo/`，使其同时展示课程导入稿、仪表盘汇总、slides 摘要和 PDF 修复产物。
+- 扩展 `task-and-planning.md`、`weekly-plan.md` 和单学期示例，使计划链路从单纯 deadline 列表升级为更完整的学生周执行面板。
 
 ### Fixed
 

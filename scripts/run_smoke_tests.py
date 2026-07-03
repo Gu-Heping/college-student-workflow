@@ -122,6 +122,94 @@ def rewrite_legacy_task_link(task_path: Path) -> None:
     task_path.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
 
 
+def write_task_fixture(path: Path, *, title: str, due: str = "", area: str = "", priority: str = "", course: str = "", tags: str = "[task]") -> None:
+    lines = [
+        "---",
+        "type: task",
+        f"course: {course}",
+        "status: active",
+        f"created: {date.today().isoformat()}",
+        f"updated: {date.today().isoformat()}",
+        f"tags: {tags}",
+        "---",
+        "",
+        f"# {title}",
+        "",
+        "## Details",
+        "",
+        f"- Due: {due}",
+        f"- Area: {area}",
+        f"- Priority: {priority}",
+        "",
+        "## Checklist",
+        "",
+        "- [ ] Clarify scope",
+        "- [ ] Start work",
+        "- [ ] Finish",
+        "",
+        "## Links",
+        "",
+        "- Course:",
+        "- Project:",
+        "- Source file:",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+
+def seed_planning_inputs(repo: Path, today: date) -> None:
+    write_task_fixture(
+        repo / "tasks" / "inbox" / "capture-linear-algebra-questions.md",
+        title="Capture linear algebra questions",
+        area="inbox",
+        priority="medium",
+        course="Linear Algebra",
+        tags="[task, inbox]",
+    )
+    write_task_fixture(
+        repo / "tasks" / "deadlines" / "linear-algebra-midterm-checkpoint.md",
+        title="Linear Algebra Midterm",
+        due=(today + timedelta(days=10)).isoformat(),
+        area="exam",
+        priority="high",
+        course="Linear Algebra",
+        tags="[task, exam]",
+    )
+    write_task_fixture(
+        repo / "tasks" / "deadlines" / "linear-algebra-overdue-reading.md",
+        title="Linear Algebra Overdue Reading",
+        due=(today - timedelta(days=2)).isoformat(),
+        area="reading",
+        priority="medium",
+        course="Linear Algebra",
+    )
+    review_path = repo / "courses" / "linear-algebra" / "reviews" / "chapter-1-review.md"
+    review_path.parent.mkdir(parents=True, exist_ok=True)
+    review_path.write_text(
+        "\n".join(
+            [
+                "---",
+                "type: chapter-review",
+                "course: Linear Algebra",
+                "status: active",
+                f"created: {today.isoformat()}",
+                f"updated: {today.isoformat()}",
+                "tags: [review]",
+                "---",
+                "",
+                "# Chapter 1 Review",
+                "",
+                "## Concepts",
+                "",
+                "- Basis changes",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+
 def write_docx_fixture(path: Path) -> None:
     Document, _, _, _ = load_import_dependencies()
     document = Document()
@@ -437,15 +525,21 @@ def build_single_semester(repo: Path, today: date) -> None:
     run_script("scaffold_repo.py", str(repo))
     run_script("scaffold_course.py", str(repo), "Linear Algebra")
     run_script("scaffold_homework.py", str(repo), "linear-algebra", "Worksheet A", "--due", due_date)
+    seed_planning_inputs(repo, today)
     run_script("build_review_indexes.py", str(repo))
-    run_script("build_week_plan.py", str(repo), "--days", "14")
     exercise_feedback_lifecycle(repo)
     exercise_import_workflows(repo)
+    run_script("build_review_indexes.py", str(repo))
+    run_script("build_week_plan.py", str(repo), "--days", "14")
     run_script("rebuild_indexes.py", str(repo))
 
     ensure_exists(repo / "courses" / "linear-algebra" / "index.md")
     ensure_exists(repo / "courses" / "linear-algebra" / "homework" / "worksheet-a.md")
     ensure_contains(repo / ".student-os" / "index" / "courses.md", "courses/linear-algebra")
+    ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "## Overdue Carryover")
+    ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "Linear Algebra Midterm")
+    ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "Imported Materials To Curate")
+    ensure_contains(repo / "dashboards" / "weekly" / f"{today.isoformat()}-plus-14d.md", "Imported materials to review")
 
 
 def build_multi_semester(repo: Path, today: date) -> None:
