@@ -198,6 +198,26 @@ python student-os/scripts/summarize_activity.py /path/to/repo --days 7
 
 This prints a short markdown-oriented activity summary for recent repository work.
 
+## Examples and smoke tests
+
+This repository now includes generated example student knowledge bases and a repeatable smoke-test runner.
+
+- `examples/single-semester-demo/` shows the default `courses/<course>/` layout.
+- `examples/multi-semester-demo/` shows semester-aware course scaffolding and semester overviews.
+- `examples/legacy-layout-demo/` keeps a legacy-style course folder without a generated course home so fallback discovery stays covered.
+
+Run the smoke tests:
+
+```bash
+python scripts/run_smoke_tests.py
+```
+
+Refresh the checked-in examples from the real scripts:
+
+```bash
+python scripts/run_smoke_tests.py --refresh-examples
+```
+
 ## Example use cases
 
 Typical agent requests this skill is meant to support:
@@ -224,7 +244,6 @@ What is still likely to evolve:
 
 - richer migration support for legacy vaults
 - more structured Git workflow helpers
-- sample repositories and integration tests
 - stronger automation around dashboards, summaries, and review generation
 
 ## Roadmap
@@ -234,7 +253,7 @@ Planned directions for the next iterations:
 1. Add more robust legacy-vault detection and mapping rules.
 2. Expand templates for labs, weekly plans, and course dashboards.
 3. Add safer Git grouping helpers for mixed dirty worktrees.
-4. Add example repositories to validate real student workflows end to end.
+4. Expand the example repositories and smoke tests into broader end-to-end regression coverage.
 
 ## Notes
 
