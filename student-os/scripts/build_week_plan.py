@@ -86,6 +86,10 @@ def is_actionable(status: str) -> bool:
     return status not in {"done", "archived"}
 
 
+def is_due_in_window(entry: TaskEntry, today: date, horizon_end: date) -> bool:
+    return entry.due_date is not None and (entry.due_date < today or today <= entry.due_date <= horizon_end)
+
+
 def read_task(path: Path, repo: Path) -> TaskEntry:
     text = path.read_text(encoding="utf-8")
     frontmatter = parse_frontmatter(text)
@@ -140,7 +144,7 @@ def imported_targets(repo: Path) -> list[str]:
     return targets
 
 
-def course_action_lines(course_dirs: list[Path], task_entries: list[TaskEntry], repo: Path) -> list[str]:
+def course_action_lines(course_dirs: list[Path], task_entries: list[TaskEntry], repo: Path, today: date, horizon_end: date) -> list[str]:
     lines: list[str] = []
     deadlines_by_course: dict[str, list[TaskEntry]] = {}
     for entry in task_entries:
@@ -154,7 +158,10 @@ def course_action_lines(course_dirs: list[Path], task_entries: list[TaskEntry], 
             if is_actionable(entry.status)
         ]
         if matching:
-            nearest = sorted((entry for entry in matching if entry.due_date is not None), key=lambda item: item.due_date or date.max)
+            nearest = sorted(
+                (entry for entry in matching if is_due_in_window(entry, today, horizon_end)),
+                key=lambda item: item.due_date or date.max,
+            )
             if nearest:
                 lines.append(f"- `{rel}` -> prioritize {nearest[0].title} ({nearest[0].due_date.isoformat()})")
                 continue
@@ -225,6 +232,7 @@ def main() -> int:
     repo = Path(args.repo).resolve()
     today = date.today()
     horizon_end = today + timedelta(days=args.days)
+    exam_horizon_end = today + timedelta(days=max(args.days, 14))
     week_label = f"{today.isoformat()}-plus-{args.days}d"
     weekly_dir = repo / "tasks" / "weekly"
     weekly_dir.mkdir(parents=True, exist_ok=True)
@@ -248,7 +256,7 @@ def main() -> int:
     )
     exam_entries = [
         entry for entry in task_entries
-        if entry.due_date and today <= entry.due_date <= horizon_end and is_actionable(entry.status)
+        if entry.due_date and today <= entry.due_date <= exam_horizon_end and is_actionable(entry.status)
         and ("exam" in entry.area.lower() or "exam" in entry.title.lower() or "exam" in [tag.lower() for tag in entry.tags])
     ]
     inbox_entries = [
@@ -270,7 +278,7 @@ def main() -> int:
             exam_paths.append(course_dir / "dashboard.md")
     if (repo / "semesters").exists():
         exam_paths.extend(path for path in (repo / "semesters").rglob("*.md") if path.exists())
-    exam_signals = sorted(read_exam_signals(exam_paths, repo, today, horizon_end), key=lambda item: item[0])
+    exam_signals = sorted(read_exam_signals(exam_paths, repo, today, exam_horizon_end), key=lambda item: item[0])
 
     lines = [
         "---",
@@ -310,7 +318,7 @@ def main() -> int:
         lines.append("- No exam signals found")
 
     lines.extend(["", "## Course Actions", ""])
-    lines.extend(course_action_lines(course_dirs, task_entries, repo))
+    lines.extend(course_action_lines(course_dirs, task_entries, repo, today, horizon_end))
 
     lines.extend(["", "## Review Targets", ""])
     if reviews:

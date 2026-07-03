@@ -404,6 +404,8 @@ def exercise_import_workflows(repo: Path) -> None:
 
 
 def exercise_feedback_lifecycle(repo: Path) -> None:
+    feedback_day = date.today()
+    expected_feedback_id = f'fb-{feedback_day.strftime("%Y%m%d")}-weekly-plan-omitted-imported-deadline-2'
     raw_path = Path(
         run_script(
             "log_feedback.py",
@@ -527,17 +529,18 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     ensure_contains(resolved_path, "feedback_id:")
     ensure_contains(resolved_path, "## Triage Notes")
     ensure_contains(resolved_path, "## Resolution Summary")
-    ensure_contains(second_triaged_path, 'feedback_id: "fb-20260703-weekly-plan-omitted-imported-deadline-2"')
+    ensure_contains(second_triaged_path, f'feedback_id: "{expected_feedback_id}"')
     ensure_contains(summary_path, "## Developer Handoff")
     ensure_contains(summary_path, "0.7.0")
     ensure_contains(summary_path, "- Triaged items: 1")
-    ensure_contains(summary_path, "fb-20260703-weekly-plan-omitted-imported-deadline-2")
+    ensure_contains(summary_path, expected_feedback_id)
     if "must stay under" not in failure_output:
         raise AssertionError(f"Expected path-guard failure, got: {failure_output}")
 
 
 def build_single_semester(repo: Path, today: date) -> None:
     due_date = (today + timedelta(days=8)).isoformat()
+    default_week_label = f"{today.isoformat()}-plus-7d"
     run_script("scaffold_repo.py", str(repo))
     run_script("scaffold_course.py", str(repo), "Linear Algebra")
     run_script("scaffold_homework.py", str(repo), "linear-algebra", "Worksheet A", "--due", due_date)
@@ -546,6 +549,16 @@ def build_single_semester(repo: Path, today: date) -> None:
     exercise_feedback_lifecycle(repo)
     exercise_import_workflows(repo)
     run_script("build_review_indexes.py", str(repo))
+    run_script("build_week_plan.py", str(repo))
+    ensure_contains(repo / "tasks" / "weekly" / f"{default_week_label}.md", "Linear Algebra Midterm")
+    ensure_contains(repo / "tasks" / "weekly" / f"{default_week_label}.md", "courses/linear-algebra/dashboard.md")
+    default_plan_text = (repo / "tasks" / "weekly" / f"{default_week_label}.md").read_text(encoding="utf-8")
+    if "- `linear-algebra` -> prioritize Worksheet A" in default_plan_text:
+        raise AssertionError("Course actions should not prioritize out-of-window homework in the default weekly plan")
+    if "- `linear-algebra` -> prioritize Linear Algebra Midterm" in default_plan_text:
+        raise AssertionError("Course actions should not prioritize out-of-window exam tasks in the default weekly plan")
+    (repo / "tasks" / "weekly" / f"{default_week_label}.md").unlink()
+    (repo / "dashboards" / "weekly" / f"{default_week_label}.md").unlink()
     run_script("build_week_plan.py", str(repo), "--days", "14")
     run_script("rebuild_indexes.py", str(repo))
 
