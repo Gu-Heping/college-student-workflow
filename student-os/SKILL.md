@@ -10,6 +10,7 @@ Run this skill as the single entry point for a university knowledge repository. 
 ## Core workflow
 
 1. Identify the request type: repository governance, daily academic work, project work, planning, review work, file ingestion, knowledge operations, or git review.
+1. Identify the request type: repository governance, daily academic work, project work, planning, review work, file ingestion, knowledge operations, feedback operations, or git review.
 2. Inspect the target repository before editing anything.
 3. Choose the primary role and any supporting roles from the companion layer.
 4. Resolve the target paths and templates that will be touched.
@@ -35,6 +36,8 @@ Use these scripts when helpful:
 - `scripts/docx_to_md.py` for DOCX import into markdown reference drafts.
 - `scripts/xlsx_to_md.py` for XLSX import into markdown table summaries.
 - `scripts/pptx_to_md.py` for PPTX import into slide summaries.
+- `scripts/log_feedback.py` for structured feedback capture into the repository.
+- `scripts/summarize_feedback.py` for feedback summaries, open issues, and recent resolutions.
 - `scripts/build_week_plan.py` for weekly plans, near-term deadlines, and exam countdown material.
 - `scripts/build_review_indexes.py` for homework and review indexes.
 - `scripts/group_git_changes.py` for student-task change grouping and commit prefix suggestions.
@@ -50,6 +53,7 @@ Default to this markdown-first structure unless the repository already has a sta
 - `reviews/`
 - `references/`
 - `dashboards/`
+- `feedback/`
 - `.student-os/`
 
 Inside `.student-os/`, maintain:
@@ -135,6 +139,16 @@ Handle:
 - reference digests
 - learning retrospectives
 
+### Feedback operations
+
+Use `references/feedback-ops.md`.
+
+Handle:
+- recording one feedback entry
+- triaging feedback for later implementation
+- marking feedback as resolved
+- generating periodic feedback summaries
+
 ## Course packs
 
 When a request targets one of the seed courses, read the matching course pack before drafting content:
@@ -158,6 +172,7 @@ Use the companion documents to keep multi-agent work consistent across runtimes:
 - `companions/review-coach.md`
 - `companions/planning-assistant.md`
 - `companions/file-operator.md`
+- `companions/feedback-operator.md`
 
 Use the command templates to expose common entry points:
 - `commands/study.md`
@@ -168,6 +183,7 @@ Use the command templates to expose common entry points:
 - `commands/import-file.md`
 - `commands/pdf-to-md.md`
 - `commands/tabular-summary.md`
+- `commands/feedback.md`
 
 Default routing:
 - `study` -> `coordinator` with `course-tutor` as the usual primary specialist
@@ -178,6 +194,7 @@ Default routing:
 - `import-file` -> `coordinator` with `file-operator`
 - `pdf-to-md` -> `coordinator` with `file-operator`
 - `tabular-summary` -> `coordinator` with `file-operator` and `planning-assistant` when the result is a planning or dashboard artifact
+- `feedback` -> `coordinator` with `feedback-operator`
 
 ## File conventions
 
@@ -212,6 +229,7 @@ Common managed artifact types in this iteration:
 - `imported-reference`
 - `imported-table-summary`
 - `slide-summary`
+- `feedback`
 
 ## Git-first rules
 
@@ -233,6 +251,7 @@ Suggested student-day grouping:
 - weekly planning or weekly review updates
 - review-sheet builds
 - imported raw or repaired references
+- feedback capture and summary updates
 - repository ops and generated indexes
 
 ## Output contract
@@ -256,6 +275,13 @@ When responding after work, prefer this order:
    - `suggested_commit_title`
    - `suggested_commit_body`
    - `risks_or_holdbacks`
+10. `feedback_guidance`, when relevant:
+   - `feedback_id`
+   - `feedback_kind`
+   - `severity`
+   - `reproducibility`
+   - `triage_status`
+   - `follow_up_suggestion`
 
 ## Templates
 
@@ -280,6 +306,8 @@ Use these templates when creating new artifacts:
 - `templates/imported-reference.md`
 - `templates/imported-table-summary.md`
 - `templates/slide-summary.md`
+- `templates/feedback-entry.md`
+- `templates/feedback-summary.md`
 - `templates/repo-profile.md`
 
 ## Validation mindset
