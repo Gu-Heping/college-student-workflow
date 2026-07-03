@@ -570,10 +570,34 @@ def build_single_semester(repo: Path, today: date) -> None:
     ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "Imported Materials To Curate")
     ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "courses/linear-algebra/references/outline-import.md")
     ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "courses/linear-algebra/dashboard.md")
+    weekly_plan_text = (repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md").read_text(encoding="utf-8")
+    if "manual-repair-sample-repair-summary.md" in weekly_plan_text:
+        raise AssertionError("Repair summaries should not appear in imported-material triage")
+    dashboard_exam_line = f"{(today + timedelta(days=9)).isoformat()} :: courses/linear-algebra/dashboard.md"
+    task_exam_line = f"{(today + timedelta(days=10)).isoformat()} :: Linear Algebra Midterm"
+    exams_section = weekly_plan_text.split("## Exams And Countdowns", 1)[1].split("## Course Actions", 1)[0]
+    if exams_section.index(task_exam_line) < exams_section.index(dashboard_exam_line):
+        raise AssertionError("Exam countdowns should be sorted chronologically across tasks and dashboard signals")
     if "Archived Quiz" in (repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md").read_text(encoding="utf-8"):
         raise AssertionError("Archived tasks should not be listed in the weekly plan")
     ensure_contains(repo / "dashboards" / "weekly" / f"{today.isoformat()}-plus-14d.md", "Imported materials to review")
     ensure_contains(repo / ".student-os" / "index" / "dashboards.md", f"dashboards/weekly/{today.isoformat()}-plus-14d.md")
+
+
+def build_repo_inside_weekly_parent(repo: Path, today: date) -> None:
+    run_script("scaffold_repo.py", str(repo))
+    run_script("scaffold_course.py", str(repo), "Signals")
+    write_task_fixture(
+        repo / "tasks" / "deadlines" / "signals-quiz.md",
+        title="Signals Quiz",
+        due=(today + timedelta(days=3)).isoformat(),
+        area="exam",
+        priority="high",
+        course="Signals",
+        tags="[task, exam]",
+    )
+    run_script("build_week_plan.py", str(repo))
+    ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-7d.md", "Signals Quiz")
 
 
 def build_multi_semester(repo: Path, today: date) -> None:
@@ -643,10 +667,12 @@ def main() -> int:
         single_repo = tmp_root / "single-semester-demo"
         multi_repo = tmp_root / "multi-semester-demo"
         legacy_repo = tmp_root / "legacy-layout-demo"
+        weekly_parent_repo = tmp_root / "weekly" / "nested-weekly-parent-demo"
 
         build_single_semester(single_repo, today)
         build_multi_semester(multi_repo, today)
         build_legacy_layout(legacy_repo, today)
+        build_repo_inside_weekly_parent(weekly_parent_repo, today)
         verify_inspect_repo(multi_repo)
 
         if args.refresh_examples:

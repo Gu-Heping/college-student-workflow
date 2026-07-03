@@ -134,6 +134,8 @@ def imported_targets(repo: Path) -> list[str]:
         if not root.exists():
             continue
         for path in sorted(root.glob("*.md"))[:10]:
+            if path.name.endswith("-repair-summary.md"):
+                continue
             targets.append(path.relative_to(repo).as_posix())
     for course_dir in discover_course_dirs(repo / "courses"):
         reference_dir = course_dir / "references"
@@ -173,6 +175,10 @@ def render_task_line(entry: TaskEntry) -> str:
     due = entry.due_date.isoformat() if entry.due_date else "no-date"
     suffix = f" [{entry.priority}]" if entry.priority else ""
     return f"- {due} :: {entry.title} -> {entry.rel}{suffix}"
+
+
+def render_exam_line(exam_date: date, label: str) -> str:
+    return f"- {exam_date.isoformat()} :: {label}"
 
 
 def write_dashboard(repo: Path, week_label: str, today: date, overdue: list[TaskEntry], upcoming: list[TaskEntry], inbox: list[TaskEntry], exam_count: int, imports: list[str], weekly_plan_rel: str) -> Path:
@@ -242,7 +248,8 @@ def main() -> int:
     task_root = repo / "tasks"
     if task_root.exists():
         for path in sorted(task_root.rglob("*.md")):
-            if "/weekly/" in path.as_posix().replace("\\", "/"):
+            rel_from_tasks = path.relative_to(task_root).as_posix()
+            if rel_from_tasks.startswith("weekly/"):
                 continue
             task_entries.append(read_task(path, repo))
 
@@ -310,10 +317,10 @@ def main() -> int:
 
     lines.extend(["", "## Exams And Countdowns", ""])
     if exam_entries or exam_signals:
-        for entry in exam_entries:
-            lines.append(render_task_line(entry))
-        for exam_date, rel in exam_signals:
-            lines.append(f"- {exam_date.isoformat()} :: {rel}")
+        exam_lines = [(entry.due_date or date.max, render_task_line(entry)) for entry in exam_entries]
+        exam_lines.extend((exam_date, render_exam_line(exam_date, rel)) for exam_date, rel in exam_signals)
+        for _, line in sorted(exam_lines, key=lambda item: item[0]):
+            lines.append(line)
     else:
         lines.append("- No exam signals found")
 
