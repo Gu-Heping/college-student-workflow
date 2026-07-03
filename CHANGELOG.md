@@ -9,12 +9,19 @@
 - 为 `student-os` 的反馈闭环补充生命周期脚本：`triage_feedback.py`、`resolve_feedback.py`，支持从原始反馈到已解决条目的标准流转。
 - 为反馈条目新增稳定 `feedback_id`、开发者摘要、修复版本和 changelog 提示位，便于长期跟踪和开发回流。
 - 为反馈汇总新增 `--audience developer` 视图，便于生成 issue-ready 的开发者交接摘要。
+- 为 `PDF`、`DOCX`、`XLSX`、`PPTX` 导入链补充真实 fixture 驱动的 smoke coverage，并将导入产物纳入示例仓库。
 
 ### Changed
 
 - 扩展 `feedback-ops` reference、`feedback` command、`feedback-operator` companion 和 `SKILL.md`，使反馈工作流覆盖记录、triage、resolve 和开发者交接四个阶段。
 - 扩展 smoke test，将反馈生命周期纳入示例仓库与回归验证。
 - 重写 `CHANGELOG.md` 为规范 UTF-8 中文版本，便于后续按 Keep a Changelog 持续维护。
+- 扩展 smoke runner 与 `examples/single-semester-demo/`，使其同时展示课程导入稿、仪表盘汇总、slides 摘要和 PDF 修复产物。
+
+### Fixed
+
+- 修复示例导入产物中残留临时绝对路径的问题，改为稳定的仓库内相对语义。
+- 修复 MinerU-style PDF smoke fixture 对 raw 输出文件名的错误假设，避免回归测试误报。
 
 ## [0.6.0] - 2026-07-03
 
