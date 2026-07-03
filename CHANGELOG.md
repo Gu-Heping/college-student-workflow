@@ -6,6 +6,26 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-03
+
+### Added
+
+- 为 `student-os` 新增仓库内反馈闭环工作流，支持将使用中的问题、体验落差和改进建议沉淀为结构化反馈条目。
+- 新增 `feedback` 命令入口、`feedback-operator` companion、`feedback-ops` reference，以及反馈条目和反馈汇总模板。
+- 新增 `log_feedback.py` 与 `summarize_feedback.py`，用于记录单条反馈和生成周期性反馈汇总。
+- 为仓库脚手架新增 `feedback/raw`、`feedback/triaged`、`feedback/resolved` 和 `feedback/summaries` 目录。
+
+### Changed
+
+- 扩展 `student-os` 总控 skill，使其能够识别反馈记录、反馈汇总和反馈状态流转请求。
+- 扩展 Git 变更分组规则，使反馈文件能够与课程、作业、复习和仓库运维改动分开建议提交。
+- 在 README 中新增 feedback loop 使用说明，并说明反馈与 `CHANGELOG.md` 的关系。
+
+### Fixed
+
+- 修复反馈脚本对 summary 标题的路径安全问题，避免越界写入非 `feedback/summaries` 文件。
+- 修复反馈 frontmatter 中多行文本的编码问题，避免换行污染 `status` 等元数据解析。
+
 ## [0.4.0] - 2026-07-03
 
 ### Added
@@ -74,7 +94,8 @@
 - 新增基础脚本，包括仓库检查、课程脚手架、索引重建、活动汇总与 Git 分组辅助。
 - 新增 README，说明仓库目标与 `student-os` 的使用方式。
 
-[Unreleased]: https://github.com/Gu-Heping/college-student-workflow/compare/32ad733bf899c946b300944e2c5e6250aa1c05ea...HEAD
+[Unreleased]: https://github.com/Gu-Heping/college-student-workflow/compare/a00ee8f01bc15ed6f09339e1b37c8166a765987a...HEAD
+[0.5.0]: https://github.com/Gu-Heping/college-student-workflow/compare/d51e56ec1416be3b937f067c65798e4a108b728e...a00ee8f01bc15ed6f09339e1b37c8166a765987a
 [0.4.0]: https://github.com/Gu-Heping/college-student-workflow/compare/05b35868f272176a4e52cbab4ae5159018790b8d...32ad733bf899c946b300944e2c5e6250aa1c05ea
 [0.3.0]: https://github.com/Gu-Heping/college-student-workflow/compare/98ab862469f2b6ea9425a3d3c629b02084879e21...05b35868f272176a4e52cbab4ae5159018790b8d
 [0.2.0]: https://github.com/Gu-Heping/college-student-workflow/compare/31a7b84a17bae94cc016c7ecc24734b155d96993...98ab862469f2b6ea9425a3d3c629b02084879e21
