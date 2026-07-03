@@ -14,16 +14,11 @@ from feedback_utils import (
     parse_frontmatter,
     quoted_yaml_string,
     replace_section,
+    resolve_feedback_path,
+    unique_feedback_path,
     write_feedback,
     yaml_list,
 )
-
-
-def resolve_feedback_path(repo: Path, candidate: str) -> Path:
-    path = Path(candidate)
-    if not path.is_absolute():
-        path = repo / candidate
-    return path.resolve()
 
 
 def main() -> int:
@@ -79,7 +74,7 @@ def main() -> int:
     body = replace_section(body, "Triage Notes", [args.triage_notes])
 
     target_dir = repo / "feedback" / STATUS_TO_DIR["triaged"]
-    target_path = target_dir / source_path.name
+    target_path = unique_feedback_path(target_dir, source_path.name, source_path=source_path)
     if target_path.resolve() != source_path:
         source_path.unlink()
     write_feedback(target_path, frontmatter, body)

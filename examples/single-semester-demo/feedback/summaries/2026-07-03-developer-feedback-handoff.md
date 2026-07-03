@@ -14,15 +14,15 @@ summary_audience: "developer"
 
 - Scope: smoke-test
 - Audience: developer
-- Total feedback items: 1
+- Total feedback items: 2
 - Open items: 0
-- Triaged items: 0
+- Triaged items: 1
 - Resolved items: 1
 - Archived items: 0
 
 ## By Kind
 
-- workflow: 1
+- workflow: 2
 
 ## High Priority Open Items
 
@@ -30,7 +30,7 @@ summary_audience: "developer"
 
 ## Pending Queue
 
-- No pending feedback items.
+- Weekly plan omitted imported deadline: workflow / medium / triaged
 
 ## Recent Resolutions
 
@@ -38,7 +38,7 @@ summary_audience: "developer"
 
 ## Developer Handoff
 
-- No open developer follow-up items.
+- fb-20260703-weekly-plan-omitted-imported-deadline-2: Weekly plan omitted imported deadline (workflow, medium)
 
 ## Suggested Follow-up
 

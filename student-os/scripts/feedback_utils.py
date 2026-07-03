@@ -64,6 +64,16 @@ def parse_yaml_list(value: str) -> list[str]:
     return [part.strip().strip('"') for part in inner.split(",") if part.strip()]
 
 
+def normalize_scalar(value: str) -> str:
+    text = value.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
+        inner = text[1:-1]
+        if text[0] == '"':
+            return inner.replace('\\"', '"').replace("\\\\", "\\")
+        return inner.replace("\\'", "'").replace("\\\\", "\\")
+    return text
+
+
 def parse_frontmatter(path: Path) -> tuple[OrderedDict[str, str], str]:
     text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
     if not text.startswith("---\n"):
@@ -129,3 +139,30 @@ def build_feedback_id(created: str, title: str) -> str:
     compact = created.replace("-", "")
     return f"fb-{compact}-{slugify(title)}"
 
+
+def resolve_feedback_path(repo: Path, candidate: str) -> Path:
+    path = Path(candidate)
+    if not path.is_absolute():
+        path = repo / candidate
+    resolved = path.resolve()
+    feedback_root = (repo / "feedback").resolve()
+    try:
+        resolved.relative_to(feedback_root)
+    except ValueError as exc:
+        raise SystemExit(f"Feedback path must stay under {feedback_root}: {resolved}") from exc
+    return resolved
+
+
+def unique_feedback_path(target_dir: Path, filename: str, source_path: Path | None = None) -> Path:
+    candidate = target_dir / filename
+    if source_path is not None and candidate.resolve() == source_path.resolve():
+        return candidate
+    stem = Path(filename).stem
+    suffix = Path(filename).suffix
+    counter = 2
+    while candidate.exists():
+        candidate = target_dir / f"{stem}-{counter}{suffix}"
+        if source_path is not None and candidate.resolve() == source_path.resolve():
+            return candidate
+        counter += 1
+    return candidate

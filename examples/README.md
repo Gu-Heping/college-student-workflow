@@ -5,7 +5,7 @@ This directory contains generated example student knowledge repositories for `st
 Current snapshots:
 
 - `single-semester-demo/`
-  A simple markdown-first course repository using `courses/<course>/`, plus a resolved feedback example and developer-facing summary.
+  A simple markdown-first course repository using `courses/<course>/`, plus triaged/resolved feedback examples and a developer-facing summary.
 - `multi-semester-demo/`
   A semester-aware repository using `courses/<semester>/<course>/` and `semesters/<semester>/overview.md`.
 - `legacy-layout-demo/`

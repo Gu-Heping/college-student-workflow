@@ -46,22 +46,24 @@ def main() -> int:
 
     repo = Path(args.repo).resolve()
     today = date.today().isoformat()
-    folder = repo / "feedback" / STATUS_TO_DIR[args.status]
+    feedback_root = repo / "feedback"
+    folder = feedback_root / STATUS_TO_DIR[args.status]
     folder.mkdir(parents=True, exist_ok=True)
-
     slug = slugify(args.title)
-    filename = f"{today}-{slug}.md"
-    target = folder / filename
-    counter = 2
-    while target.exists():
-        target = folder / f"{today}-{slug}-{counter}.md"
+    counter = 1
+    while True:
+        suffix = "" if counter == 1 else f"-{counter}"
+        filename = f"{today}-{slug}{suffix}.md"
+        if not any((feedback_root / subdir / filename).exists() for subdir in STATUS_TO_DIR.values()):
+            target = folder / filename
+            break
         counter += 1
 
     artifacts = parse_csv(args.related_artifacts)
     roles = parse_csv(args.related_roles)
     feedback_id = build_feedback_id(today, args.title)
-    if counter > 2:
-        feedback_id = f"{feedback_id}-{counter - 1}"
+    if counter > 1:
+        feedback_id = f"{feedback_id}-{counter}"
     frontmatter = OrderedDict(
         [
             ("type", "feedback"),

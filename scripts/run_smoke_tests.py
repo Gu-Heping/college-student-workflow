@@ -30,6 +30,21 @@ def run_script(name: str, *args: str, cwd: Path = ROOT) -> str:
     return result.stdout.strip()
 
 
+def run_script_failure(name: str, *args: str, cwd: Path = ROOT) -> str:
+    script_path = STUDENT_OS_SCRIPTS / name
+    result = subprocess.run(
+        [sys.executable, "-B", str(script_path), *args],
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    if result.returncode == 0:
+        raise AssertionError(f"Expected {name} to fail for args {args!r}")
+    return (result.stderr or result.stdout).strip()
+
+
 def ensure_contains(path: Path, needle: str) -> None:
     text = path.read_text(encoding="utf-8")
     if needle not in text:
@@ -146,6 +161,42 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
             "Verify once against a real imported-deadline workflow.",
         )
     )
+    second_raw_path = Path(
+        run_script(
+            "log_feedback.py",
+            str(repo),
+            "--title",
+            "Weekly plan omitted imported deadline",
+            "--feedback-kind",
+            "workflow",
+            "--severity",
+            "medium",
+            "--reproducibility",
+            "sometimes",
+            "--source-context",
+            "second collision test",
+            "--developer-summary",
+            "- This duplicate entry should keep a unique filename and feedback_id.",
+        )
+    )
+    second_triaged_path = Path(
+        run_script(
+            "triage_feedback.py",
+            str(repo),
+            str(second_raw_path),
+            "--triage-status",
+            "needs-dedup-review",
+            "--triage-notes",
+            "- Collision handling preserved the older resolved item.",
+        )
+    )
+    quoted_text = second_triaged_path.read_text(encoding="utf-8")
+    quoted_text = quoted_text.replace("status: triaged", 'status: "triaged"')
+    quoted_text = quoted_text.replace("severity: medium", 'severity: "medium"')
+    second_triaged_path.write_text(quoted_text, encoding="utf-8", newline="\n")
+    outside_path = repo.parent / "outside-feedback.md"
+    outside_path.write_text("---\nstatus: open\n---\n", encoding="utf-8", newline="\n")
+    failure_output = run_script_failure("triage_feedback.py", str(repo), str(outside_path))
     summary_path = Path(
         run_script(
             "summarize_feedback.py",
@@ -163,8 +214,13 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     ensure_contains(resolved_path, "feedback_id:")
     ensure_contains(resolved_path, "## Triage Notes")
     ensure_contains(resolved_path, "## Resolution Summary")
+    ensure_contains(second_triaged_path, 'feedback_id: "fb-20260703-weekly-plan-omitted-imported-deadline-2"')
     ensure_contains(summary_path, "## Developer Handoff")
     ensure_contains(summary_path, "0.7.0")
+    ensure_contains(summary_path, "- Triaged items: 1")
+    ensure_contains(summary_path, "fb-20260703-weekly-plan-omitted-imported-deadline-2")
+    if "must stay under" not in failure_output:
+        raise AssertionError(f"Expected path-guard failure, got: {failure_output}")
 
 
 def build_single_semester(repo: Path, today: date) -> None:

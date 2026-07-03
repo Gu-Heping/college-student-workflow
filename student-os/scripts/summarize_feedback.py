@@ -6,7 +6,7 @@ from collections import Counter
 from datetime import date
 from pathlib import Path
 
-from feedback_utils import extract_title, parse_frontmatter
+from feedback_utils import extract_title, normalize_scalar, parse_frontmatter
 
 
 STATUSES = {
@@ -43,7 +43,11 @@ def main() -> int:
                 continue
             data = dict(frontmatter)
             data["path"] = str(path.relative_to(repo)).replace("\\", "/")
-            data.setdefault("status", status)
+            data["status"] = normalize_scalar(data.get("status", status))
+            data["severity"] = normalize_scalar(data.get("severity", "medium"))
+            data["feedback_kind"] = normalize_scalar(data.get("feedback_kind", "other"))
+            data["fix_version"] = normalize_scalar(data.get("fix_version", ""))
+            data["feedback_id"] = normalize_scalar(data.get("feedback_id", ""))
             data["title"] = extract_title(body) or path.stem
             all_items.append(data)
 
@@ -120,7 +124,7 @@ def main() -> int:
     lines.extend(["", "## Recent Resolutions", ""])
     if recent_resolved:
         for item in recent_resolved:
-            version = item.get("fix_version", "").strip('"')
+            version = item.get("fix_version", "")
             suffix = f" / {version}" if version else ""
             lines.append(f"- {item.get('title')}: {item.get('feedback_kind', 'other')}{suffix}")
     else:
@@ -130,7 +134,7 @@ def main() -> int:
         lines.extend(["", "## Developer Handoff", ""])
         if pending_items:
             for item in pending_items[:10]:
-                feedback_id = item.get("feedback_id", "").strip('"')
+                feedback_id = item.get("feedback_id", "")
                 lines.append(
                     f"- {feedback_id or item.get('path')}: {item.get('title')} ({item.get('feedback_kind', 'other')}, {item.get('severity', 'medium')})"
                 )
