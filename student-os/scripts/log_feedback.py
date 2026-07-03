@@ -2,53 +2,23 @@
 from __future__ import annotations
 
 import argparse
-import re
 from datetime import date
 from pathlib import Path
 
+from collections import OrderedDict
 
-VALID_KINDS = {
-    "workflow",
-    "template",
-    "routing",
-    "import",
-    "git",
-    "quality",
-    "docs",
-    "course-pack",
-    "install",
-    "other",
-}
-VALID_SEVERITIES = {"low", "medium", "high"}
-VALID_REPRO = {"always", "sometimes", "one-off", "unclear"}
-STATUS_TO_DIR = {
-    "open": "raw",
-    "triaged": "triaged",
-    "resolved": "resolved",
-    "archived": "resolved",
-}
-
-
-def slugify(value: str) -> str:
-    slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
-    return slug or "feedback"
-
-
-def quoted_yaml_string(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
-
-
-def yaml_list(items: list[str]) -> str:
-    if not items:
-        return ""
-    return ", ".join(quoted_yaml_string(item) for item in items)
-
-
-def parse_csv(value: str) -> list[str]:
-    if not value.strip():
-        return []
-    return [item.strip() for item in value.split(",") if item.strip()]
+from feedback_utils import (
+    STATUS_TO_DIR,
+    VALID_KINDS,
+    VALID_REPRO,
+    VALID_SEVERITIES,
+    build_feedback_id,
+    parse_csv,
+    quoted_yaml_string,
+    slugify,
+    write_feedback,
+    yaml_list,
+)
 
 
 def main() -> int:
@@ -68,6 +38,7 @@ def main() -> int:
     parser.add_argument("--why-unsatisfying", default="- ", help="Why the result was unsatisfying")
     parser.add_argument("--likely-cause", default="- ", help="Likely cause")
     parser.add_argument("--suggested-improvement", default="- ", help="Suggested improvement")
+    parser.add_argument("--developer-summary", default="- ", help="Short developer-facing summary")
     parser.add_argument("--evidence", default="- ", help="Evidence or related examples")
     parser.add_argument("--triage-status", default="open", help="Human-readable triage status")
     parser.add_argument("--follow-up", default="Review and classify.", help="Suggested next step")
@@ -88,23 +59,27 @@ def main() -> int:
 
     artifacts = parse_csv(args.related_artifacts)
     roles = parse_csv(args.related_roles)
-    frontmatter = [
-        "---",
-        "type: feedback",
-        f"status: {args.status}",
-        f"created: {today}",
-        f"updated: {today}",
-        f"tags: [feedback, {args.feedback_kind}]",
-        f"feedback_kind: {args.feedback_kind}",
-        f"severity: {args.severity}",
-        f"reproducibility: {args.reproducibility}",
-        f"source_context: {quoted_yaml_string(args.source_context)}",
-        f"related_course: {quoted_yaml_string(args.related_course)}",
-        f"related_artifacts: [{yaml_list(artifacts)}]",
-        f"related_roles: [{yaml_list(roles)}]",
-        "---",
-        "",
-    ]
+    feedback_id = build_feedback_id(today, args.title)
+    if counter > 2:
+        feedback_id = f"{feedback_id}-{counter - 1}"
+    frontmatter = OrderedDict(
+        [
+            ("type", "feedback"),
+            ("status", args.status),
+            ("created", today),
+            ("updated", today),
+            ("feedback_id", quoted_yaml_string(feedback_id)),
+            ("tags", f"[feedback, {args.feedback_kind}]"),
+            ("feedback_kind", args.feedback_kind),
+            ("severity", args.severity),
+            ("reproducibility", args.reproducibility),
+            ("source_context", quoted_yaml_string(args.source_context)),
+            ("related_course", quoted_yaml_string(args.related_course)),
+            ("related_artifacts", f"[{yaml_list(artifacts)}]"),
+            ("related_roles", f"[{yaml_list(roles)}]"),
+            ("fix_version", '""'),
+        ]
+    )
     body = [
         f"# Feedback - {args.title}",
         "",
@@ -128,6 +103,10 @@ def main() -> int:
         "",
         args.suggested_improvement,
         "",
+        "## Developer Summary",
+        "",
+        args.developer_summary,
+        "",
         "## Evidence",
         "",
         args.evidence,
@@ -138,7 +117,7 @@ def main() -> int:
         f"- Next step: {args.follow_up}",
         "",
     ]
-    target.write_text("\n".join(frontmatter + body), encoding="utf-8")
+    write_feedback(target, frontmatter, "\n".join(body))
     print(target)
     return 0
 

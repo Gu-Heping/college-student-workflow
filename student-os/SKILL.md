@@ -36,6 +36,8 @@ Use these scripts when helpful:
 - `scripts/xlsx_to_md.py` for XLSX import into markdown table summaries.
 - `scripts/pptx_to_md.py` for PPTX import into slide summaries.
 - `scripts/log_feedback.py` for structured feedback capture into the repository.
+- `scripts/triage_feedback.py` for classifying and moving feedback into the triaged queue.
+- `scripts/resolve_feedback.py` for recording the shipped fix and closing the loop.
 - `scripts/summarize_feedback.py` for feedback summaries, open issues, and recent resolutions.
 - `scripts/build_week_plan.py` for weekly plans, near-term deadlines, and exam countdown material.
 - `scripts/build_review_indexes.py` for homework and review indexes.
@@ -146,6 +148,7 @@ Use `references/feedback-ops.md`.
 
 Handle:
 - recording one feedback entry
+- triaging one feedback entry
 - triaging feedback for later implementation
 - marking feedback as resolved
 - generating periodic feedback summaries
@@ -282,6 +285,7 @@ When responding after work, prefer this order:
    - `severity`
    - `reproducibility`
    - `triage_status`
+   - `resolution_status`
    - `follow_up_suggestion`
 
 ## Templates
