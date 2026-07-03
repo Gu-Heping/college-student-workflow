@@ -39,6 +39,16 @@ def append_backlink(path: Path, marker: str, line: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def read_course_name(course_dir: Path) -> str:
+    index_path = course_dir / "index.md"
+    if index_path.exists():
+        for line in index_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("# "):
+                return stripped[2:].strip()
+    return course_dir.name.replace("-", " ").title()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Scaffold homework, linked solution, and deadline task artifacts.")
     parser.add_argument("repo", help="Target repository root")
@@ -51,11 +61,11 @@ def main() -> int:
     args = parser.parse_args()
 
     repo = Path(args.repo).resolve()
-    course_slug = slugify(args.course_slug, fallback="course")
-    course_name = args.course_name or course_slug.replace("-", " ").title()
+    course_dir = resolve_course_dir(repo, args.course_slug, semester=args.semester)
+    course_slug = course_dir.name
+    course_name = args.course_name or read_course_name(course_dir)
     today = date.today().isoformat()
     homework_slug = slugify(args.homework_title)
-    course_dir = resolve_course_dir(repo, args.course_slug, semester=args.semester)
     course_key = "-".join(course_dir.relative_to(repo / "courses").parts)
     template_root = Path(__file__).resolve().parents[1] / "templates"
 

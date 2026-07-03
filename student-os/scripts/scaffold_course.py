@@ -4,8 +4,12 @@ from __future__ import annotations
 import argparse
 from datetime import date
 from pathlib import Path
+import re
 
-from course_layout import discover_course_dirs, slugify
+from course_layout import slugify
+
+GENERATED_START = "<!-- student-os:course-links:start -->"
+GENERATED_END = "<!-- student-os:course-links:end -->"
 
 
 def fill_template(template_path: Path, replacements: dict[str, str]) -> str:
@@ -15,41 +19,53 @@ def fill_template(template_path: Path, replacements: dict[str, str]) -> str:
     return text
 
 
-def replace_section(text: str, heading: str, lines: list[str]) -> str:
-    marker = f"## {heading}"
-    start = text.find(marker)
-    if start == -1:
-        return text
-
-    body_start = text.find("\n", start)
-    if body_start == -1:
-        return text
-
-    body_start += 1
-    next_heading = text.find("\n## ", body_start)
-    replacement = "\n".join(lines).rstrip()
-    if next_heading == -1:
-        return text[:body_start] + "\n" + replacement + "\n"
-    return text[:body_start] + "\n" + replacement + "\n\n" + text[next_heading + 1 :]
+def generated_block(lines: list[str]) -> str:
+    content = "\n".join(lines).rstrip()
+    return f"{GENERATED_START}\n{content}\n{GENERATED_END}"
 
 
-def sync_semester_overview(repo: Path, semester_root: Path, semester_slug: str) -> None:
+def parse_courses_entries(courses_path: Path) -> list[tuple[str, str]]:
+    entries: list[tuple[str, str]] = []
+    if not courses_path.exists():
+        return entries
+    for line in courses_path.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("- ") or ": " not in line:
+            continue
+        title, relpath = line[2:].split(": ", 1)
+        entries.append((title.strip(), relpath.strip()))
+    return entries
+
+
+def sync_semester_overview(repo: Path, semester_root: Path, courses_path: Path) -> None:
     overview_path = semester_root / "overview.md"
     if not overview_path.exists():
         return
 
-    semester_courses_root = repo / "courses" / semester_slug
-    course_dirs = [
-        path
-        for path in discover_course_dirs(repo / "courses")
-        if path.parent == semester_courses_root
-    ]
     course_lines = [
-        f"- [{course_dir.name.replace('-', ' ').title()}](../../{course_dir.relative_to(repo).as_posix()}/index.md)"
-        for course_dir in course_dirs
+        f"- [{title}](../../{relpath}/index.md)"
+        for title, relpath in parse_courses_entries(courses_path)
     ] or ["- [ ] Add first course"]
     overview_text = overview_path.read_text(encoding="utf-8")
-    overview_path.write_text(replace_section(overview_text, "Courses", course_lines), encoding="utf-8")
+    block = generated_block(course_lines)
+
+    if GENERATED_START in overview_text and GENERATED_END in overview_text:
+        pattern = rf"{re.escape(GENERATED_START)}.*?{re.escape(GENERATED_END)}"
+        updated = re.sub(pattern, block, overview_text, count=1, flags=re.DOTALL)
+    else:
+        marker = "## Courses"
+        start = overview_text.find(marker)
+        if start == -1:
+            updated = overview_text.rstrip() + "\n\n## Courses\n\n" + block + "\n"
+        else:
+            insert_at = overview_text.find("\n", start)
+            if insert_at == -1:
+                insert_at = len(overview_text)
+                spacer = "\n\n"
+            else:
+                insert_at += 1
+                spacer = "\n"
+            updated = overview_text[:insert_at] + spacer + block + "\n" + overview_text[insert_at:]
+    overview_path.write_text(updated, encoding="utf-8")
 
 
 def enable_semester_mode(repo: Path) -> None:
@@ -57,9 +73,14 @@ def enable_semester_mode(repo: Path) -> None:
     if not profile_path.exists():
         return
     profile_text = profile_path.read_text(encoding="utf-8")
-    if "enabled: false" not in profile_text:
+    section_marker = "## Semester Conventions"
+    if section_marker not in profile_text:
         return
-    profile_path.write_text(profile_text.replace("enabled: false", "enabled: true", 1), encoding="utf-8")
+    before, section = profile_text.split(section_marker, 1)
+    if "enabled: false" not in section:
+        return
+    updated = before + section_marker + section.replace("enabled: false", "enabled: true", 1)
+    profile_path.write_text(updated, encoding="utf-8")
 
 
 def main() -> int:
@@ -123,7 +144,7 @@ def main() -> int:
                 f"# Courses - {args.semester}\n\n## Entries\n\n{entry}\n",
                 encoding="utf-8",
             )
-        sync_semester_overview(repo, semester_root, semester_slug)
+        sync_semester_overview(repo, semester_root, courses_path)
 
     print(root)
     return 0

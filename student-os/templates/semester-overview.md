@@ -17,7 +17,9 @@ tags: [semester/{{semester_slug}}, dashboard]
 
 ## Courses
 
+<!-- student-os:course-links:start -->
 - [ ] Add first course
+<!-- student-os:course-links:end -->
 
 ## Key Dates
 
