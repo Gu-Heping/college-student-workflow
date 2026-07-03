@@ -15,7 +15,7 @@ For a new course, prefer:
 - `courses/<course-slug>/labs/`
 - `courses/<course-slug>/references/`
 
-If the repository actively tracks multiple semesters, prefer:
+If the repository actively tracks multiple semesters, or `.student-os/repo-profile.md` sets `semesters.enabled: true`, prefer:
 - `courses/<semester-slug>/<course-slug>/index.md`
 - `courses/<semester-slug>/<course-slug>/dashboard.md`
 - `semesters/<semester-slug>/overview.md`

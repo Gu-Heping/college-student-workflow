@@ -16,7 +16,7 @@ GROUP_RULES = [
     ("homework", ["/homework/", "homework/", "-solution.md", "problem-analysis"]),
     ("review", ["/reviews/", "reviews/", "chapter-review", "weekly-review-digest", "review-sheet"]),
     ("tasks", ["/tasks/", "tasks/", "weekly-plan"]),
-    ("course", ["/courses/", "courses/", "dashboard.md", "/index.md"]),
+    ("course", ["/courses/", "courses/", "/semesters/", "semesters/", "dashboard.md", "/index.md", "semester-overview"]),
 ]
 
 PREFIX = {

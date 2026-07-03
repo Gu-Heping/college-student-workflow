@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from course_layout import discover_course_dirs
+
 
 def list_children(path: Path) -> list[Path]:
     if not path.exists():
@@ -15,12 +17,6 @@ def list_markdown_files(path: Path) -> list[str]:
     if not path.exists():
         return []
     return sorted([p.name for p in path.glob("*.md") if p.is_file()])
-
-
-def parse_course_dirs(courses_root: Path) -> list[Path]:
-    if not courses_root.exists():
-        return []
-    return sorted(path.parent for path in courses_root.rglob("index.md"))
 
 
 def write_index(path: Path, title: str, items: list[str]) -> None:
@@ -40,7 +36,7 @@ def main() -> int:
 
     root = Path(args.repo).resolve()
     index_dir = root / ".student-os" / "index"
-    course_dirs = parse_course_dirs(root / "courses")
+    course_dirs = discover_course_dirs(root / "courses")
     write_index(
         index_dir / "courses.md",
         "Course Index",

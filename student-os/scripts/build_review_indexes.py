@@ -5,6 +5,8 @@ import argparse
 from pathlib import Path
 import re
 
+from course_layout import discover_course_dirs
+
 
 def stem_without_suffix(name: str, suffix: str) -> str:
     return name[: -len(suffix)] if name.endswith(suffix) else name
@@ -32,12 +34,12 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     summary = ["# Homework And Review Index", ""]
-    for course_dir in sorted([p for p in (repo / "courses").iterdir() if p.is_dir()]) if (repo / "courses").exists() else []:
+    for course_dir in discover_course_dirs(repo / "courses"):
         homework = files_in(course_dir / "homework")
         reviews = files_in(course_dir / "reviews")
         solutions = [name for name in homework if name.endswith("-solution.md")]
         assignments = [name for name in homework if not name.endswith("-solution.md")]
-        summary.extend([f"## {course_dir.name}", ""])
+        summary.extend([f"## {course_dir.relative_to(repo / 'courses').as_posix()}", ""])
         summary.append("### Homework")
         summary.extend([f"- {name}" for name in assignments] or ["- None"])
         summary.append("")

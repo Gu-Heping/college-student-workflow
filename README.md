@@ -13,6 +13,7 @@ Recent notable changes are tracked in [CHANGELOG.md](./CHANGELOG.md).
 - Simple repositories can keep using `courses/<course>/`
 - Semester-aware repositories can use `courses/<semester>/<course>/`
 - Shared semester overviews live under `semesters/<semester>/`
+- `.student-os/repo-profile.md` starts with `semesters.enabled: false` and flips to `true` when you scaffold semester-tagged courses
 
 Example:
 

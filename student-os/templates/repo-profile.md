@@ -31,7 +31,7 @@ legacy_paths: {}
 
 ```yaml
 semesters:
-  enabled: true
+  enabled: false
   default_course_pattern: courses/<semester>/<course>
   overview_root: semesters
 ```

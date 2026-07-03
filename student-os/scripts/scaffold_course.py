@@ -2,14 +2,10 @@
 from __future__ import annotations
 
 import argparse
-import re
 from datetime import date
 from pathlib import Path
 
-
-def slugify(value: str) -> str:
-    slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
-    return slug or "course"
+from course_layout import discover_course_dirs, slugify
 
 
 def fill_template(template_path: Path, replacements: dict[str, str]) -> str:
@@ -17,6 +13,53 @@ def fill_template(template_path: Path, replacements: dict[str, str]) -> str:
     for key, value in replacements.items():
         text = text.replace(f"{{{{{key}}}}}", value)
     return text
+
+
+def replace_section(text: str, heading: str, lines: list[str]) -> str:
+    marker = f"## {heading}"
+    start = text.find(marker)
+    if start == -1:
+        return text
+
+    body_start = text.find("\n", start)
+    if body_start == -1:
+        return text
+
+    body_start += 1
+    next_heading = text.find("\n## ", body_start)
+    replacement = "\n".join(lines).rstrip()
+    if next_heading == -1:
+        return text[:body_start] + "\n" + replacement + "\n"
+    return text[:body_start] + "\n" + replacement + "\n\n" + text[next_heading + 1 :]
+
+
+def sync_semester_overview(repo: Path, semester_root: Path, semester_slug: str) -> None:
+    overview_path = semester_root / "overview.md"
+    if not overview_path.exists():
+        return
+
+    semester_courses_root = repo / "courses" / semester_slug
+    course_dirs = [
+        path
+        for path in discover_course_dirs(repo / "courses")
+        if path.parent == semester_courses_root
+    ]
+    course_lines = [
+        f"- [{course_dir.name.replace('-', ' ').title()}](../../{course_dir.relative_to(repo).as_posix()}/index.md)"
+        for course_dir in course_dirs
+    ] or ["- [ ] Add first course"]
+    overview_text = overview_path.read_text(encoding="utf-8")
+    overview_path.write_text(replace_section(overview_text, "Courses", course_lines), encoding="utf-8")
+
+
+def enable_semester_mode(repo: Path) -> None:
+    profile_path = repo / ".student-os" / "repo-profile.md"
+    if not profile_path.exists():
+        return
+    profile_text = profile_path.read_text(encoding="utf-8")
+    if "enabled: false" not in profile_text:
+        return
+    profile_path.write_text(profile_text.replace("enabled: false", "enabled: true", 1), encoding="utf-8")
 
 
 def main() -> int:
@@ -27,8 +70,8 @@ def main() -> int:
     args = parser.parse_args()
 
     repo = Path(args.repo).resolve()
-    semester_slug = slugify(args.semester) if args.semester else ""
-    course_slug = slugify(args.course_name)
+    semester_slug = slugify(args.semester, fallback="semester") if args.semester else ""
+    course_slug = slugify(args.course_name, fallback="course")
     root = repo / "courses" / semester_slug / course_slug if semester_slug else repo / "courses" / course_slug
     today = date.today().isoformat()
     repl = {
@@ -61,6 +104,7 @@ def main() -> int:
             target.write_text(fill_template(template_root / template_name, repl), encoding="utf-8")
 
     if args.semester:
+        enable_semester_mode(repo)
         semester_root = repo / "semesters" / semester_slug
         semester_root.mkdir(parents=True, exist_ok=True)
         overview_path = semester_root / "overview.md"
@@ -79,6 +123,7 @@ def main() -> int:
                 f"# Courses - {args.semester}\n\n## Entries\n\n{entry}\n",
                 encoding="utf-8",
             )
+        sync_semester_overview(repo, semester_root, semester_slug)
 
     print(root)
     return 0
