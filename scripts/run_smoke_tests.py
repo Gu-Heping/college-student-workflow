@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -19,11 +20,12 @@ EXAMPLES_ROOT = ROOT / "examples"
 def run_script(name: str, *args: str, cwd: Path = ROOT) -> str:
     script_path = STUDENT_OS_SCRIPTS / name
     result = subprocess.run(
-        [sys.executable, str(script_path), *args],
+        [sys.executable, "-B", str(script_path), *args],
         check=True,
         capture_output=True,
         text=True,
         cwd=cwd,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
     )
     return result.stdout.strip()
 
@@ -43,6 +45,34 @@ def copy_repo(src: Path, dest: Path) -> None:
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(src, dest)
+
+
+def normalize_text_files(root: Path) -> None:
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.name == ".gitkeep":
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        normalized = text.replace("\r\n", "\n")
+        path.write_text(normalized, encoding="utf-8", newline="\n")
+
+
+def materialize_empty_dirs(root: Path) -> None:
+    for path in sorted([candidate for candidate in root.rglob("*") if candidate.is_dir()], key=lambda item: len(item.parts), reverse=True):
+        if any(path.iterdir()):
+            continue
+        (path / ".gitkeep").write_text("", encoding="utf-8")
+
+
+def rewrite_legacy_task_link(task_path: Path) -> None:
+    text = task_path.read_text(encoding="utf-8")
+    old = "- Course: ../../courses/legacy-course/index.md"
+    new = "- Course: legacy course folder without generated course home"
+    task_path.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
 
 
 def build_single_semester(repo: Path, today: date) -> None:
@@ -86,18 +116,21 @@ def build_multi_semester(repo: Path, today: date) -> None:
 def build_legacy_layout(repo: Path, today: date) -> None:
     due_date = (today + timedelta(days=9)).isoformat()
     weekly_plan = repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md"
+    task_path = repo / "tasks" / "deadlines" / "legacy-course-legacy-sheet.md"
     run_script("scaffold_repo.py", str(repo))
     legacy_course = repo / "courses" / "legacy-course"
     (legacy_course / "homework").mkdir(parents=True, exist_ok=True)
     (legacy_course / "reviews").mkdir(parents=True, exist_ok=True)
 
     run_script("scaffold_homework.py", str(repo), "legacy-course", "Legacy Sheet", "--due", due_date)
+    rewrite_legacy_task_link(task_path)
     run_script("build_review_indexes.py", str(repo))
     run_script("build_week_plan.py", str(repo), "--days", "14")
 
     ensure_exists(legacy_course / "homework" / "legacy-sheet.md")
     ensure_contains(repo / ".student-os" / "index" / "homework-and-reviews.md", "legacy-sheet.md")
     ensure_contains(weekly_plan, "legacy-course")
+    ensure_contains(task_path, "legacy course folder without generated course home")
 
 
 def verify_inspect_repo(repo: Path) -> None:
@@ -134,6 +167,11 @@ def main() -> int:
             copy_repo(single_repo, EXAMPLES_ROOT / "single-semester-demo")
             copy_repo(multi_repo, EXAMPLES_ROOT / "multi-semester-demo")
             copy_repo(legacy_repo, EXAMPLES_ROOT / "legacy-layout-demo")
+            for example_root in EXAMPLES_ROOT.iterdir():
+                if not example_root.is_dir():
+                    continue
+                materialize_empty_dirs(example_root)
+                normalize_text_files(example_root)
 
     print("OK single-semester-demo")
     print("OK multi-semester-demo")

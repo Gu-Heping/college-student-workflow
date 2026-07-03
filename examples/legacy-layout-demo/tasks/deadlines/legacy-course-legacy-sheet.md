@@ -23,6 +23,6 @@ tags: [task]
 
 ## Links
 
-- Course: ../../courses/legacy-course/index.md
+- Course: legacy course folder without generated course home
 - Project:
 - Source file: ../../courses/legacy-course/homework/legacy-sheet.md
