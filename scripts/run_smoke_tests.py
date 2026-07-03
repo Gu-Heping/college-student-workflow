@@ -183,7 +183,7 @@ def write_pdf_fixture(path: Path) -> None:
     )
     stream = DecodedStreamObject()
     stream.set_data(
-        b"BT\n/F1 18 Tf\n72 720 Td\n(Linear algebra import handout) Tj\n0 -24 Td\n(Orthogonal projection summary) Tj\nET"
+        b"BT\n/F1 18 Tf\n72 720 Td\n(#Broken linear algebra handout) Tj\n0 -24 Td\n(Page 1) Tj\n0 -24 Td\n(##Next section ........ 4) Tj\n0 -24 Td\n(-  Orthogonal projection summary) Tj\nET"
     )
     page[NameObject("/Contents")] = writer._add_object(stream)
     writer.add_metadata({"/Title": "Linear Algebra Import Handout"})
@@ -233,7 +233,7 @@ def exercise_import_workflows(repo: Path) -> None:
                 "created:",
                 "updated:",
                 "tags: [import, pdf]",
-                f'source_file: "{pdf_path}"',
+                f"source_file: {json.dumps(str(pdf_path))}",
                 "import_method: manual-test",
                 "repair_status: raw",
                 'derived_from_import: ""',
@@ -279,11 +279,13 @@ def exercise_import_workflows(repo: Path) -> None:
         raise AssertionError(f"Expected a one-page PDF fixture, got: {pdf_probe_payload}")
     ensure_exists(Path(pdf_generic_payload["output"]))
     ensure_contains(pdf_generic_output, "Import method: generic")
-    ensure_contains(pdf_generic_output, "Linear algebra import handout")
+    ensure_contains(pdf_generic_output, "#Broken linear algebra handout")
     ensure_exists(Path(pdf_mineru_payload["output"]))
     ensure_contains(repo / "references" / "imports" / "raw" / "linear-algebra-handout.md", "repair_status: raw")
     ensure_contains(repo / "references" / "imports" / "repaired" / "linear-algebra-handout.md", "repair_status: repaired")
     ensure_contains(repo / "references" / "imports" / "repaired" / "linear-algebra-handout-repair-summary.md", "# Repair Summary")
+    ensure_contains(repo / "references" / "imports" / "repaired" / "linear-algebra-handout-repair-summary.md", "Removed isolated page labels.")
+    ensure_contains(repo / "references" / "imports" / "repaired" / "linear-algebra-handout-repair-summary.md", "Normalized heading spacing.")
     ensure_exists(Path(repair_payload["output"]))
     ensure_contains(repair_output, "# Broken heading")
     ensure_contains(repair_output, "- Bullet with extra spacing")
@@ -437,9 +439,9 @@ def build_single_semester(repo: Path, today: date) -> None:
     run_script("scaffold_homework.py", str(repo), "linear-algebra", "Worksheet A", "--due", due_date)
     run_script("build_review_indexes.py", str(repo))
     run_script("build_week_plan.py", str(repo), "--days", "14")
-    run_script("rebuild_indexes.py", str(repo))
     exercise_feedback_lifecycle(repo)
     exercise_import_workflows(repo)
+    run_script("rebuild_indexes.py", str(repo))
 
     ensure_exists(repo / "courses" / "linear-algebra" / "index.md")
     ensure_exists(repo / "courses" / "linear-algebra" / "homework" / "worksheet-a.md")

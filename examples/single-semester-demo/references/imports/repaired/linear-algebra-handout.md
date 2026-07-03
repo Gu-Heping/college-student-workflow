@@ -23,5 +23,7 @@ derived_from_import: "references\\imports\\raw\\linear-algebra-handout.md"
 
 ## Page 1
 
-Linear algebra import handout
-Orthogonal projection summary
+# Broken linear algebra handout
+
+## Next section
+- Orthogonal projection summary
