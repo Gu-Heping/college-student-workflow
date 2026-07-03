@@ -31,12 +31,17 @@ python student-os/scripts/rebuild_indexes.py /path/to/repo
 - Triaged feedback lives in `feedback/triaged/`
 - Resolved feedback lives in `feedback/resolved/`
 - Rollups live in `feedback/summaries/`
+- Each feedback item keeps a stable `feedback_id` from capture through resolution
+- Developer-facing handoff summaries can be generated without binding the repo to GitHub Issues
 
 You can capture feedback through the skill itself or by using the helper scripts directly:
 
 ```bash
 python student-os/scripts/log_feedback.py /path/to/repo --title "PDF import lost diagram context"
+python student-os/scripts/triage_feedback.py /path/to/repo feedback/raw/2026-07-03-pdf-import-lost-diagram-context.md
+python student-os/scripts/resolve_feedback.py /path/to/repo feedback/triaged/2026-07-03-pdf-import-lost-diagram-context.md --resolution-summary "Adjusted image placeholder retention in repaired markdown."
 python student-os/scripts/summarize_feedback.py /path/to/repo --title "Weekly feedback review"
+python student-os/scripts/summarize_feedback.py /path/to/repo --title "Developer handoff" --audience developer
 ```
 
 When a feedback item turns into a shipped improvement, summarize the user-visible outcome in [CHANGELOG.md](./CHANGELOG.md) instead of copying the full feedback entry.
@@ -203,6 +208,7 @@ This prints a short markdown-oriented activity summary for recent repository wor
 This repository now includes generated example student knowledge bases and a repeatable smoke-test runner.
 
 - `examples/single-semester-demo/` shows the default `courses/<course>/` layout.
+- `examples/single-semester-demo/` also exercises the feedback lifecycle from raw capture to resolved summary.
 - `examples/multi-semester-demo/` shows semester-aware course scaffolding and semester overviews.
 - `examples/legacy-layout-demo/` keeps a legacy-style course folder without a generated course home so fallback discovery stays covered.
 
@@ -239,12 +245,14 @@ What already exists:
 - five workflow reference areas
 - starter templates for common student artifacts
 - helper scripts for repository setup and reporting
+- a repository-native feedback lifecycle with triage, resolution, and developer-handoff summaries
 
 What is still likely to evolve:
 
 - richer migration support for legacy vaults
 - more structured Git workflow helpers
 - stronger automation around dashboards, summaries, and review generation
+- broader end-to-end regression coverage for imports and multi-role collaboration
 
 ## Roadmap
 
@@ -253,7 +261,7 @@ Planned directions for the next iterations:
 1. Add more robust legacy-vault detection and mapping rules.
 2. Expand templates for labs, weekly plans, and course dashboards.
 3. Add safer Git grouping helpers for mixed dirty worktrees.
-4. Expand the example repositories and smoke tests into broader end-to-end regression coverage.
+4. Expand the example repositories and smoke tests into broader end-to-end regression coverage, especially for imports and multi-role collaboration.
 
 ## Notes
 

@@ -1,9 +1,20 @@
 # Changelog
 
-本文件记录本项目的所有显著变更。
-格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+本文档记录本项目的所有显著变更。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 ## [Unreleased]
+
+### Added
+
+- 为 `student-os` 的反馈闭环补充生命周期脚本：`triage_feedback.py`、`resolve_feedback.py`，支持从原始反馈到已解决条目的标准流转。
+- 为反馈条目新增稳定 `feedback_id`、开发者摘要、修复版本和 changelog 提示位，便于长期跟踪和开发回流。
+- 为反馈汇总新增 `--audience developer` 视图，便于生成 issue-ready 的开发者交接摘要。
+
+### Changed
+
+- 扩展 `feedback-ops` reference、`feedback` command、`feedback-operator` companion 和 `SKILL.md`，使反馈工作流覆盖记录、triage、resolve 和开发者交接四个阶段。
+- 扩展 smoke test，将反馈生命周期纳入示例仓库与回归验证。
+- 重写 `CHANGELOG.md` 为规范 UTF-8 中文版本，便于后续按 Keep a Changelog 持续维护。
 
 ## [0.6.0] - 2026-07-03
 
@@ -11,7 +22,7 @@
 
 - 为 `student-os` 增加多学期知识库支持，允许同时管理单学期仓库和 `courses/<semester>/<course>/` 形式的多学期仓库。
 - 新增 `semesters/` 顶层契约与 `templates/semester-overview.md`，用于维护学期总览和课程入口。
-- 新增 `student-os/scripts/course_layout.py`，统一课程发现、课程路径解析和多学期课程定位逻辑。
+- 新增 `student-os/scripts/course_layout.py`，统一课程发现、路径解析与多学期课程定位逻辑。
 
 ### Changed
 
@@ -55,8 +66,8 @@
 
 ### Changed
 
-- 将 Codex 的默认安装目标调整为 `$CODEX_HOME/skills` 或 `~/.codex/skills`，并支持项目级 `.codex/skills`。
-- 将项目级安装的默认策略调整为复制安装，以避免绝对符号链接造成的不可移植问题。
+- 将 Codex 的默认安装目录调整为 `$CODEX_HOME/skills` 或 `~/.codex/skills`，并支持项目级 `.codex/skills`。
+- 将项目级安装的默认策略调整为复制安装，以避免绝对符号链接造成的不便携问题。
 - 默认安装路径策略避免为 OpenCode 生成重复可见的同名 skill。
 - 将 Windows 的推荐安装命令调整为显式使用 `ExecutionPolicy Bypass`。
 

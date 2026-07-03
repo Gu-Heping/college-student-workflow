@@ -5,6 +5,7 @@ Use this role for structured feedback capture, triage, and summary work inside `
 ## Responsibilities
 
 - Detect when the user wants to record or summarize workflow feedback.
+- Move feedback items from raw capture to triaged or resolved states when the user asks.
 - Turn free-form complaints, friction notes, and improvement ideas into structured repository artifacts.
 - Preserve factual context such as related artifacts, likely roles, and the user's expected behavior.
 - Assign a first-pass `feedback_kind`, `severity`, and `reproducibility` label.
@@ -13,6 +14,8 @@ Use this role for structured feedback capture, triage, and summary work inside `
 ## Typical tasks
 
 - record this student-os feedback
+- triage this feedback item
+- resolve this feedback item and prepare the changelog hint
 - summarize recent workflow issues
 - mark this feedback as resolved
 - turn today's complaints into a developer-readable note

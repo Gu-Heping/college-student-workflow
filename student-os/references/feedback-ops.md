@@ -13,6 +13,8 @@ Use this reference when the user wants to record, organize, or summarize feedbac
 
 Use the feedback flow when the user explicitly asks to:
 - record feedback
+- triage a feedback item
+- resolve a feedback item
 - save a problem for the developer
 - summarize recent student-os issues
 - mark a previously recorded feedback item as resolved
@@ -58,6 +60,8 @@ Use one `reproducibility`:
 - Record evidence paths whenever relevant.
 - Keep likely causes tentative unless directly supported by repository evidence.
 - Prefer one feedback file per issue, even when several complaints happened on the same day.
+- Always keep a stable `feedback_id` once the item has been created.
+- Add a short `Developer Summary` when the raw complaint is too long or too emotional to route efficiently.
 
 ## Status flow
 
@@ -67,6 +71,20 @@ Use one `reproducibility`:
 - Archived feedback keeps `status: archived`
 
 When moving an item between folders, update `status` and `updated` together.
+
+## Lifecycle helpers
+
+Use these scripts when the repository owner wants a tighter lifecycle:
+- `scripts/log_feedback.py` to create a new raw entry
+- `scripts/triage_feedback.py` to classify and move an item into `feedback/triaged/`
+- `scripts/resolve_feedback.py` to move an item into `feedback/resolved/` or archive it with a fix summary
+- `scripts/summarize_feedback.py` with `--audience developer` to create an issue-ready developer handoff inside `feedback/summaries/`
+
+Recommended progression:
+1. Capture the issue in `feedback/raw/`
+2. Triage it once the problem and owner are clear
+3. Resolve it only after the workflow, docs, template, or script change exists
+4. Reflect the shipped outcome in `CHANGELOG.md`
 
 ## Changelog relationship
 

@@ -30,6 +30,21 @@ def run_script(name: str, *args: str, cwd: Path = ROOT) -> str:
     return result.stdout.strip()
 
 
+def run_script_failure(name: str, *args: str, cwd: Path = ROOT) -> str:
+    script_path = STUDENT_OS_SCRIPTS / name
+    result = subprocess.run(
+        [sys.executable, "-B", str(script_path), *args],
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    if result.returncode == 0:
+        raise AssertionError(f"Expected {name} to fail for args {args!r}")
+    return (result.stderr or result.stdout).strip()
+
+
 def ensure_contains(path: Path, needle: str) -> None:
     text = path.read_text(encoding="utf-8")
     if needle not in text:
@@ -75,6 +90,139 @@ def rewrite_legacy_task_link(task_path: Path) -> None:
     task_path.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
 
 
+def exercise_feedback_lifecycle(repo: Path) -> None:
+    raw_path = Path(
+        run_script(
+            "log_feedback.py",
+            str(repo),
+            "--title",
+            "Weekly plan omitted imported deadline",
+            "--feedback-kind",
+            "workflow",
+            "--severity",
+            "high",
+            "--reproducibility",
+            "always",
+            "--source-context",
+            "plan-week request after adding a linked homework task",
+            "--related-artifacts",
+            "tasks/weekly/current.md,tasks/deadlines/sample.md",
+            "--related-roles",
+            "coordinator,planning-assistant",
+            "--what-happened",
+            "- The generated weekly plan skipped a deadline that already existed in tasks/deadlines/.",
+            "--expected-behavior",
+            "- Weekly plans should include near-term deadline tasks alongside inbox and review items.",
+            "--why-unsatisfying",
+            "- The user still has to manually inspect deadlines after asking for a full weekly plan.",
+            "--likely-cause",
+            "- The planning workflow did not include imported deadline artifacts in the scan window.",
+            "--suggested-improvement",
+            "- Expand planning scans to include imported deadline artifacts before sorting upcoming work.",
+            "--developer-summary",
+            "- Planning scans need a regression check for imported or linked deadline artifacts.",
+            "--evidence",
+            "- tasks/weekly/current.md and tasks/deadlines/sample.md",
+            "--follow-up",
+            "Triage into the next planning iteration.",
+        )
+    )
+    triaged_path = Path(
+        run_script(
+            "triage_feedback.py",
+            str(repo),
+            str(raw_path),
+            "--feedback-kind",
+            "workflow",
+            "--severity",
+            "high",
+            "--reproducibility",
+            "always",
+            "--triage-status",
+            "queued-for-planning",
+            "--follow-up",
+            "Bundle with the next planning workflow fix.",
+            "--triage-notes",
+            "- Confirmed the issue belongs to planning ingestion rather than task creation.",
+        )
+    )
+    resolved_path = Path(
+        run_script(
+            "resolve_feedback.py",
+            str(repo),
+            str(triaged_path),
+            "--resolution-summary",
+            "- Added planning regression coverage so imported deadlines appear in weekly plan summaries.",
+            "--fix-version",
+            "0.7.0",
+            "--changelog-note",
+            "- Weekly plans now preserve imported and linked deadline tasks in the upcoming-work scan.",
+            "--follow-up",
+            "Verify once against a real imported-deadline workflow.",
+        )
+    )
+    second_raw_path = Path(
+        run_script(
+            "log_feedback.py",
+            str(repo),
+            "--title",
+            "Weekly plan omitted imported deadline",
+            "--feedback-kind",
+            "workflow",
+            "--severity",
+            "medium",
+            "--reproducibility",
+            "sometimes",
+            "--source-context",
+            "second collision test",
+            "--developer-summary",
+            "- This duplicate entry should keep a unique filename and feedback_id.",
+        )
+    )
+    second_triaged_path = Path(
+        run_script(
+            "triage_feedback.py",
+            str(repo),
+            str(second_raw_path),
+            "--triage-status",
+            "needs-dedup-review",
+            "--triage-notes",
+            "- Collision handling preserved the older resolved item.",
+        )
+    )
+    quoted_text = second_triaged_path.read_text(encoding="utf-8")
+    quoted_text = quoted_text.replace("status: triaged", 'status: "triaged"')
+    quoted_text = quoted_text.replace("severity: medium", 'severity: "medium"')
+    second_triaged_path.write_text(quoted_text, encoding="utf-8", newline="\n")
+    outside_path = repo.parent / "outside-feedback.md"
+    outside_path.write_text("---\nstatus: open\n---\n", encoding="utf-8", newline="\n")
+    failure_output = run_script_failure("triage_feedback.py", str(repo), str(outside_path))
+    summary_path = Path(
+        run_script(
+            "summarize_feedback.py",
+            str(repo),
+            "--title",
+            "Developer feedback handoff",
+            "--scope",
+            "smoke-test",
+            "--audience",
+            "developer",
+        )
+    )
+
+    ensure_exists(resolved_path)
+    ensure_contains(resolved_path, "feedback_id:")
+    ensure_contains(resolved_path, "## Triage Notes")
+    ensure_contains(resolved_path, "## Resolution Summary")
+    ensure_contains(second_triaged_path, 'feedback_id: "fb-20260703-weekly-plan-omitted-imported-deadline-2"')
+    ensure_contains(summary_path, "## Developer Handoff")
+    ensure_contains(summary_path, "0.7.0")
+    ensure_contains(summary_path, "- Triaged items: 1")
+    ensure_contains(summary_path, "fb-20260703-weekly-plan-omitted-imported-deadline-2")
+    if "must stay under" not in failure_output:
+        raise AssertionError(f"Expected path-guard failure, got: {failure_output}")
+
+
 def build_single_semester(repo: Path, today: date) -> None:
     due_date = (today + timedelta(days=8)).isoformat()
     run_script("scaffold_repo.py", str(repo))
@@ -83,6 +231,7 @@ def build_single_semester(repo: Path, today: date) -> None:
     run_script("build_review_indexes.py", str(repo))
     run_script("build_week_plan.py", str(repo), "--days", "14")
     run_script("rebuild_indexes.py", str(repo))
+    exercise_feedback_lifecycle(repo)
 
     ensure_exists(repo / "courses" / "linear-algebra" / "index.md")
     ensure_exists(repo / "courses" / "linear-algebra" / "homework" / "worksheet-a.md")

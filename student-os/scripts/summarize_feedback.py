@@ -6,6 +6,8 @@ from collections import Counter
 from datetime import date
 from pathlib import Path
 
+from feedback_utils import extract_title, normalize_scalar, parse_frontmatter
+
 
 STATUSES = {
     "raw": "open",
@@ -14,25 +16,17 @@ STATUSES = {
 }
 
 
-def parse_frontmatter(path: Path) -> dict[str, str]:
-    text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
-    if not text.startswith("---\n"):
-        return {}
-    block = text.split("---\n", 2)[1]
-    data: dict[str, str] = {}
-    for line in block.splitlines():
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        data[key.strip()] = value.strip().strip('"')
-    return data
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Summarize student-os feedback entries.")
     parser.add_argument("repo", help="Target repository root")
     parser.add_argument("--title", default="Current Feedback", help="Summary title")
     parser.add_argument("--scope", default="repository", help="Summary scope label")
+    parser.add_argument(
+        "--audience",
+        default="workspace",
+        choices=["workspace", "developer"],
+        help="Choose a workspace snapshot or a developer-handoff summary layout.",
+    )
     args = parser.parse_args()
 
     repo = Path(args.repo).resolve()
@@ -44,17 +38,28 @@ def main() -> int:
         if not folder.exists():
             continue
         for path in sorted(folder.glob("*.md")):
-            data = parse_frontmatter(path)
-            if not data:
+            frontmatter, body = parse_frontmatter(path)
+            if not frontmatter:
                 continue
+            data = dict(frontmatter)
             data["path"] = str(path.relative_to(repo)).replace("\\", "/")
-            data.setdefault("status", status)
+            data["status"] = normalize_scalar(data.get("status", status))
+            data["severity"] = normalize_scalar(data.get("severity", "medium"))
+            data["feedback_kind"] = normalize_scalar(data.get("feedback_kind", "other"))
+            data["fix_version"] = normalize_scalar(data.get("fix_version", ""))
+            data["feedback_id"] = normalize_scalar(data.get("feedback_id", ""))
+            data["title"] = extract_title(body) or path.stem
             all_items.append(data)
 
     by_kind = Counter(item.get("feedback_kind", "other") for item in all_items)
+    by_status = Counter(item.get("status", "open") for item in all_items)
     open_high = [
         item for item in all_items
         if item.get("status") in {"open", "triaged"} and item.get("severity") == "high"
+    ]
+    pending_items = [
+        item for item in all_items
+        if item.get("status") in {"open", "triaged"}
     ]
     recent_resolved = [
         item for item in all_items
@@ -73,6 +78,7 @@ def main() -> int:
         f"updated: {today}",
         "tags: [feedback, summary]",
         f"summary_scope: {args.scope}",
+        f'summary_audience: "{args.audience}"',
         "---",
         "",
         f"# Feedback Summary - {args.title}",
@@ -80,10 +86,12 @@ def main() -> int:
         "## Snapshot",
         "",
         f"- Scope: {args.scope}",
+        f"- Audience: {args.audience}",
         f"- Total feedback items: {len(all_items)}",
-        f"- Open items: {sum(1 for item in all_items if item.get('status') == 'open')}",
-        f"- Triaged items: {sum(1 for item in all_items if item.get('status') == 'triaged')}",
-        f"- Resolved items: {sum(1 for item in all_items if item.get('status') == 'resolved')}",
+        f"- Open items: {by_status.get('open', 0)}",
+        f"- Triaged items: {by_status.get('triaged', 0)}",
+        f"- Resolved items: {by_status.get('resolved', 0)}",
+        f"- Archived items: {by_status.get('archived', 0)}",
         "",
         "## By Kind",
         "",
@@ -98,23 +106,48 @@ def main() -> int:
     lines.extend(["", "## High Priority Open Items", ""])
     if open_high:
         for item in open_high:
-            lines.append(f"- {item.get('path')}: {item.get('feedback_kind', 'other')} / {item.get('status', 'open')}")
+            lines.append(
+                f"- {item.get('title')}: {item.get('feedback_kind', 'other')} / {item.get('status', 'open')} / {item.get('path')}"
+            )
     else:
         lines.append("- No high-priority open items.")
+
+    lines.extend(["", "## Pending Queue", ""])
+    if pending_items:
+        for item in pending_items[:10]:
+            lines.append(
+                f"- {item.get('title')}: {item.get('feedback_kind', 'other')} / {item.get('severity', 'medium')} / {item.get('status', 'open')}"
+            )
+    else:
+        lines.append("- No pending feedback items.")
 
     lines.extend(["", "## Recent Resolutions", ""])
     if recent_resolved:
         for item in recent_resolved:
-            lines.append(f"- {item.get('path')}: {item.get('feedback_kind', 'other')}")
+            version = item.get("fix_version", "")
+            suffix = f" / {version}" if version else ""
+            lines.append(f"- {item.get('title')}: {item.get('feedback_kind', 'other')}{suffix}")
     else:
         lines.append("- No resolved items yet.")
+
+    if args.audience == "developer":
+        lines.extend(["", "## Developer Handoff", ""])
+        if pending_items:
+            for item in pending_items[:10]:
+                feedback_id = item.get("feedback_id", "")
+                lines.append(
+                    f"- {feedback_id or item.get('path')}: {item.get('title')} ({item.get('feedback_kind', 'other')}, {item.get('severity', 'medium')})"
+                )
+        else:
+            lines.append("- No open developer follow-up items.")
 
     lines.extend(
         [
             "",
             "## Suggested Follow-up",
             "",
-            "- Triage repeated `quality` and `workflow` items first.",
+            "- Triage repeated `quality`, `workflow`, and `import` items first.",
+            "- Move implementation-ready items to `feedback/triaged/` before bundling them into the next dev cycle.",
             "- Fold shipped fixes into `CHANGELOG.md` instead of copying full feedback entries.",
             "",
         ]
