@@ -17,6 +17,12 @@ def list_markdown_files(path: Path) -> list[str]:
     return sorted([p.name for p in path.glob("*.md") if p.is_file()])
 
 
+def parse_course_dirs(courses_root: Path) -> list[Path]:
+    if not courses_root.exists():
+        return []
+    return sorted(path.parent for path in courses_root.rglob("index.md"))
+
+
 def write_index(path: Path, title: str, items: list[str]) -> None:
     body = [f"# {title}", "", "## Entries", ""]
     if items:
@@ -34,10 +40,24 @@ def main() -> int:
 
     root = Path(args.repo).resolve()
     index_dir = root / ".student-os" / "index"
-    write_index(index_dir / "courses.md", "Course Index", [p.name for p in list_children(root / "courses")])
+    course_dirs = parse_course_dirs(root / "courses")
+    write_index(
+        index_dir / "courses.md",
+        "Course Index",
+        [str(path.relative_to(root)).replace("\\", "/") for path in course_dirs],
+    )
+    write_index(index_dir / "semesters.md", "Semester Index", [p.name for p in list_children(root / "semesters")])
     write_index(index_dir / "projects.md", "Project Index", [p.name for p in list_children(root / "projects")])
     write_index(index_dir / "tasks.md", "Task Index", [p.name for p in list_children(root / "tasks")])
     write_index(index_dir / "dashboards.md", "Dashboard Index", list_markdown_files(root / "dashboards"))
+
+    semester_index_root = index_dir / "semesters"
+    for semester_dir in list_children(root / "semesters"):
+        write_index(
+            semester_index_root / f"{semester_dir.name}.md",
+            f"Semester - {semester_dir.name}",
+            list_markdown_files(semester_dir),
+        )
 
     recent = sorted(
         [p for p in root.rglob("*.md") if ".student-os\\index" not in str(p)],

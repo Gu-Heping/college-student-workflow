@@ -1,6 +1,7 @@
 ---
 type: reference
 course: {{course_name}}
+semester: {{semester_label}}
 status: active
 created: {{date}}
 updated: {{date}}
@@ -11,7 +12,7 @@ tags: [course/{{course_slug}}]
 
 ## Snapshot
 
-- Semester:
+- Semester: {{semester_label}}
 - Instructor:
 - Status:
 - Important dates:
