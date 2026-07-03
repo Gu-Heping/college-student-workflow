@@ -1,10 +1,29 @@
 # Changelog
 
-此文件记录本项目的所有显著变更。
-
-格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并且本项目遵循[语义化版本](https://semver.org/lang/zh-CN/)。
+本文件记录本项目的所有显著变更。
+格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 ## [Unreleased]
+
+## [0.6.0] - 2026-07-03
+
+### Added
+
+- 为 `student-os` 增加多学期知识库支持，允许同时管理单学期仓库和 `courses/<semester>/<course>/` 形式的多学期仓库。
+- 新增 `semesters/` 顶层契约与 `templates/semester-overview.md`，用于维护学期总览和课程入口。
+- 新增 `student-os/scripts/course_layout.py`，统一课程发现、课程路径解析和多学期课程定位逻辑。
+
+### Changed
+
+- 更新 `scaffold_course.py`，在创建带学期标签的课程时同步生成学期总览、课程列表，并启用仓库中的 semester mode。
+- 更新 `scaffold_homework.py`、`build_review_indexes.py`、`build_week_plan.py`、`rebuild_indexes.py`、`inspect_repo.py` 和 `group_git_changes.py`，使多学期课程、legacy 课程和 Git 分组策略保持一致。
+- 更新 `README.md`、`SKILL.md`、`academic-workflow.md`、`vault-governance.md`、`repo-profile.md`、`course-home.md` 和 `course-dashboard.md`，补充多学期仓库约定与使用示例。
+
+### Fixed
+
+- 修复多学期课程下作业脚手架、周计划、review 索引和课程索引无法正确识别嵌套课程目录的问题。
+- 修复 semester overview 会覆盖用户手写内容、错误回填课程标题或错误翻转 `semesters.enabled` 标志的问题。
+- 修复 legacy 课程目录在缺少 `index.md` 时无法被发现，导致作业脚手架和索引脚本退化的问题。
 
 ## [0.5.0] - 2026-07-03
 
@@ -19,7 +38,7 @@
 
 - 扩展 `student-os` 总控 skill，使其能够识别反馈记录、反馈汇总和反馈状态流转请求。
 - 扩展 Git 变更分组规则，使反馈文件能够与课程、作业、复习和仓库运维改动分开建议提交。
-- 在 README 中新增 feedback loop 使用说明，并说明反馈与 `CHANGELOG.md` 的关系。
+- 在 `README.md` 中新增 feedback loop 使用说明，并说明反馈与 `CHANGELOG.md` 的关系。
 
 ### Fixed
 
@@ -30,9 +49,9 @@
 
 ### Added
 
-- 新增 `student-os` 一键安装器，支持为 Codex、Claude Code 与 OpenCode 安装 skill。
+- 新增 `student-os` 一键安装器，支持为 Codex、Claude Code 和 OpenCode 安装 skill。
 - 新增跨平台安装入口 `install.ps1`、`install.sh` 与 `scripts/install_student_os.py`。
-- 在 README 中补充安装方式、目标目录和常见安装命令。
+- 在 `README.md` 中补充安装方式、目标目录和常见安装命令。
 
 ### Changed
 
@@ -49,19 +68,19 @@
 
 ### Added
 
-- 新增文件导入与资料处理链路，覆盖 `PDF`、`DOCX`、`XLSX` 与 `PPTX`。
-- 新增 `file-operator` companion 角色以及 `import-file`、`pdf-to-md`、`tabular-summary` 命令入口。
+- 新增文件导入与资料处理链路，覆盖 `PDF`、`DOCX`、`XLSX` 和 `PPTX`。
+- 新增 `file-operator` companion 角色，以及 `import-file`、`pdf-to-md`、`tabular-summary` 命令入口。
 - 新增导入类模板、文件处理 references 与相关脚本。
 - 新增 `requirements.txt`，声明导入脚本依赖。
 
 ### Changed
 
-- 将 PDF 导入扩展为 generic 与 MinerU-style 双模式。
+- 将 PDF 导入扩展为 generic 和 MinerU-style 双模式。
 - 将导入产物正式接入 `student-os` 的知识库契约与 Git 分组规则。
 
 ### Fixed
 
-- 改进 PDF 导入的修复链路、图片占位保留与修复稿 provenance。
+- 改进 PDF 导入的修复链路、图片占位保留与修复来源说明。
 - 修复 DOCX 表格与段落输出顺序，保持原始文档块顺序。
 - 修复 XLSX 大表截断策略、Markdown 转义与公式回退逻辑。
 - 修复导入类 frontmatter 的 YAML 路径安全性。
@@ -89,12 +108,13 @@
 
 ### Added
 
-- 初始化 `student-os` 顶层 skill，建立 Git-first 的大学生知识库工作流定位。
-- 新增基础仓库契约、课程/任务/项目/复习目录约定与模板集合。
+- 初始提供 `student-os` 顶层 skill，建立 Git-first 的大学生知识库工作流定位。
+- 新增基础仓库契约、课程、任务、项目、复习目录约定与模板集合。
 - 新增基础脚本，包括仓库检查、课程脚手架、索引重建、活动汇总与 Git 分组辅助。
-- 新增 README，说明仓库目标与 `student-os` 的使用方式。
+- 新增 `README.md`，说明仓库目标与 `student-os` 的使用方式。
 
-[Unreleased]: https://github.com/Gu-Heping/college-student-workflow/compare/a00ee8f01bc15ed6f09339e1b37c8166a765987a...HEAD
+[Unreleased]: https://github.com/Gu-Heping/college-student-workflow/compare/9a663267a29055728fd5f2425548dc327c830bb7...HEAD
+[0.6.0]: https://github.com/Gu-Heping/college-student-workflow/compare/a00ee8f01bc15ed6f09339e1b37c8166a765987a...9a663267a29055728fd5f2425548dc327c830bb7
 [0.5.0]: https://github.com/Gu-Heping/college-student-workflow/compare/d51e56ec1416be3b937f067c65798e4a108b728e...a00ee8f01bc15ed6f09339e1b37c8166a765987a
 [0.4.0]: https://github.com/Gu-Heping/college-student-workflow/compare/05b35868f272176a4e52cbab4ae5159018790b8d...32ad733bf899c946b300944e2c5e6250aa1c05ea
 [0.3.0]: https://github.com/Gu-Heping/college-student-workflow/compare/98ab862469f2b6ea9425a3d3c629b02084879e21...05b35868f272176a4e52cbab4ae5159018790b8d
