@@ -62,6 +62,19 @@ def copy_repo(src: Path, dest: Path) -> None:
     shutil.copytree(src, dest)
 
 
+def load_import_dependencies() -> tuple[object, object, object, object]:
+    try:
+        from docx import Document
+        from openpyxl import Workbook
+        from pypdf import PdfWriter
+        from pptx import Presentation
+    except ImportError as exc:
+        raise SystemExit(
+            "Missing one or more import-workflow dependencies. Install requirements.txt before running smoke tests."
+        ) from exc
+    return Document, Workbook, Presentation, PdfWriter
+
+
 def normalize_text_files(root: Path) -> None:
     for path in root.rglob("*"):
         if not path.is_file():
@@ -76,6 +89,25 @@ def normalize_text_files(root: Path) -> None:
         path.write_text(normalized, encoding="utf-8", newline="\n")
 
 
+def scrub_example_paths(root: Path, source_root: Path) -> None:
+    abs_root = str(source_root.resolve())
+    escaped_root = abs_root.replace("\\", "\\\\")
+    for path in root.rglob("*"):
+        if not path.is_file() or path.name == ".gitkeep":
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        scrubbed = text
+        scrubbed = scrubbed.replace(f"{escaped_root}\\\\", "")
+        scrubbed = scrubbed.replace(f"{escaped_root}/", "")
+        scrubbed = scrubbed.replace(f"{abs_root}\\", "")
+        scrubbed = scrubbed.replace(f"{abs_root}/", "")
+        if scrubbed != text:
+            path.write_text(scrubbed, encoding="utf-8", newline="\n")
+
+
 def materialize_empty_dirs(root: Path) -> None:
     for path in sorted([candidate for candidate in root.rglob("*") if candidate.is_dir()], key=lambda item: len(item.parts), reverse=True):
         if any(path.iterdir()):
@@ -88,6 +120,181 @@ def rewrite_legacy_task_link(task_path: Path) -> None:
     old = "- Course: ../../courses/legacy-course/index.md"
     new = "- Course: legacy course folder without generated course home"
     task_path.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
+
+
+def write_docx_fixture(path: Path) -> None:
+    Document, _, _, _ = load_import_dependencies()
+    document = Document()
+    document.add_heading("Linear Algebra Import Outline", level=1)
+    document.add_paragraph("Focus on eigenvalues, diagonalization, and orthogonality.")
+    table = document.add_table(rows=3, cols=2)
+    table.rows[0].cells[0].text = "Week"
+    table.rows[0].cells[1].text = "Topic"
+    table.rows[1].cells[0].text = "3"
+    table.rows[1].cells[1].text = "Eigenvectors"
+    table.rows[2].cells[0].text = "4"
+    table.rows[2].cells[1].text = "Orthogonal bases"
+    document.save(str(path))
+
+
+def write_xlsx_fixture(path: Path) -> None:
+    _, Workbook, _, _ = load_import_dependencies()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Progress"
+    ws.append(["Task", "Score", "Weight", "Weighted"])
+    ws.append(["Quiz 1", 92, 0.2, "=B2*C2"])
+    ws.append(["Homework 1", 88, 0.3, "=B3*C3"])
+    ws.append(["Midterm Prep", None, 0.5, "=B4*C4"])
+    second = wb.create_sheet("Deadlines")
+    second.append(["Item", "Date"])
+    second.append(["Worksheet A", "2026-07-11"])
+    second.append(["Review Session", "2026-07-12"])
+    wb.save(str(path))
+
+
+def write_pptx_fixture(path: Path) -> None:
+    _, _, Presentation, _ = load_import_dependencies()
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[0])
+    slide.shapes.title.text = "Linear Algebra Week 2"
+    slide.placeholders[1].text = "Diagonalization and basis changes"
+    slide2 = prs.slides.add_slide(prs.slide_layouts[1])
+    slide2.shapes.title.text = "Key reminders"
+    slide2.placeholders[1].text = "Check eigenvalue multiplicities\nLink notes to review sheets"
+    prs.save(str(path))
+
+
+def write_pdf_fixture(path: Path) -> None:
+    _, _, _, PdfWriter = load_import_dependencies()
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=612, height=792)
+    font = DictionaryObject(
+        {
+            NameObject("/Type"): NameObject("/Font"),
+            NameObject("/Subtype"): NameObject("/Type1"),
+            NameObject("/BaseFont"): NameObject("/Helvetica"),
+        }
+    )
+    page[NameObject("/Resources")] = DictionaryObject(
+        {NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})}
+    )
+    stream = DecodedStreamObject()
+    stream.set_data(
+        b"BT\n/F1 18 Tf\n72 720 Td\n(Linear algebra import handout) Tj\n0 -24 Td\n(Orthogonal projection summary) Tj\nET"
+    )
+    page[NameObject("/Contents")] = writer._add_object(stream)
+    writer.add_metadata({"/Title": "Linear Algebra Import Handout"})
+    with path.open("wb") as handle:
+        writer.write(handle)
+
+
+def exercise_import_workflows(repo: Path) -> None:
+    fixture_root = repo / "references" / "imports" / "source"
+    fixture_root.mkdir(parents=True, exist_ok=True)
+    docx_path = fixture_root / "linear-algebra-outline.docx"
+    xlsx_path = fixture_root / "linear-algebra-progress.xlsx"
+    pptx_path = fixture_root / "linear-algebra-week-2.pptx"
+    pdf_path = fixture_root / "linear-algebra-handout.pdf"
+    write_docx_fixture(docx_path)
+    write_xlsx_fixture(xlsx_path)
+    write_pptx_fixture(pptx_path)
+    write_pdf_fixture(pdf_path)
+
+    docx_output = repo / "courses" / "linear-algebra" / "references" / "outline-import.md"
+    xlsx_output = repo / "dashboards" / "linear-algebra-progress-import.md"
+    pptx_output = repo / "references" / "slides" / "linear-algebra-week-2.md"
+    pdf_generic_output = repo / "courses" / "linear-algebra" / "references" / "handout-generic-import.md"
+    pdf_mineru_output = repo / "references" / "imports" / "raw" / "linear-algebra-handout.md"
+    repair_input = repo / "references" / "imports" / "raw" / "manual-repair-sample.md"
+    repair_output = repo / "references" / "imports" / "repaired" / "manual-repair-sample.md"
+    repair_summary = repo / "references" / "imports" / "repaired" / "manual-repair-sample-repair-summary.md"
+
+    docx_payload = json.loads(run_script("docx_to_md.py", str(docx_path), "--output", str(docx_output)))
+    xlsx_payload = json.loads(run_script("xlsx_to_md.py", str(xlsx_path), "--output", str(xlsx_output), "--max-rows", "3"))
+    pptx_payload = json.loads(run_script("pptx_to_md.py", str(pptx_path), "--output", str(pptx_output)))
+    pdf_probe_payload = json.loads(run_script("pdf_probe.py", str(pdf_path)))
+    pdf_generic_payload = json.loads(
+        run_script("pdf_to_markdown.py", str(pdf_path), "--output", str(pdf_generic_output), "--mode", "generic")
+    )
+    pdf_mineru_payload = json.loads(
+        run_script("pdf_to_markdown.py", str(pdf_path), "--output", str(pdf_mineru_output), "--mode", "mineru-style")
+    )
+
+    repair_input.write_text(
+        "\n".join(
+            [
+                "---",
+                "type: pdf-import-note",
+                "course:",
+                "status: active",
+                "created:",
+                "updated:",
+                "tags: [import, pdf]",
+                f'source_file: "{pdf_path}"',
+                "import_method: manual-test",
+                "repair_status: raw",
+                'derived_from_import: ""',
+                "---",
+                "",
+                "#Broken heading",
+                "",
+                "Page 1",
+                "",
+                "-  Bullet with extra spacing",
+                "",
+                "## Next section ........ 4",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    repair_payload = json.loads(
+        run_script(
+            "repair_markdown_import.py",
+            str(repair_input),
+            "--output",
+            str(repair_output),
+            "--summary-path",
+            str(repair_summary),
+            "--derived-from",
+            str(repair_input),
+        )
+    )
+
+    ensure_exists(Path(docx_payload["output"]))
+    ensure_contains(docx_output, "Linear Algebra Import Outline")
+    ensure_contains(docx_output, "## Table 1")
+    ensure_exists(Path(xlsx_payload["output"]))
+    ensure_contains(xlsx_output, "| Task | Score | Weight | Weighted |")
+    ensure_contains(xlsx_output, "=B2*C2")
+    ensure_contains(xlsx_output, "Truncated after 3 rows.")
+    ensure_exists(Path(pptx_payload["output"]))
+    ensure_contains(pptx_output, "## Slide 1: Linear Algebra Week 2")
+    ensure_contains(pptx_output, "Diagonalization and basis changes")
+    if pdf_probe_payload["page_count"] != 1:
+        raise AssertionError(f"Expected a one-page PDF fixture, got: {pdf_probe_payload}")
+    ensure_exists(Path(pdf_generic_payload["output"]))
+    ensure_contains(pdf_generic_output, "Import method: generic")
+    ensure_contains(pdf_generic_output, "Linear algebra import handout")
+    ensure_exists(Path(pdf_mineru_payload["output"]))
+    ensure_contains(repo / "references" / "imports" / "raw" / "linear-algebra-handout.md", "repair_status: raw")
+    ensure_contains(repo / "references" / "imports" / "repaired" / "linear-algebra-handout.md", "repair_status: repaired")
+    ensure_contains(repo / "references" / "imports" / "repaired" / "linear-algebra-handout-repair-summary.md", "# Repair Summary")
+    ensure_exists(Path(repair_payload["output"]))
+    ensure_contains(repair_output, "# Broken heading")
+    ensure_contains(repair_output, "- Bullet with extra spacing")
+    ensure_contains(repair_summary, "Removed isolated page labels.")
+    ensure_contains(repair_summary, "Normalized heading spacing.")
+    ensure_contains(repair_summary, "Trimmed heading dot leaders or page-number residue.")
+
+    docx_path.unlink()
+    xlsx_path.unlink()
+    pptx_path.unlink()
+    pdf_path.unlink()
 
 
 def exercise_feedback_lifecycle(repo: Path) -> None:
@@ -232,6 +439,7 @@ def build_single_semester(repo: Path, today: date) -> None:
     run_script("build_week_plan.py", str(repo), "--days", "14")
     run_script("rebuild_indexes.py", str(repo))
     exercise_feedback_lifecycle(repo)
+    exercise_import_workflows(repo)
 
     ensure_exists(repo / "courses" / "linear-algebra" / "index.md")
     ensure_exists(repo / "courses" / "linear-algebra" / "homework" / "worksheet-a.md")
@@ -316,10 +524,13 @@ def main() -> int:
             copy_repo(single_repo, EXAMPLES_ROOT / "single-semester-demo")
             copy_repo(multi_repo, EXAMPLES_ROOT / "multi-semester-demo")
             copy_repo(legacy_repo, EXAMPLES_ROOT / "legacy-layout-demo")
-            for example_root in EXAMPLES_ROOT.iterdir():
-                if not example_root.is_dir():
-                    continue
+            for example_root, source_root in [
+                (EXAMPLES_ROOT / "single-semester-demo", single_repo),
+                (EXAMPLES_ROOT / "multi-semester-demo", multi_repo),
+                (EXAMPLES_ROOT / "legacy-layout-demo", legacy_repo),
+            ]:
                 materialize_empty_dirs(example_root)
+                scrub_example_paths(example_root, source_root)
                 normalize_text_files(example_root)
 
     print("OK single-semester-demo")

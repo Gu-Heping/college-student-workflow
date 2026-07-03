@@ -209,6 +209,7 @@ This repository now includes generated example student knowledge bases and a rep
 
 - `examples/single-semester-demo/` shows the default `courses/<course>/` layout.
 - `examples/single-semester-demo/` also exercises the feedback lifecycle from raw capture to resolved summary.
+- `examples/single-semester-demo/` now includes imported DOCX, XLSX, PPTX, and PDF-derived markdown artifacts.
 - `examples/multi-semester-demo/` shows semester-aware course scaffolding and semester overviews.
 - `examples/legacy-layout-demo/` keeps a legacy-style course folder without a generated course home so fallback discovery stays covered.
 
@@ -223,6 +224,15 @@ Refresh the checked-in examples from the real scripts:
 ```bash
 python scripts/run_smoke_tests.py --refresh-examples
 ```
+
+The smoke suite now covers:
+
+- repository scaffolding and indexing
+- feedback capture, triage, resolve, and developer summaries
+- DOCX import into course references
+- XLSX import into dashboard-style summaries
+- PPTX import into slide summaries
+- PDF probe, generic import, MinerU-style repair flow, and direct markdown repair rules
 
 ## Example use cases
 
@@ -246,6 +256,7 @@ What already exists:
 - starter templates for common student artifacts
 - helper scripts for repository setup and reporting
 - a repository-native feedback lifecycle with triage, resolution, and developer-handoff summaries
+- repeatable import regression coverage with generated DOCX, XLSX, PPTX, and PDF examples
 
 What is still likely to evolve:
 
@@ -253,6 +264,7 @@ What is still likely to evolve:
 - more structured Git workflow helpers
 - stronger automation around dashboards, summaries, and review generation
 - broader end-to-end regression coverage for imports and multi-role collaboration
+- more edge-case coverage for large or messy imported source files
 
 ## Roadmap
 
@@ -261,7 +273,7 @@ Planned directions for the next iterations:
 1. Add more robust legacy-vault detection and mapping rules.
 2. Expand templates for labs, weekly plans, and course dashboards.
 3. Add safer Git grouping helpers for mixed dirty worktrees.
-4. Expand the example repositories and smoke tests into broader end-to-end regression coverage, especially for imports and multi-role collaboration.
+4. Expand the example repositories and smoke tests into broader end-to-end regression coverage, especially for multi-role collaboration and harder import edge cases.
 
 ## Notes
 
