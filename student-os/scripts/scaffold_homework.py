@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import argparse
-import re
+import os
 from datetime import date
 from pathlib import Path
 
-
-def slugify(value: str) -> str:
-    slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
-    return slug or "item"
+from course_layout import resolve_course_dir, slugify
 
 
 def fill_template(template_path: Path, replacements: dict[str, str]) -> str:
@@ -42,22 +39,34 @@ def append_backlink(path: Path, marker: str, line: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def read_course_name(course_dir: Path) -> str:
+    index_path = course_dir / "index.md"
+    if index_path.exists():
+        for line in index_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("# "):
+                return stripped[2:].strip()
+    return course_dir.name.replace("-", " ").title()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Scaffold homework, linked solution, and deadline task artifacts.")
     parser.add_argument("repo", help="Target repository root")
     parser.add_argument("course_slug", help="Course slug, e.g. analog-electronics")
     parser.add_argument("homework_title", help="Homework title")
     parser.add_argument("--course-name", default="", help="Human-readable course name")
+    parser.add_argument("--semester", default="", help="Optional semester label for nested course paths")
     parser.add_argument("--due", default="", help="ISO due date")
     parser.add_argument("--problems", default="", help="Problem labels, e.g. 1,2a,3")
     args = parser.parse_args()
 
     repo = Path(args.repo).resolve()
-    course_slug = slugify(args.course_slug)
-    course_name = args.course_name or course_slug.replace("-", " ").title()
+    course_dir = resolve_course_dir(repo, args.course_slug, semester=args.semester)
+    course_slug = course_dir.name
+    course_name = args.course_name or read_course_name(course_dir)
     today = date.today().isoformat()
     homework_slug = slugify(args.homework_title)
-    course_dir = repo / "courses" / course_slug
+    course_key = "-".join(course_dir.relative_to(repo / "courses").parts)
     template_root = Path(__file__).resolve().parents[1] / "templates"
 
     replacements = {
@@ -77,7 +86,7 @@ def main() -> int:
 
     homework_path = course_dir / "homework" / f"{homework_slug}.md"
     solution_path = course_dir / "homework" / f"{homework_slug}-solution.md"
-    task_path = repo / "tasks" / "deadlines" / f"{course_slug}-{homework_slug}.md" if args.due else None
+    task_path = repo / "tasks" / "deadlines" / f"{course_key}-{homework_slug}.md" if args.due else None
 
     homework_text = fill_template(template_root / "homework.md", replacements)
     if args.due:
@@ -86,13 +95,17 @@ def main() -> int:
         problem_lines = "\n".join([f"- [ ] {p.strip()}" for p in args.problems.split(",") if p.strip()])
         homework_text += f"\n## Problem List\n\n{problem_lines}\n"
     homework_text = homework_text.replace("- Course home:", f"- Course home: ../index.md")
-    homework_text = homework_text.replace("- Related task:", f"- Related task: ../../../tasks/deadlines/{course_slug}-{homework_slug}.md" if args.due else "- Related task:")
+    if task_path is not None:
+        related_task = Path(os.path.relpath(task_path, homework_path.parent)).as_posix()
+        homework_text = homework_text.replace("- Related task:", f"- Related task: {related_task}")
+    else:
+        homework_text = homework_text.replace("- Related task:", "- Related task:")
     write_if_missing(homework_path, homework_text)
 
     solution_text = fill_template(template_root / "homework-solution.md", replacements)
     if args.problems:
         blocks = []
-        for index, problem in enumerate([p.strip() for p in args.problems.split(",") if p.strip()], start=1):
+        for problem in [p.strip() for p in args.problems.split(",") if p.strip()]:
             blocks.append(
                 f"### Problem {problem}\n\n#### Setup\n\n- \n\n#### Derivation Or Reasoning\n\n1. \n\n#### Final Answer\n\n- \n\n#### Notes\n\n- Reference source:\n- Needs review:\n"
             )
@@ -101,15 +114,21 @@ def main() -> int:
         if start != -1 and end != -1:
             solution_text = solution_text[:start] + "\n".join(blocks) + "\n\n" + solution_text[end:]
     solution_text = solution_text.replace("- Homework page:", f"- Homework page: {homework_path.name}")
-    solution_text = solution_text.replace("- Deadline task:", f"- Deadline task: ../../../tasks/deadlines/{course_slug}-{homework_slug}.md" if args.due else "- Deadline task:")
+    if task_path is not None:
+        deadline_task = Path(os.path.relpath(task_path, solution_path.parent)).as_posix()
+        solution_text = solution_text.replace("- Deadline task:", f"- Deadline task: {deadline_task}")
+    else:
+        solution_text = solution_text.replace("- Deadline task:", "- Deadline task:")
     write_if_missing(solution_path, solution_text)
 
     if task_path is not None:
         task_text = fill_template(template_root / "task.md", replacements)
         task_text = task_text.replace("- Due:", f"- Due: {args.due}")
         task_text = task_text.replace("- Area:", "- Area: homework")
-        task_text = task_text.replace("- Course:", f"- Course: ../../courses/{course_slug}/index.md")
-        task_text = task_text.replace("- Source file:", f"- Source file: ../../courses/{course_slug}/homework/{homework_slug}.md")
+        task_course_ref = Path(os.path.relpath(course_dir / "index.md", task_path.parent)).as_posix()
+        task_source_ref = Path(os.path.relpath(homework_path, task_path.parent)).as_posix()
+        task_text = task_text.replace("- Course:", f"- Course: {task_course_ref}")
+        task_text = task_text.replace("- Source file:", f"- Source file: {task_source_ref}")
         write_if_missing(task_path, task_text)
 
     append_backlink(course_dir / "index.md", "## Active Items", f"- [ ] [{args.homework_title} homework](homework/{homework_slug}.md)")

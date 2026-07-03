@@ -7,10 +7,12 @@ import subprocess
 from pathlib import Path
 
 
-CANONICAL_DIRS = ["courses", "projects", "tasks", "reviews", "references", "dashboards", ".student-os"]
+CANONICAL_DIRS = ["courses", "semesters", "projects", "tasks", "reviews", "references", "dashboards", ".student-os"]
 
 
 def git_lines(root: Path) -> list[str]:
+    if not (root / ".git").exists():
+        return []
     try:
         output = subprocess.run(
             ["git", "-C", str(root), "status", "--short"],

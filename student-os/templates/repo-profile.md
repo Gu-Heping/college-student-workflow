@@ -11,6 +11,7 @@
 ```yaml
 paths:
   courses: courses
+  semesters: semesters
   projects: projects
   tasks: tasks
   reviews: reviews
@@ -24,6 +25,15 @@ Use this section when the repository already has stable custom folders.
 
 ```yaml
 legacy_paths: {}
+```
+
+## Semester Conventions
+
+```yaml
+semesters:
+  enabled: false
+  default_course_pattern: courses/<semester>/<course>
+  overview_root: semesters
 ```
 
 ## Git Preferences

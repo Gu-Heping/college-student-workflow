@@ -12,6 +12,7 @@ Use this reference when the request is about repository setup, path mapping, ind
 
 Preferred directories:
 - `courses/`
+- `semesters/`
 - `projects/`
 - `tasks/`
 - `reviews/`

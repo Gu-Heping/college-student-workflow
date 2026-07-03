@@ -1,6 +1,7 @@
 ---
 type: course-dashboard
 course: {{course_name}}
+semester: {{semester_label}}
 status: active
 created: {{date}}
 updated: {{date}}

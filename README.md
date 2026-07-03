@@ -6,6 +6,22 @@ The first artifact in this repo is [`student-os`](./student-os/), a cross-agent 
 
 Recent notable changes are tracked in [CHANGELOG.md](./CHANGELOG.md).
 
+## Multi-Semester Support
+
+`student-os` can support both single-semester and multi-semester repositories.
+
+- Simple repositories can keep using `courses/<course>/`
+- Semester-aware repositories can use `courses/<semester>/<course>/`
+- Shared semester overviews live under `semesters/<semester>/`
+- `.student-os/repo-profile.md` starts with `semesters.enabled: false` and flips to `true` when you scaffold semester-tagged courses
+
+Example:
+
+```bash
+python student-os/scripts/scaffold_course.py /path/to/repo "Analog Electronics" --semester "2026 Spring"
+python student-os/scripts/rebuild_indexes.py /path/to/repo
+```
+
 ## Feedback Loop
 
 `student-os` now supports a repository-native feedback loop for structured workflow improvement.

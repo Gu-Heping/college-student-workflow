@@ -15,11 +15,18 @@ For a new course, prefer:
 - `courses/<course-slug>/labs/`
 - `courses/<course-slug>/references/`
 
+If the repository actively tracks multiple semesters, or `.student-os/repo-profile.md` sets `semesters.enabled: true`, prefer:
+- `courses/<semester-slug>/<course-slug>/index.md`
+- `courses/<semester-slug>/<course-slug>/dashboard.md`
+- `semesters/<semester-slug>/overview.md`
+- `semesters/<semester-slug>/courses.md`
+
 ## Common task patterns
 
 ### Add a new course
 
 - Create the course folder tree.
+- When a semester label is known, prefer a semester-aware course path and link it from the semester overview.
 - Create `index.md` from `templates/course-home.md`.
 - Create `dashboard.md` from `templates/course-dashboard.md`.
 - Add an entry to the course index.

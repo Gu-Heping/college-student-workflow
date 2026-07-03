@@ -5,6 +5,8 @@ import argparse
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from course_layout import discover_course_dirs
+
 
 def parse_due(text: str) -> str | None:
     for line in text.splitlines():
@@ -40,12 +42,12 @@ def main() -> int:
         if today <= due_date <= today + timedelta(days=args.days):
             deadlines.append((due_date, path))
 
-    courses = sorted([p.name for p in (repo / "courses").iterdir() if p.is_dir()]) if (repo / "courses").exists() else []
+    course_dirs = discover_course_dirs(repo / "courses")
+    courses = [path.relative_to(repo / "courses").as_posix() for path in course_dirs]
     reviews = []
-    if (repo / "courses").exists():
-        for course_dir in sorted([p for p in (repo / "courses").iterdir() if p.is_dir()]):
-            for review_file in sorted((course_dir / "reviews").glob("*.md")):
-                reviews.append(review_file.relative_to(repo).as_posix())
+    for course_dir in course_dirs:
+        for review_file in sorted((course_dir / "reviews").glob("*.md")):
+            reviews.append(review_file.relative_to(repo).as_posix())
     lines = [
         "---",
         "type: weekly-plan",

@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from course_layout import discover_course_dirs
+
 
 def list_children(path: Path) -> list[Path]:
     if not path.exists():
@@ -34,10 +36,24 @@ def main() -> int:
 
     root = Path(args.repo).resolve()
     index_dir = root / ".student-os" / "index"
-    write_index(index_dir / "courses.md", "Course Index", [p.name for p in list_children(root / "courses")])
+    course_dirs = discover_course_dirs(root / "courses")
+    write_index(
+        index_dir / "courses.md",
+        "Course Index",
+        [str(path.relative_to(root)).replace("\\", "/") for path in course_dirs],
+    )
+    write_index(index_dir / "semesters.md", "Semester Index", [p.name for p in list_children(root / "semesters")])
     write_index(index_dir / "projects.md", "Project Index", [p.name for p in list_children(root / "projects")])
     write_index(index_dir / "tasks.md", "Task Index", [p.name for p in list_children(root / "tasks")])
     write_index(index_dir / "dashboards.md", "Dashboard Index", list_markdown_files(root / "dashboards"))
+
+    semester_index_root = index_dir / "semesters"
+    for semester_dir in list_children(root / "semesters"):
+        write_index(
+            semester_index_root / f"{semester_dir.name}.md",
+            f"Semester - {semester_dir.name}",
+            list_markdown_files(semester_dir),
+        )
 
     recent = sorted(
         [p for p in root.rglob("*.md") if ".student-os\\index" not in str(p)],

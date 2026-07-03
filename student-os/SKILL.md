@@ -1,6 +1,6 @@
 ---
 name: student-os
-description: Git-first student knowledge base operating system for Claude Code, Codex, OpenCode, and similar agents. Use when an agent needs to initialize or govern a markdown-first knowledge repository; create course spaces, lecture notes, homework pages, review sheets, lab reports, weekly plans, inbox tasks, dashboards, and learning summaries; import or transform PDF, DOCX, XLSX, and PPTX materials into the repository; route work across coordinator, course tutor, project helper, review coach, planning assistant, and file operator roles; inspect git status and separate task-specific changes from pre-existing dirty work; or prepare branch names, commit messages, and grouped change summaries for day-to-day student workflows.
+description: Git-first student knowledge base operating system for Claude Code, Codex, OpenCode, and similar agents. Use when an agent needs to initialize or govern a markdown-first knowledge repository; create course spaces, semester overviews, lecture notes, homework pages, review sheets, lab reports, weekly plans, inbox tasks, dashboards, and learning summaries; import or transform PDF, DOCX, XLSX, and PPTX materials into the repository; route work across coordinator, course tutor, project helper, review coach, planning assistant, file operator, and feedback operator roles; inspect git status and separate task-specific changes from pre-existing dirty work; or prepare branch names, commit messages, and grouped change summaries for day-to-day student workflows.
 ---
 
 # Student OS
@@ -9,7 +9,6 @@ Run this skill as the single entry point for a university knowledge repository. 
 
 ## Core workflow
 
-1. Identify the request type: repository governance, daily academic work, project work, planning, review work, file ingestion, knowledge operations, or git review.
 1. Identify the request type: repository governance, daily academic work, project work, planning, review work, file ingestion, knowledge operations, feedback operations, or git review.
 2. Inspect the target repository before editing anything.
 3. Choose the primary role and any supporting roles from the companion layer.
@@ -48,6 +47,7 @@ Use these scripts when helpful:
 
 Default to this markdown-first structure unless the repository already has a stable alternative:
 - `courses/`
+- `semesters/`
 - `projects/`
 - `tasks/`
 - `reviews/`
@@ -83,6 +83,7 @@ Read the relevant course pack from `references/course-packs/` before producing c
 
 Handle:
 - course creation
+- semester-aware course creation
 - lecture notes
 - homework pages
 - homework solution pages
@@ -289,6 +290,7 @@ Use these templates when creating new artifacts:
 - `templates/course-home.md`
 - `templates/class-note.md`
 - `templates/course-dashboard.md`
+- `templates/semester-overview.md`
 - `templates/homework.md`
 - `templates/homework-solution.md`
 - `templates/problem-analysis.md`

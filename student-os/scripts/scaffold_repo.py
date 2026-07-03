@@ -7,6 +7,7 @@ from pathlib import Path
 
 DEFAULT_DIRS = [
     "courses",
+    "semesters",
     "projects",
     "tasks/inbox",
     "tasks/deadlines",
