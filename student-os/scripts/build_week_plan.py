@@ -82,6 +82,10 @@ def parse_iso_date(raw: str) -> date | None:
         return None
 
 
+def is_actionable(status: str) -> bool:
+    return status not in {"done", "archived"}
+
+
 def read_task(path: Path, repo: Path) -> TaskEntry:
     text = path.read_text(encoding="utf-8")
     frontmatter = parse_frontmatter(text)
@@ -99,7 +103,7 @@ def read_task(path: Path, repo: Path) -> TaskEntry:
     )
 
 
-def read_exam_signals(paths: list[Path], repo: Path, horizon_end: date) -> list[tuple[date, str]]:
+def read_exam_signals(paths: list[Path], repo: Path, today: date, horizon_end: date) -> list[tuple[date, str]]:
     results: list[tuple[date, str]] = []
     for path in paths:
         text = path.read_text(encoding="utf-8")
@@ -110,7 +114,7 @@ def read_exam_signals(paths: list[Path], repo: Path, horizon_end: date) -> list[
                 continue
             raw = stripped.split(":", 1)[1].strip()
             exam_date = parse_iso_date(raw)
-            if exam_date is None or exam_date > horizon_end:
+            if exam_date is None or exam_date < today or exam_date > horizon_end:
                 continue
             results.append((exam_date, path.relative_to(repo).as_posix()))
     return results
@@ -127,6 +131,12 @@ def imported_targets(repo: Path) -> list[str]:
             continue
         for path in sorted(root.glob("*.md"))[:10]:
             targets.append(path.relative_to(repo).as_posix())
+    for course_dir in discover_course_dirs(repo / "courses"):
+        reference_dir = course_dir / "references"
+        if not reference_dir.exists():
+            continue
+        for path in sorted(reference_dir.glob("*.md"))[:10]:
+            targets.append(path.relative_to(repo).as_posix())
     return targets
 
 
@@ -141,7 +151,7 @@ def course_action_lines(course_dirs: list[Path], task_entries: list[TaskEntry], 
         course_name = rel.split("/")[-1].replace("-", " ")
         matching = [
             entry for entry in deadlines_by_course.get(course_name.title(), []) + deadlines_by_course.get(course_name, [])
-            if entry.status != "done"
+            if is_actionable(entry.status)
         ]
         if matching:
             nearest = sorted((entry for entry in matching if entry.due_date is not None), key=lambda item: item.due_date or date.max)
@@ -229,21 +239,21 @@ def main() -> int:
             task_entries.append(read_task(path, repo))
 
     overdue = sorted(
-        [entry for entry in task_entries if entry.due_date and entry.due_date < today and entry.status != "done"],
+        [entry for entry in task_entries if entry.due_date and entry.due_date < today and is_actionable(entry.status)],
         key=lambda entry: entry.due_date or date.max,
     )
     upcoming = sorted(
-        [entry for entry in task_entries if entry.due_date and today <= entry.due_date <= horizon_end and entry.status != "done"],
+        [entry for entry in task_entries if entry.due_date and today <= entry.due_date <= horizon_end and is_actionable(entry.status)],
         key=lambda entry: entry.due_date or date.max,
     )
     exam_entries = [
         entry for entry in task_entries
-        if entry.due_date and today <= entry.due_date <= horizon_end and entry.status != "done"
+        if entry.due_date and today <= entry.due_date <= horizon_end and is_actionable(entry.status)
         and ("exam" in entry.area.lower() or "exam" in entry.title.lower() or "exam" in [tag.lower() for tag in entry.tags])
     ]
     inbox_entries = [
         entry for entry in task_entries
-        if entry.path.parent.name == "inbox" and entry.status != "done"
+        if entry.path.parent.name == "inbox" and is_actionable(entry.status)
     ]
 
     course_dirs = discover_course_dirs(repo / "courses")
@@ -252,10 +262,15 @@ def main() -> int:
         for review_file in sorted((course_dir / "reviews").glob("*.md")):
             reviews.append(review_file.relative_to(repo).as_posix())
     imports = imported_targets(repo)
-    exam_paths = [course_dir / "index.md" for course_dir in course_dirs if (course_dir / "index.md").exists()]
+    exam_paths = []
+    for course_dir in course_dirs:
+        if (course_dir / "index.md").exists():
+            exam_paths.append(course_dir / "index.md")
+        if (course_dir / "dashboard.md").exists():
+            exam_paths.append(course_dir / "dashboard.md")
     if (repo / "semesters").exists():
         exam_paths.extend(path for path in (repo / "semesters").rglob("*.md") if path.exists())
-    exam_signals = sorted(read_exam_signals(exam_paths, repo, horizon_end), key=lambda item: item[0])
+    exam_signals = sorted(read_exam_signals(exam_paths, repo, today, horizon_end), key=lambda item: item[0])
 
     lines = [
         "---",

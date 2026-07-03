@@ -14,7 +14,7 @@ tags: [course/linear-algebra, dashboard]
 
 - Next class topic:
 - Next deadline:
-- Next exam:
+- Next exam: 2026-07-12
 
 ## Recent Notes
 

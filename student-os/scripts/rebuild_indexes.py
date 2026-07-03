@@ -19,6 +19,12 @@ def list_markdown_files(path: Path) -> list[str]:
     return sorted([p.name for p in path.glob("*.md") if p.is_file()])
 
 
+def list_markdown_files_recursive(path: Path, repo: Path) -> list[str]:
+    if not path.exists():
+        return []
+    return sorted(str(p.relative_to(repo)).replace("\\", "/") for p in path.rglob("*.md") if p.is_file())
+
+
 def write_index(path: Path, title: str, items: list[str]) -> None:
     body = [f"# {title}", "", "## Entries", ""]
     if items:
@@ -45,7 +51,7 @@ def main() -> int:
     write_index(index_dir / "semesters.md", "Semester Index", [p.name for p in list_children(root / "semesters")])
     write_index(index_dir / "projects.md", "Project Index", [p.name for p in list_children(root / "projects")])
     write_index(index_dir / "tasks.md", "Task Index", [p.name for p in list_children(root / "tasks")])
-    write_index(index_dir / "dashboards.md", "Dashboard Index", list_markdown_files(root / "dashboards"))
+    write_index(index_dir / "dashboards.md", "Dashboard Index", list_markdown_files_recursive(root / "dashboards", root))
 
     semester_index_root = index_dir / "semesters"
     for semester_dir in list_children(root / "semesters"):

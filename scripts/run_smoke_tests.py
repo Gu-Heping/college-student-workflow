@@ -183,6 +183,18 @@ def seed_planning_inputs(repo: Path, today: date) -> None:
         priority="medium",
         course="Linear Algebra",
     )
+    archived_path = repo / "tasks" / "deadlines" / "linear-algebra-archived-quiz.md"
+    write_task_fixture(
+        archived_path,
+        title="Linear Algebra Archived Quiz",
+        due=(today - timedelta(days=1)).isoformat(),
+        area="exam",
+        priority="low",
+        course="Linear Algebra",
+        tags="[task, exam]",
+    )
+    archived_text = archived_path.read_text(encoding="utf-8").replace("status: active", "status: archived", 1)
+    archived_path.write_text(archived_text, encoding="utf-8", newline="\n")
     review_path = repo / "courses" / "linear-algebra" / "reviews" / "chapter-1-review.md"
     review_path.parent.mkdir(parents=True, exist_ok=True)
     review_path.write_text(
@@ -208,6 +220,10 @@ def seed_planning_inputs(repo: Path, today: date) -> None:
         encoding="utf-8",
         newline="\n",
     )
+    dashboard_path = repo / "courses" / "linear-algebra" / "dashboard.md"
+    dashboard_text = dashboard_path.read_text(encoding="utf-8")
+    dashboard_text = dashboard_text.replace("- Next exam:", f"- Next exam: {(today + timedelta(days=9)).isoformat()}", 1)
+    dashboard_path.write_text(dashboard_text, encoding="utf-8", newline="\n")
 
 
 def write_docx_fixture(path: Path) -> None:
@@ -539,7 +555,12 @@ def build_single_semester(repo: Path, today: date) -> None:
     ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "## Overdue Carryover")
     ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "Linear Algebra Midterm")
     ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "Imported Materials To Curate")
+    ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "courses/linear-algebra/references/outline-import.md")
+    ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "courses/linear-algebra/dashboard.md")
+    if "Archived Quiz" in (repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md").read_text(encoding="utf-8"):
+        raise AssertionError("Archived tasks should not be listed in the weekly plan")
     ensure_contains(repo / "dashboards" / "weekly" / f"{today.isoformat()}-plus-14d.md", "Imported materials to review")
+    ensure_contains(repo / ".student-os" / "index" / "dashboards.md", f"dashboards/weekly/{today.isoformat()}-plus-14d.md")
 
 
 def build_multi_semester(repo: Path, today: date) -> None:
