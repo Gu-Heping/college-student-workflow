@@ -2,8 +2,8 @@
 
 ## Entries
 
-- tasks/weekly/2026-07-04-plus-14d.md
 - dashboards/weekly/2026-07-04-plus-14d.md
+- tasks/weekly/2026-07-04-plus-14d.md
 - courses/linear-algebra/references/outline-import-repair-summary.md
 - references/imports/repaired/manual-repair-sample-repair-summary.md
 - references/imports/repaired/manual-repair-sample.md
