@@ -2,8 +2,8 @@
 type: homework
 course: CS 101
 status: active
-created: 2026-07-03
-updated: 2026-07-03
+created: 2026-07-04
+updated: 2026-07-04
 tags: [course/cs-101, homework]
 ---
 
@@ -12,7 +12,7 @@ tags: [course/cs-101, homework]
 ## Assignment
 
 - Source:
-- Due: 2026-07-10
+- Due: 2026-07-11
 - Scope:
 
 ## Deliverables

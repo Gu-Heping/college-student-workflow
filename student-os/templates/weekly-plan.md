@@ -9,6 +9,10 @@ tags: [planning, weekly]
 
 # Weekly Plan - {{week_label}}
 
+## Overdue Carryover
+
+- 
+
 ## Deadlines This Week
 
 - 
@@ -21,10 +25,22 @@ tags: [planning, weekly]
 
 - 
 
+## Review Targets
+
+- 
+
+## Imported Materials To Curate
+
+- 
+
 ## Project Actions
 
 - 
 
 ## Inbox To Triage
+
+- 
+
+## Dashboard Link
 
 - 

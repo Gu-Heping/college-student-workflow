@@ -122,6 +122,120 @@ def rewrite_legacy_task_link(task_path: Path) -> None:
     task_path.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
 
 
+def write_task_fixture(
+    path: Path,
+    *,
+    title: str,
+    due: str = "",
+    area: str = "",
+    priority: str = "",
+    course: str = "",
+    tags: str = "[task]",
+    course_link: str = "",
+) -> None:
+    lines = [
+        "---",
+        "type: task",
+        f"course: {course}",
+        "status: active",
+        f"created: {date.today().isoformat()}",
+        f"updated: {date.today().isoformat()}",
+        f"tags: {tags}",
+        "---",
+        "",
+        f"# {title}",
+        "",
+        "## Details",
+        "",
+        f"- Due: {due}",
+        f"- Area: {area}",
+        f"- Priority: {priority}",
+        "",
+        "## Checklist",
+        "",
+        "- [ ] Clarify scope",
+        "- [ ] Start work",
+        "- [ ] Finish",
+        "",
+        "## Links",
+        "",
+        f"- Course: {course_link}",
+        "- Project:",
+        "- Source file:",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+
+def seed_planning_inputs(repo: Path, today: date) -> None:
+    write_task_fixture(
+        repo / "tasks" / "inbox" / "capture-linear-algebra-questions.md",
+        title="Capture linear algebra questions",
+        area="inbox",
+        priority="medium",
+        course="Linear Algebra",
+        tags="[task, inbox]",
+    )
+    write_task_fixture(
+        repo / "tasks" / "deadlines" / "linear-algebra-midterm-checkpoint.md",
+        title="Linear Algebra Midterm",
+        due=(today + timedelta(days=10)).isoformat(),
+        area="exam",
+        priority="high",
+        course="Linear Algebra",
+        tags="[task, exam]",
+    )
+    write_task_fixture(
+        repo / "tasks" / "deadlines" / "linear-algebra-overdue-reading.md",
+        title="Linear Algebra Overdue Reading",
+        due=(today - timedelta(days=2)).isoformat(),
+        area="reading",
+        priority="medium",
+        course="Linear Algebra",
+    )
+    archived_path = repo / "tasks" / "deadlines" / "linear-algebra-archived-quiz.md"
+    write_task_fixture(
+        archived_path,
+        title="Linear Algebra Archived Quiz",
+        due=(today - timedelta(days=1)).isoformat(),
+        area="exam",
+        priority="low",
+        course="Linear Algebra",
+        tags="[task, exam]",
+    )
+    archived_text = archived_path.read_text(encoding="utf-8").replace("status: active", "status: archived", 1)
+    archived_path.write_text(archived_text, encoding="utf-8", newline="\n")
+    review_path = repo / "courses" / "linear-algebra" / "reviews" / "chapter-1-review.md"
+    review_path.parent.mkdir(parents=True, exist_ok=True)
+    review_path.write_text(
+        "\n".join(
+            [
+                "---",
+                "type: chapter-review",
+                "course: Linear Algebra",
+                "status: active",
+                f"created: {today.isoformat()}",
+                f"updated: {today.isoformat()}",
+                "tags: [review]",
+                "---",
+                "",
+                "# Chapter 1 Review",
+                "",
+                "## Concepts",
+                "",
+                "- Basis changes",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    dashboard_path = repo / "courses" / "linear-algebra" / "dashboard.md"
+    dashboard_text = dashboard_path.read_text(encoding="utf-8")
+    dashboard_text = dashboard_text.replace("- Next exam:", f"- Next exam: {(today + timedelta(days=9)).isoformat()}", 1)
+    dashboard_path.write_text(dashboard_text, encoding="utf-8", newline="\n")
+
+
 def write_docx_fixture(path: Path) -> None:
     Document, _, _, _ = load_import_dependencies()
     document = Document()
@@ -204,6 +318,7 @@ def exercise_import_workflows(repo: Path) -> None:
     write_pdf_fixture(pdf_path)
 
     docx_output = repo / "courses" / "linear-algebra" / "references" / "outline-import.md"
+    course_repair_summary = repo / "courses" / "linear-algebra" / "references" / "outline-import-repair-summary.md"
     xlsx_output = repo / "dashboards" / "linear-algebra-progress-import.md"
     pptx_output = repo / "references" / "slides" / "linear-algebra-week-2.md"
     pdf_generic_output = repo / "courses" / "linear-algebra" / "references" / "handout-generic-import.md"
@@ -268,6 +383,7 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_exists(Path(docx_payload["output"]))
     ensure_contains(docx_output, "Linear Algebra Import Outline")
     ensure_contains(docx_output, "## Table 1")
+    course_repair_summary.write_text("# Repair Summary\n\n- Example only.\n", encoding="utf-8", newline="\n")
     ensure_exists(Path(xlsx_payload["output"]))
     ensure_contains(xlsx_output, "| Task | Score | Weight | Weighted |")
     ensure_contains(xlsx_output, "=B2*C2")
@@ -300,6 +416,8 @@ def exercise_import_workflows(repo: Path) -> None:
 
 
 def exercise_feedback_lifecycle(repo: Path) -> None:
+    feedback_day = date.today()
+    expected_feedback_id = f'fb-{feedback_day.strftime("%Y%m%d")}-weekly-plan-omitted-imported-deadline-2'
     raw_path = Path(
         run_script(
             "log_feedback.py",
@@ -423,29 +541,79 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     ensure_contains(resolved_path, "feedback_id:")
     ensure_contains(resolved_path, "## Triage Notes")
     ensure_contains(resolved_path, "## Resolution Summary")
-    ensure_contains(second_triaged_path, 'feedback_id: "fb-20260703-weekly-plan-omitted-imported-deadline-2"')
+    ensure_contains(second_triaged_path, f'feedback_id: "{expected_feedback_id}"')
     ensure_contains(summary_path, "## Developer Handoff")
     ensure_contains(summary_path, "0.7.0")
     ensure_contains(summary_path, "- Triaged items: 1")
-    ensure_contains(summary_path, "fb-20260703-weekly-plan-omitted-imported-deadline-2")
+    ensure_contains(summary_path, expected_feedback_id)
     if "must stay under" not in failure_output:
         raise AssertionError(f"Expected path-guard failure, got: {failure_output}")
 
 
 def build_single_semester(repo: Path, today: date) -> None:
     due_date = (today + timedelta(days=8)).isoformat()
+    default_week_label = f"{today.isoformat()}-plus-7d"
     run_script("scaffold_repo.py", str(repo))
     run_script("scaffold_course.py", str(repo), "Linear Algebra")
     run_script("scaffold_homework.py", str(repo), "linear-algebra", "Worksheet A", "--due", due_date)
+    seed_planning_inputs(repo, today)
     run_script("build_review_indexes.py", str(repo))
-    run_script("build_week_plan.py", str(repo), "--days", "14")
     exercise_feedback_lifecycle(repo)
     exercise_import_workflows(repo)
+    run_script("build_review_indexes.py", str(repo))
+    run_script("build_week_plan.py", str(repo))
+    ensure_contains(repo / "tasks" / "weekly" / f"{default_week_label}.md", "Linear Algebra Midterm")
+    ensure_contains(repo / "tasks" / "weekly" / f"{default_week_label}.md", "courses/linear-algebra/dashboard.md")
+    default_plan_text = (repo / "tasks" / "weekly" / f"{default_week_label}.md").read_text(encoding="utf-8")
+    if "- `linear-algebra` -> prioritize Worksheet A" in default_plan_text:
+        raise AssertionError("Course actions should not prioritize out-of-window homework in the default weekly plan")
+    if "- `linear-algebra` -> prioritize Linear Algebra Midterm" in default_plan_text:
+        raise AssertionError("Course actions should not prioritize out-of-window exam tasks in the default weekly plan")
+    (repo / "tasks" / "weekly" / f"{default_week_label}.md").unlink()
+    (repo / "dashboards" / "weekly" / f"{default_week_label}.md").unlink()
+    run_script("build_week_plan.py", str(repo), "--days", "14")
     run_script("rebuild_indexes.py", str(repo))
 
     ensure_exists(repo / "courses" / "linear-algebra" / "index.md")
     ensure_exists(repo / "courses" / "linear-algebra" / "homework" / "worksheet-a.md")
     ensure_contains(repo / ".student-os" / "index" / "courses.md", "courses/linear-algebra")
+    ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "## Overdue Carryover")
+    ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "Linear Algebra Midterm")
+    ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "Imported Materials To Curate")
+    ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "courses/linear-algebra/references/outline-import.md")
+    ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "courses/linear-algebra/dashboard.md")
+    weekly_plan_text = (repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md").read_text(encoding="utf-8")
+    ensure_contains(
+        repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md",
+        f"- `linear-algebra` -> prioritize Linear Algebra Overdue Reading ({(today - timedelta(days=2)).isoformat()})",
+    )
+    if "manual-repair-sample-repair-summary.md" in weekly_plan_text:
+        raise AssertionError("Repair summaries should not appear in imported-material triage")
+    dashboard_exam_line = f"{(today + timedelta(days=9)).isoformat()} :: courses/linear-algebra/dashboard.md"
+    task_exam_line = f"{(today + timedelta(days=10)).isoformat()} :: Linear Algebra Midterm"
+    exams_section = weekly_plan_text.split("## Exams And Countdowns", 1)[1].split("## Course Actions", 1)[0]
+    if exams_section.index(task_exam_line) < exams_section.index(dashboard_exam_line):
+        raise AssertionError("Exam countdowns should be sorted chronologically across tasks and dashboard signals")
+    if "Archived Quiz" in (repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md").read_text(encoding="utf-8"):
+        raise AssertionError("Archived tasks should not be listed in the weekly plan")
+    ensure_contains(repo / "dashboards" / "weekly" / f"{today.isoformat()}-plus-14d.md", "Imported materials to review")
+    ensure_contains(repo / ".student-os" / "index" / "dashboards.md", f"dashboards/weekly/{today.isoformat()}-plus-14d.md")
+
+
+def build_repo_inside_weekly_parent(repo: Path, today: date) -> None:
+    run_script("scaffold_repo.py", str(repo))
+    run_script("scaffold_course.py", str(repo), "Signals")
+    write_task_fixture(
+        repo / "tasks" / "deadlines" / "signals-quiz.md",
+        title="Signals Quiz",
+        due=(today + timedelta(days=3)).isoformat(),
+        area="exam",
+        priority="high",
+        course="Signals",
+        tags="[task, exam]",
+    )
+    run_script("build_week_plan.py", str(repo))
+    ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-7d.md", "Signals Quiz")
 
 
 def build_multi_semester(repo: Path, today: date) -> None:
@@ -453,6 +621,9 @@ def build_multi_semester(repo: Path, today: date) -> None:
     run_script("scaffold_repo.py", str(repo))
     run_script("scaffold_course.py", str(repo), "CS 101", "--semester", "2026 Fall")
     run_script("scaffold_course.py", str(repo), "Calculus II", "--semester", "2026 Fall")
+    run_script("scaffold_course.py", str(repo), "CS 101", "--semester", "2027 Spring")
+    run_script("scaffold_course.py", str(repo), "Data & Models", "--semester", "2026 Fall")
+    run_script("scaffold_course.py", str(repo), "Data & Models", "--semester", "2027 Spring")
     run_script(
         "scaffold_homework.py",
         str(repo),
@@ -460,6 +631,31 @@ def build_multi_semester(repo: Path, today: date) -> None:
         "Problem Set 1",
         "--due",
         due_date,
+    )
+    write_task_fixture(
+        repo / "tasks" / "deadlines" / "problem-set-1.md",
+        title="Manual CS 101 checkpoint",
+        due=due_date,
+        area="homework",
+        priority="medium",
+        course="CS 101",
+        course_link="../../courses/2026-fall/cs-101/index.md",
+    )
+    write_task_fixture(
+        repo / "tasks" / "deadlines" / "2026-fall-data-models-reading.md",
+        title="Data & Models reading",
+        due=due_date,
+        area="review",
+        priority="medium",
+        course="Data & Models",
+    )
+    write_task_fixture(
+        repo / "tasks" / "deadlines" / "problem-set-2.md",
+        title="Ambiguous CS 101 follow-up",
+        due=due_date,
+        area="homework",
+        priority="medium",
+        course="CS 101",
     )
     run_script("build_review_indexes.py", str(repo))
     run_script("build_week_plan.py", str(repo), "--days", "14")
@@ -470,6 +666,26 @@ def build_multi_semester(repo: Path, today: date) -> None:
     ensure_contains(repo / ".student-os" / "repo-profile.md", "enabled: true")
     ensure_contains(repo / "semesters" / "2026-fall" / "overview.md", "[CS 101]")
     ensure_contains(repo / ".student-os" / "index" / "courses.md", "courses/2026-fall/cs-101")
+    ensure_contains(
+        repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md",
+        "- `2026-fall/cs-101` -> prioritize CS 101 - Problem Set 1",
+    )
+    ensure_contains(
+        repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md",
+        "- `2026-fall/data-models` -> prioritize Data & Models reading",
+    )
+    if "- `2027-spring/cs-101` -> prioritize CS 101 - Problem Set 1" in (
+        repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md"
+    ).read_text(encoding="utf-8"):
+        raise AssertionError("Duplicate course titles across semesters should not steal another semester's deadline priority")
+    if "- `2027-spring/data-models` -> prioritize Data & Models reading" in (
+        repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md"
+    ).read_text(encoding="utf-8"):
+        raise AssertionError("Duplicate normalized titles should not steal another semester's title-based priority")
+    if "Ambiguous CS 101 follow-up" in (
+        repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md"
+    ).read_text(encoding="utf-8").split("## Course Actions", 1)[1].split("## Review Targets", 1)[0]:
+        raise AssertionError("Ambiguous unscoped duplicate-course tasks should stay out of course-action prioritization")
 
 
 def build_legacy_layout(repo: Path, today: date) -> None:
@@ -515,10 +731,12 @@ def main() -> int:
         single_repo = tmp_root / "single-semester-demo"
         multi_repo = tmp_root / "multi-semester-demo"
         legacy_repo = tmp_root / "legacy-layout-demo"
+        weekly_parent_repo = tmp_root / "weekly" / "nested-weekly-parent-demo"
 
         build_single_semester(single_repo, today)
         build_multi_semester(multi_repo, today)
         build_legacy_layout(legacy_repo, today)
+        build_repo_inside_weekly_parent(weekly_parent_repo, today)
         verify_inspect_repo(multi_repo)
 
         if args.refresh_examples:

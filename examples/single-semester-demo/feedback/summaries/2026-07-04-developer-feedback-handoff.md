@@ -1,8 +1,8 @@
 ---
 type: feedback-summary
 status: active
-created: 2026-07-03
-updated: 2026-07-03
+created: 2026-07-04
+updated: 2026-07-04
 tags: [feedback, summary]
 summary_scope: smoke-test
 summary_audience: "developer"
@@ -38,7 +38,7 @@ summary_audience: "developer"
 
 ## Developer Handoff
 
-- fb-20260703-weekly-plan-omitted-imported-deadline-2: Weekly plan omitted imported deadline (workflow, medium)
+- fb-20260704-weekly-plan-omitted-imported-deadline-2: Weekly plan omitted imported deadline (workflow, medium)
 
 ## Suggested Follow-up
 

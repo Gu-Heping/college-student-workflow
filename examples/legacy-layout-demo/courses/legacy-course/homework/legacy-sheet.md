@@ -2,8 +2,8 @@
 type: homework
 course: Legacy Course
 status: active
-created: 2026-07-03
-updated: 2026-07-03
+created: 2026-07-04
+updated: 2026-07-04
 tags: [course/legacy-course, homework]
 ---
 
@@ -12,7 +12,7 @@ tags: [course/legacy-course, homework]
 ## Assignment
 
 - Source:
-- Due: 2026-07-12
+- Due: 2026-07-13
 - Scope:
 
 ## Deliverables

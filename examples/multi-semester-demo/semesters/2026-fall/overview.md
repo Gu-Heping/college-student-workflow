@@ -2,8 +2,8 @@
 type: semester-overview
 semester: 2026 Fall
 status: active
-created: 2026-07-03
-updated: 2026-07-03
+created: 2026-07-04
+updated: 2026-07-04
 tags: [semester/2026-fall, dashboard]
 ---
 
@@ -20,6 +20,7 @@ tags: [semester/2026-fall, dashboard]
 <!-- student-os:course-links:start -->
 - [CS 101](../../courses/2026-fall/cs-101/index.md)
 - [Calculus II](../../courses/2026-fall/calculus-ii/index.md)
+- [Data & Models](../../courses/2026-fall/data-models/index.md)
 <!-- student-os:course-links:end -->
 
 ## Key Dates

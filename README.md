@@ -6,6 +6,15 @@ The first artifact in this repo is [`student-os`](./student-os/), a cross-agent 
 
 Recent notable changes are tracked in [CHANGELOG.md](./CHANGELOG.md).
 
+## Inspiration
+
+This repository is still its own workflow system, but some ecosystem ideas are worth calling out explicitly:
+
+- [mfisher87/planning-with-files](https://github.com/mfisher87/planning-with-files) helped reinforce the value of file-native planning artifacts that remain readable without a database.
+- [ComposioHQ/awesome-claude-skills](https://github.com/ComposioHQ/awesome-claude-skills) helped frame the idea that reusable agent skills should stay discoverable, composable, and documented as standalone units.
+
+These references informed direction and packaging rather than being copied into `student-os`.
+
 ## Multi-Semester Support
 
 `student-os` can support both single-semester and multi-semester repositories.
@@ -229,6 +238,7 @@ The smoke suite now covers:
 
 - repository scaffolding and indexing
 - feedback capture, triage, resolve, and developer summaries
+- richer weekly planning and weekly dashboard generation
 - DOCX import into course references
 - XLSX import into dashboard-style summaries
 - PPTX import into slide summaries
@@ -256,6 +266,7 @@ What already exists:
 - starter templates for common student artifacts
 - helper scripts for repository setup and reporting
 - a repository-native feedback lifecycle with triage, resolution, and developer-handoff summaries
+- a planning workbench that builds weekly plans and weekly dashboards from deadlines, inbox items, review targets, exams, and import triage
 - repeatable import regression coverage with generated DOCX, XLSX, PPTX, and PDF examples
 
 What is still likely to evolve:
@@ -273,7 +284,7 @@ Planned directions for the next iterations:
 1. Add more robust legacy-vault detection and mapping rules.
 2. Expand templates for labs, weekly plans, and course dashboards.
 3. Add safer Git grouping helpers for mixed dirty worktrees.
-4. Expand the example repositories and smoke tests into broader end-to-end regression coverage, especially for multi-role collaboration and harder import edge cases.
+4. Expand the example repositories and smoke tests into broader end-to-end regression coverage, especially for multi-role collaboration, planning edge cases, and harder import edge cases.
 
 ## Notes
 

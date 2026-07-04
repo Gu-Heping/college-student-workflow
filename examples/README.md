@@ -15,6 +15,7 @@ These examples are generated from the real `student-os` scripts instead of being
 
 The single-semester snapshot now also demonstrates:
 
+- overdue carryover, exam countdowns, inbox triage, and a linked weekly dashboard
 - DOCX import into course references
 - XLSX import into dashboard summaries
 - PPTX import into slide summaries

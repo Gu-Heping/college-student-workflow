@@ -3,8 +3,8 @@ type: course-dashboard
 course: Calculus II
 semester: 2026 Fall
 status: active
-created: 2026-07-03
-updated: 2026-07-03
+created: 2026-07-04
+updated: 2026-07-04
 tags: [course/calculus-ii, dashboard]
 ---
 
