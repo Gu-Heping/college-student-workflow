@@ -738,9 +738,16 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     (repo / "tmp" / "scratch.log").write_text("temporary notes\n", encoding="utf-8", newline="\n")
     (repo / "references" / "slides").mkdir(parents=True, exist_ok=True)
     (repo / "references" / "slides" / "lecture-capture.mp4").write_bytes(b"fake-binary")
+    (repo / "references" / "textbooks").mkdir(parents=True, exist_ok=True)
+    (repo / "references" / "textbooks" / "linear-algebra-textbook.pdf").write_bytes(b"%PDF-1.4\n")
+    (repo / "references" / "imports" / "raw").mkdir(parents=True, exist_ok=True)
+    (repo / "references" / "imports" / "raw" / "lecture-slides.pptx").write_bytes(b"PK\x03\x04")
     conflict_path = repo / "tasks" / "deadlines" / "manual-study-block.sync-conflict-20260704.md"
     conflict_path.write_text("# conflict copy\n", encoding="utf-8", newline="\n")
     (repo / ".env").write_text("API_KEY=local\n", encoding="utf-8", newline="\n")
+    (repo / ".env.local").write_text("API_KEY=override\n", encoding="utf-8", newline="\n")
+    (repo / "venv").mkdir(parents=True, exist_ok=True)
+    (repo / "venv" / "pyvenv.cfg").write_text("home = C:/Python\n", encoding="utf-8", newline="\n")
     (repo / ".venv").mkdir(parents=True, exist_ok=True)
     (repo / ".venv" / "pyvenv.cfg").write_text("home = C:/Python\n", encoding="utf-8", newline="\n")
     gitignore = repo / ".gitignore"
@@ -758,8 +765,16 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError("group_git_changes.py should hold back sync-conflict files")
     if ".env" not in hold_back:
         raise AssertionError("group_git_changes.py should hold back .env files")
+    if ".env.local" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back .env.* files")
     if ".venv/" not in hold_back:
-        raise AssertionError("group_git_changes.py should hold back ignored local artifacts")
+        raise AssertionError("group_git_changes.py should hold back ignored local virtual environments")
+    if "venv/pyvenv.cfg" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back unignored virtual environment files")
+    if "references/textbooks/linear-algebra-textbook.pdf" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back raw imported PDF source documents")
+    if "references/imports/raw/lecture-slides.pptx" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back raw imported office source documents")
 
     grouped_tasks = payload["artifact_grouping"].get("tasks", [])
     if "tasks/deadlines/manual-study-block.md" not in grouped_tasks:
@@ -779,8 +794,16 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError("Expected a temporary-file reason for tmp/")
     if reasons.get(".env") != "environment file":
         raise AssertionError("Expected an environment-file reason for .env")
-    if reasons.get(".venv/") != "ignored local artifact":
-        raise AssertionError("Expected an ignored-local-artifact reason for .venv/")
+    if reasons.get(".env.local") != "environment file":
+        raise AssertionError("Expected an environment-file reason for .env.local")
+    if reasons.get(".venv/") != "local virtual environment":
+        raise AssertionError("Expected a local-virtual-environment reason for .venv/")
+    if reasons.get("venv/pyvenv.cfg") != "local virtual environment":
+        raise AssertionError("Expected a local-virtual-environment reason for venv/pyvenv.cfg")
+    if reasons.get("references/textbooks/linear-algebra-textbook.pdf") != "binary source document":
+        raise AssertionError("Expected a binary-source-document reason for imported PDFs")
+    if reasons.get("references/imports/raw/lecture-slides.pptx") != "binary source document":
+        raise AssertionError("Expected a binary-source-document reason for imported office files")
     if reasons.get("tasks/deadlines/manual-study-block.sync-conflict-20260704.md") != "sync-conflict file":
         raise AssertionError("Expected a sync-conflict reason for the conflict copy")
 

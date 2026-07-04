@@ -37,6 +37,10 @@ HOLD_BACK_PATH_NEEDLES = [
     "/__pycache__/",
     ".DS_Store",
     "Thumbs.db",
+    ".venv/",
+    "/.venv/",
+    "venv/",
+    "/venv/",
     "node_modules/",
     "/node_modules/",
     ".obsidian/workspace",
@@ -64,12 +68,19 @@ HOLD_BACK_SUFFIXES = {
     ".mov",
     ".mp3",
     ".mp4",
+    ".pdf",
     ".png",
+    ".ppt",
+    ".pptx",
     ".rar",
     ".sqlite",
     ".tar",
+    ".doc",
+    ".docx",
     ".wav",
     ".webm",
+    ".xls",
+    ".xlsx",
     ".zip",
 }
 
@@ -94,13 +105,15 @@ def hold_back_reason(path: str) -> str:
     normalized = path.replace("\\", "/")
     lower = normalized.lower()
     name = Path(lower).name
-    if name == ".env":
+    if name == ".env" or name.startswith(".env."):
         return "environment file"
     if ".sync-conflict-" in name:
         return "sync-conflict file"
     if any(needle.lower() in lower for needle in HOLD_BACK_PATH_NEEDLES):
         if "__pycache__" in lower:
             return "generated cache"
+        if "/.venv/" in lower or lower.startswith(".venv/") or "/venv/" in lower or lower.startswith("venv/"):
+            return "local virtual environment"
         if ".obsidian/workspace" in lower:
             return "local workspace file"
         if "node_modules/" in lower:
@@ -114,6 +127,8 @@ def hold_back_reason(path: str) -> str:
     if suffix in HOLD_BACK_SUFFIXES:
         if suffix in {".zip", ".7z", ".rar", ".tar", ".gz", ".iso", ".dmg"}:
             return "archive or disk image"
+        if suffix in {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"}:
+            return "binary source document"
         if suffix in {".png", ".jpg", ".jpeg", ".mp3", ".mp4", ".mov", ".mkv", ".webm", ".wav", ".m4a", ".avi"}:
             return "binary media asset"
         if suffix in {".db", ".sqlite", ".bin", ".exe"}:
