@@ -117,12 +117,19 @@ def is_virtualenv_path(path: str) -> bool:
     normalized = raw.strip("/")
     if not normalized:
         return False
-    head, _, tail = normalized.partition("/")
-    if head not in {"env", "venv", ".venv"}:
-        return False
-    if raw.endswith("/"):
-        return True
-    return bool(tail)
+    parts = [part for part in normalized.split("/") if part]
+    markers = {"pyvenv.cfg", "bin", "scripts", "lib", "include", "share"}
+    for index, part in enumerate(parts):
+        if part not in {"env", "venv", ".venv"}:
+            continue
+        if part in {"venv", ".venv"}:
+            return True
+        tail = parts[index + 1 :]
+        if not tail:
+            return True
+        if tail[0] in markers:
+            return True
+    return False
 
 
 def hold_back_reason(path: str) -> str:

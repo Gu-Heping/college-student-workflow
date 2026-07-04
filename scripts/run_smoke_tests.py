@@ -759,6 +759,9 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     (repo / "venv" / "pyvenv.cfg").write_text("home = C:/Python\n", encoding="utf-8", newline="\n")
     (repo / ".venv").mkdir(parents=True, exist_ok=True)
     (repo / ".venv" / "pyvenv.cfg").write_text("home = C:/Python\n", encoding="utf-8", newline="\n")
+    nested_virtualenv = repo / "courses" / "project" / "env"
+    nested_virtualenv.mkdir(parents=True, exist_ok=True)
+    (nested_virtualenv / "pyvenv.cfg").write_text("home = C:/Python\n", encoding="utf-8", newline="\n")
     (repo / "references" / "slides" / "old-capture.mp4").unlink()
     subprocess.run(
         ["git", "-C", str(repo), "mv", ".env.shared", "tasks/env-note.md"],
@@ -793,6 +796,8 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError("group_git_changes.py should hold back ignored local virtual environments")
     if "venv/pyvenv.cfg" not in hold_back:
         raise AssertionError("group_git_changes.py should hold back unignored virtual environment files")
+    if "courses/project/env/pyvenv.cfg" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back nested env virtual environment files")
     if "references/textbooks/linear-algebra-textbook.pdf" not in hold_back:
         raise AssertionError("group_git_changes.py should hold back raw imported PDF source documents")
     if "references/imports/raw/lecture-slides.pptx" not in hold_back:
@@ -834,6 +839,8 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError("Expected a local-virtual-environment reason for .venv/")
     if reasons.get("venv/pyvenv.cfg") != "local virtual environment":
         raise AssertionError("Expected a local-virtual-environment reason for venv/pyvenv.cfg")
+    if reasons.get("courses/project/env/pyvenv.cfg") != "local virtual environment":
+        raise AssertionError("Expected a local-virtual-environment reason for nested env/pyvenv.cfg")
     if reasons.get("references/textbooks/linear-algebra-textbook.pdf") != "binary source document":
         raise AssertionError("Expected a binary-source-document reason for imported PDFs")
     if reasons.get("references/imports/raw/lecture-slides.pptx") != "binary source document":
