@@ -198,6 +198,10 @@ def course_action_lines(course_dirs: list[Path], task_entries: list[TaskEntry], 
             if linked == (course_dir / "index.md").resolve():
                 explicit_matches.append(entry)
                 filtered_matching.append(entry)
+                continue
+            if linked.exists() and linked.name == "index.md":
+                continue
+            filtered_matching.append(entry)
         matching = filtered_matching
         duplicate_course = len(course_parts) > 1 and (
             course_slug_counts.get(course_slug_key, 0) > 1 or course_title_counts.get(course_title_key, 0) > 1
