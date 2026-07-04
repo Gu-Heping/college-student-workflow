@@ -37,6 +37,8 @@ HOLD_BACK_PATH_NEEDLES = [
     "/__pycache__/",
     ".DS_Store",
     "Thumbs.db",
+    "env/",
+    "/env/",
     ".venv/",
     "/.venv/",
     "venv/",
@@ -93,12 +95,23 @@ def detect_group(path: str) -> str:
     return "ops"
 
 
-def parse_status_path(line: str) -> tuple[str, str]:
+def parse_status_path(line: str) -> tuple[str, str, str]:
     status = line[:2]
     payload = line[3:].strip()
     if " -> " in payload:
-        return status, payload.split(" -> ", 1)[1].strip()
-    return status, payload
+        source, target = payload.split(" -> ", 1)
+        return status, source.strip(), target.strip()
+    return status, payload, payload
+
+
+def is_deleted_status(status: str) -> bool:
+    return "D" in status
+
+
+def display_path(source_path: str, target_path: str) -> str:
+    if source_path == target_path:
+        return target_path
+    return f"{source_path} -> {target_path}"
 
 
 def hold_back_reason(path: str) -> str:
@@ -112,7 +125,14 @@ def hold_back_reason(path: str) -> str:
     if any(needle.lower() in lower for needle in HOLD_BACK_PATH_NEEDLES):
         if "__pycache__" in lower:
             return "generated cache"
-        if "/.venv/" in lower or lower.startswith(".venv/") or "/venv/" in lower or lower.startswith("venv/"):
+        if (
+            "/.venv/" in lower
+            or lower.startswith(".venv/")
+            or "/venv/" in lower
+            or lower.startswith("venv/")
+            or "/env/" in lower
+            or lower.startswith("env/")
+        ):
             return "local virtual environment"
         if ".obsidian/workspace" in lower:
             return "local workspace file"
@@ -167,18 +187,23 @@ def main() -> int:
     hold_back_files: list[str] = []
     hold_back_reasons: dict[str, str] = {}
     for line in lines:
-        status, path = parse_status_path(line)
+        status, source_path, target_path = parse_status_path(line)
+        change_path = display_path(source_path, target_path)
         if status == "!!":
-            hold_back_files.append(path)
-            hold_back_reasons[path] = hold_back_reason(path) or "ignored local artifact"
+            hold_back_files.append(change_path)
+            hold_back_reasons[change_path] = hold_back_reason(target_path) or "ignored local artifact"
             continue
-        reason = hold_back_reason(path)
+        if is_deleted_status(status) and source_path == target_path:
+            group = detect_group(source_path)
+            groups.setdefault(group, []).append(source_path)
+            continue
+        reason = hold_back_reason(source_path) or hold_back_reason(target_path)
         if reason:
-            hold_back_files.append(path)
-            hold_back_reasons[path] = reason
+            hold_back_files.append(change_path)
+            hold_back_reasons[change_path] = reason
             continue
-        group = detect_group(path)
-        groups.setdefault(group, []).append(path)
+        group = detect_group(target_path)
+        groups.setdefault(group, []).append(target_path)
 
     payload = {
         "is_git_repo": is_git_repo,
