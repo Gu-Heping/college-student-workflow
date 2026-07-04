@@ -716,6 +716,57 @@ def verify_inspect_repo(repo: Path) -> None:
         raise AssertionError(f"Expected no dirty files in smoke-test repo, found: {payload['dirty_files']}")
 
 
+def verify_git_grouping(repo: Path, today: date) -> None:
+    subprocess.run(["git", "-C", str(repo), "init"], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Smoke Test"], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "smoke@example.com"], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", "baseline"], check=True, capture_output=True, text=True)
+
+    write_task_fixture(
+        repo / "tasks" / "deadlines" / "manual-study-block.md",
+        title="Manual Study Block",
+        due=(today + timedelta(days=5)).isoformat(),
+        area="study",
+        priority="medium",
+        course="Linear Algebra",
+    )
+    (repo / "tmp").mkdir(parents=True, exist_ok=True)
+    (repo / "tmp" / "scratch.log").write_text("temporary notes\n", encoding="utf-8", newline="\n")
+    (repo / "references" / "slides").mkdir(parents=True, exist_ok=True)
+    (repo / "references" / "slides" / "lecture-capture.mp4").write_bytes(b"fake-binary")
+    conflict_path = repo / "tasks" / "deadlines" / "manual-study-block.sync-conflict-20260704.md"
+    conflict_path.write_text("# conflict copy\n", encoding="utf-8", newline="\n")
+
+    payload = json.loads(run_script("group_git_changes.py", str(repo)))
+    if not payload.get("is_git_repo"):
+        raise AssertionError(f"Expected a git repository payload, got: {payload}")
+    hold_back = set(payload["hold_back_files"])
+    if "tmp/" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back temporary directories and their log files")
+    if "references/slides/lecture-capture.mp4" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back binary media assets by default")
+    if "tasks/deadlines/manual-study-block.sync-conflict-20260704.md" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back sync-conflict files")
+
+    grouped_tasks = payload["artifact_grouping"].get("tasks", [])
+    if "tasks/deadlines/manual-study-block.md" not in grouped_tasks:
+        raise AssertionError("group_git_changes.py should keep normal task artifacts in the tasks group")
+
+    split_paths = {
+        path
+        for split in payload["recommended_commit_split"]
+        for path in split["paths"]
+    }
+    unexpected = hold_back & split_paths
+    if unexpected:
+        raise AssertionError(f"Hold-back files should not be suggested for commit splits: {sorted(unexpected)}")
+
+    reasons = payload.get("hold_back_reasons", {})
+    if reasons.get("tmp/") != "temporary file":
+        raise AssertionError("Expected a temporary-file reason for tmp/")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run smoke tests for student-os scaffolding workflows.")
     parser.add_argument(
@@ -738,6 +789,7 @@ def main() -> int:
         build_legacy_layout(legacy_repo, today)
         build_repo_inside_weekly_parent(weekly_parent_repo, today)
         verify_inspect_repo(multi_repo)
+        verify_git_grouping(single_repo, today)
 
         if args.refresh_examples:
             EXAMPLES_ROOT.mkdir(parents=True, exist_ok=True)

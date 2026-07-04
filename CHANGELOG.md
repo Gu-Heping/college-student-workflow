@@ -19,6 +19,7 @@
 - 重写 `CHANGELOG.md` 为规范 UTF-8 中文版本，便于后续按 Keep a Changelog 持续维护。
 - 扩展 smoke runner 与 `examples/single-semester-demo/`，使其同时展示课程导入稿、仪表盘汇总、slides 摘要和 PDF 修复产物。
 - 扩展 `task-and-planning.md`、`weekly-plan.md` 和单学期示例，使计划链路从单纯 deadline 列表升级为更完整的学生周执行面板。
+- 扩展 `group_git_changes.py`，为混合 dirty worktree 提供默认 hold-back 建议，并把冲突文件、缓存、临时日志与明显的二进制媒体/归档文件从推荐提交分组里分离出来。
 
 ### Fixed
 

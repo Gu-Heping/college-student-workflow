@@ -31,6 +31,48 @@ PREFIX = {
     "ops": "ops:",
 }
 
+HOLD_BACK_PATH_NEEDLES = [
+    ".sync-conflict-",
+    "__pycache__/",
+    "/__pycache__/",
+    ".DS_Store",
+    "Thumbs.db",
+    "node_modules/",
+    "/node_modules/",
+    ".obsidian/workspace",
+    "tmp/",
+    "/tmp/",
+    "temp/",
+    "/temp/",
+]
+
+HOLD_BACK_SUFFIXES = {
+    ".7z",
+    ".avi",
+    ".bin",
+    ".db",
+    ".dmg",
+    ".env",
+    ".exe",
+    ".gz",
+    ".iso",
+    ".jpeg",
+    ".jpg",
+    ".log",
+    ".m4a",
+    ".mkv",
+    ".mov",
+    ".mp3",
+    ".mp4",
+    ".png",
+    ".rar",
+    ".sqlite",
+    ".tar",
+    ".wav",
+    ".webm",
+    ".zip",
+}
+
 
 def detect_group(path: str) -> str:
     normalized = path.replace("\\", "/")
@@ -40,11 +82,61 @@ def detect_group(path: str) -> str:
     return "ops"
 
 
-def parse_status_path(line: str) -> str:
+def parse_status_path(line: str) -> tuple[str, str]:
+    status = line[:2]
     payload = line[3:].strip()
     if " -> " in payload:
-        return payload.split(" -> ", 1)[1].strip()
-    return payload
+        return status, payload.split(" -> ", 1)[1].strip()
+    return status, payload
+
+
+def hold_back_reason(path: str) -> str:
+    normalized = path.replace("\\", "/")
+    lower = normalized.lower()
+    name = Path(lower).name
+    if ".sync-conflict-" in name:
+        return "sync-conflict file"
+    if any(needle.lower() in lower for needle in HOLD_BACK_PATH_NEEDLES):
+        if "__pycache__" in lower:
+            return "generated cache"
+        if ".obsidian/workspace" in lower:
+            return "local workspace file"
+        if "node_modules/" in lower:
+            return "dependency cache"
+        if "/tmp/" in lower or "/temp/" in lower or lower.startswith("tmp/") or lower.startswith("temp/"):
+            return "temporary file"
+        if lower.endswith(".log"):
+            return "log file"
+        return "local-only file"
+    suffix = Path(lower).suffix
+    if suffix in HOLD_BACK_SUFFIXES:
+        if suffix in {".zip", ".7z", ".rar", ".tar", ".gz", ".iso", ".dmg"}:
+            return "archive or disk image"
+        if suffix in {".png", ".jpg", ".jpeg", ".mp3", ".mp4", ".mov", ".mkv", ".webm", ".wav", ".m4a", ".avi"}:
+            return "binary media asset"
+        if suffix in {".db", ".sqlite", ".bin", ".exe"}:
+            return "binary or local environment artifact"
+        if suffix == ".env":
+            return "environment file"
+        if suffix == ".log":
+            return "log file"
+    return ""
+
+
+def read_git_status(repo: Path) -> tuple[list[str], bool, str]:
+    if not (repo / ".git").exists():
+        return [], False, "not a git repository"
+    result = subprocess.run(
+        ["git", "-C", str(repo), "status", "--short", "--untracked-files=all", "--ignored=matching"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or "git status failed"
+        return [], False, stderr
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    return lines, True, ""
 
 
 def main() -> int:
@@ -53,20 +145,23 @@ def main() -> int:
     args = parser.parse_args()
 
     repo = Path(args.repo).resolve()
-    result = subprocess.run(
-        ["git", "-C", str(repo), "status", "--short"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    lines, is_git_repo, git_status_error = read_git_status(repo)
     groups: dict[str, list[str]] = {}
+    hold_back_files: list[str] = []
+    hold_back_reasons: dict[str, str] = {}
     for line in lines:
-        path = parse_status_path(line)
+        _status, path = parse_status_path(line)
+        reason = hold_back_reason(path)
+        if reason:
+            hold_back_files.append(path)
+            hold_back_reasons[path] = reason
+            continue
         group = detect_group(path)
         groups.setdefault(group, []).append(path)
 
     payload = {
+        "is_git_repo": is_git_repo,
+        "git_status_error": git_status_error,
         "artifact_grouping": groups,
         "recommended_commit_split": [
             {
@@ -76,7 +171,8 @@ def main() -> int:
             }
             for group, paths in groups.items()
         ],
-        "hold_back_files": [],
+        "hold_back_files": hold_back_files,
+        "hold_back_reasons": hold_back_reasons,
     }
     print(json.dumps(payload, indent=2))
     return 0
