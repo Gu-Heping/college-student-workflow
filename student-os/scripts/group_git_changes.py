@@ -37,8 +37,6 @@ HOLD_BACK_PATH_NEEDLES = [
     "/__pycache__/",
     ".DS_Store",
     "Thumbs.db",
-    "env/",
-    "/env/",
     ".venv/",
     "/.venv/",
     "venv/",
@@ -104,14 +102,27 @@ def parse_status_path(line: str) -> tuple[str, str, str]:
     return status, payload, payload
 
 
-def is_deleted_status(status: str) -> bool:
-    return "D" in status
+def is_pure_delete_status(status: str) -> bool:
+    return status in {"D ", " D"}
 
 
 def display_path(source_path: str, target_path: str) -> str:
     if source_path == target_path:
         return target_path
     return f"{source_path} -> {target_path}"
+
+
+def is_virtualenv_path(path: str) -> bool:
+    raw = path.replace("\\", "/").lower()
+    normalized = raw.strip("/")
+    if not normalized:
+        return False
+    head, _, tail = normalized.partition("/")
+    if head not in {"env", "venv", ".venv"}:
+        return False
+    if raw.endswith("/"):
+        return True
+    return bool(tail)
 
 
 def hold_back_reason(path: str) -> str:
@@ -122,18 +133,11 @@ def hold_back_reason(path: str) -> str:
         return "environment file"
     if ".sync-conflict-" in name:
         return "sync-conflict file"
+    if is_virtualenv_path(lower):
+        return "local virtual environment"
     if any(needle.lower() in lower for needle in HOLD_BACK_PATH_NEEDLES):
         if "__pycache__" in lower:
             return "generated cache"
-        if (
-            "/.venv/" in lower
-            or lower.startswith(".venv/")
-            or "/venv/" in lower
-            or lower.startswith("venv/")
-            or "/env/" in lower
-            or lower.startswith("env/")
-        ):
-            return "local virtual environment"
         if ".obsidian/workspace" in lower:
             return "local workspace file"
         if "node_modules/" in lower:
@@ -193,7 +197,7 @@ def main() -> int:
             hold_back_files.append(change_path)
             hold_back_reasons[change_path] = hold_back_reason(target_path) or "ignored local artifact"
             continue
-        if is_deleted_status(status) and source_path == target_path:
+        if is_pure_delete_status(status) and source_path == target_path:
             group = detect_group(source_path)
             groups.setdefault(group, []).append(source_path)
             continue

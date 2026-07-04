@@ -726,6 +726,10 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     (repo / "references" / "slides").mkdir(parents=True, exist_ok=True)
     (repo / "references" / "slides" / "old-capture.mp4").write_bytes(b"tracked-binary")
     (repo / ".env.shared").write_text("TRACKED_SECRET=1\n", encoding="utf-8", newline="\n")
+    (repo / ".env.tracked").write_text("TRACKED_SECRET=baseline\n", encoding="utf-8", newline="\n")
+    nested_env_note = repo / "courses" / "env" / "notes.md"
+    nested_env_note.parent.mkdir(parents=True, exist_ok=True)
+    nested_env_note.write_text("# Environment course note\n", encoding="utf-8", newline="\n")
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True, text=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-m", "baseline"], check=True, capture_output=True, text=True)
 
@@ -762,6 +766,10 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         capture_output=True,
         text=True,
     )
+    nested_env_note.write_text("# Environment course note\n\nUpdated for grouping test.\n", encoding="utf-8", newline="\n")
+    (repo / ".env.tracked").write_text("TRACKED_SECRET=staged-update\n", encoding="utf-8", newline="\n")
+    subprocess.run(["git", "-C", str(repo), "add", ".env.tracked"], check=True, capture_output=True, text=True)
+    (repo / ".env.tracked").unlink()
     gitignore = repo / ".gitignore"
     gitignore.write_text(gitignore.read_text(encoding="utf-8") + ".venv/\n", encoding="utf-8", newline="\n")
 
@@ -791,6 +799,8 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError("group_git_changes.py should hold back raw imported office source documents")
     if ".env.shared -> tasks/env-note.md" not in hold_back:
         raise AssertionError("group_git_changes.py should hold back renames from environment files")
+    if ".env.tracked" not in hold_back:
+        raise AssertionError("group_git_changes.py should keep mixed delete statuses for env files on hold-back")
 
     grouped_tasks = payload["artifact_grouping"].get("tasks", [])
     if "tasks/deadlines/manual-study-block.md" not in grouped_tasks:
@@ -798,6 +808,9 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     grouped_imports = payload["artifact_grouping"].get("imports", [])
     if "references/slides/old-capture.mp4" not in grouped_imports:
         raise AssertionError("group_git_changes.py should keep tracked hold-back deletions in commit guidance")
+    grouped_course = payload["artifact_grouping"].get("course", [])
+    if "courses/env/notes.md" not in grouped_course:
+        raise AssertionError("group_git_changes.py should not treat nested env course paths as virtual environments")
 
     split_paths = {
         path
@@ -827,6 +840,8 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError("Expected a binary-source-document reason for imported office files")
     if reasons.get(".env.shared -> tasks/env-note.md") != "environment file":
         raise AssertionError("Expected an environment-file reason for renames from environment files")
+    if reasons.get(".env.tracked") != "environment file":
+        raise AssertionError("Expected an environment-file reason for mixed delete env states")
     if reasons.get("tasks/deadlines/manual-study-block.sync-conflict-20260704.md") != "sync-conflict file":
         raise AssertionError("Expected a sync-conflict reason for the conflict copy")
 
