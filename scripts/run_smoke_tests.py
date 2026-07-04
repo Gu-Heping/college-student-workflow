@@ -583,6 +583,10 @@ def build_single_semester(repo: Path, today: date) -> None:
     ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "courses/linear-algebra/references/outline-import.md")
     ensure_contains(repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md", "courses/linear-algebra/dashboard.md")
     weekly_plan_text = (repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md").read_text(encoding="utf-8")
+    ensure_contains(
+        repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md",
+        f"- `linear-algebra` -> prioritize Linear Algebra Overdue Reading ({(today - timedelta(days=2)).isoformat()})",
+    )
     if "manual-repair-sample-repair-summary.md" in weekly_plan_text:
         raise AssertionError("Repair summaries should not appear in imported-material triage")
     dashboard_exam_line = f"{(today + timedelta(days=9)).isoformat()} :: courses/linear-algebra/dashboard.md"
@@ -645,6 +649,14 @@ def build_multi_semester(repo: Path, today: date) -> None:
         priority="medium",
         course="Data & Models",
     )
+    write_task_fixture(
+        repo / "tasks" / "deadlines" / "problem-set-2.md",
+        title="Ambiguous CS 101 follow-up",
+        due=due_date,
+        area="homework",
+        priority="medium",
+        course="CS 101",
+    )
     run_script("build_review_indexes.py", str(repo))
     run_script("build_week_plan.py", str(repo), "--days", "14")
     run_script("rebuild_indexes.py", str(repo))
@@ -670,6 +682,10 @@ def build_multi_semester(repo: Path, today: date) -> None:
         repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md"
     ).read_text(encoding="utf-8"):
         raise AssertionError("Duplicate normalized titles should not steal another semester's title-based priority")
+    if "Ambiguous CS 101 follow-up" in (
+        repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md"
+    ).read_text(encoding="utf-8").split("## Course Actions", 1)[1].split("## Review Targets", 1)[0]:
+        raise AssertionError("Ambiguous unscoped duplicate-course tasks should stay out of course-action prioritization")
 
 
 def build_legacy_layout(repo: Path, today: date) -> None:

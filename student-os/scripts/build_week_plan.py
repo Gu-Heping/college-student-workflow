@@ -158,7 +158,6 @@ def course_action_lines(course_dirs: list[Path], task_entries: list[TaskEntry], 
     course_titles_by_dir: dict[Path, str] = {}
     course_title_counts: dict[str, int] = {}
     course_slug_counts: dict[str, int] = {}
-    semester_slugs = {course_dir.relative_to(repo / "courses").parts[0] for course_dir in course_dirs if len(course_dir.relative_to(repo / "courses").parts) > 1}
     for entry in task_entries:
         if entry.course:
             deadlines_by_course.setdefault(normalize_course_key(entry.course), []).append(entry)
@@ -190,30 +189,26 @@ def course_action_lines(course_dirs: list[Path], task_entries: list[TaskEntry], 
                 matching_by_rel.setdefault(entry.rel, entry)
         matching = [entry for entry in matching_by_rel.values() if is_actionable(entry.status)]
         explicit_matches = []
+        filtered_matching = []
         for entry in matching:
             if not entry.course_link:
+                filtered_matching.append(entry)
                 continue
             linked = (entry.path.parent / entry.course_link).resolve()
             if linked == (course_dir / "index.md").resolve():
                 explicit_matches.append(entry)
-        if explicit_matches:
-            matching = explicit_matches
-        elif len(course_parts) > 1:
+                filtered_matching.append(entry)
+        matching = filtered_matching
+        duplicate_course = len(course_parts) > 1 and (
+            course_slug_counts.get(course_slug_key, 0) > 1 or course_title_counts.get(course_title_key, 0) > 1
+        )
+        if duplicate_course:
             semester_scope = f"/{course_parts[0]}-"
             scoped = [entry for entry in matching if semester_scope in f"/{entry.rel}"]
-            if scoped:
-                matching = scoped
-            elif course_slug_counts.get(course_slug_key, 0) > 1 or course_title_counts.get(course_title_key, 0) > 1:
-                semester_tagged = [
-                    entry
-                    for entry in matching
-                    if any(f"/{semester_slug}-" in f"/{entry.rel}" for semester_slug in semester_slugs)
-                ]
-                matching = [
-                    entry
-                    for entry in matching
-                    if not entry.course_link and entry not in semester_tagged
-                ]
+            narrowed_by_rel: dict[str, TaskEntry] = {}
+            for entry in explicit_matches + scoped:
+                narrowed_by_rel.setdefault(entry.rel, entry)
+            matching = list(narrowed_by_rel.values())
         if matching:
             nearest = sorted(
                 (entry for entry in matching if is_due_in_window(entry, today, horizon_end)),
