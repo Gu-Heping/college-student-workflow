@@ -717,9 +717,12 @@ def verify_inspect_repo(repo: Path) -> None:
 
 
 def verify_git_grouping(repo: Path, today: date) -> None:
+    repo.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "-C", str(repo), "init"], check=True, capture_output=True, text=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.name", "Smoke Test"], check=True, capture_output=True, text=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.email", "smoke@example.com"], check=True, capture_output=True, text=True)
+    run_script("scaffold_repo.py", str(repo))
+    run_script("scaffold_course.py", str(repo), "Linear Algebra")
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True, text=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-m", "baseline"], check=True, capture_output=True, text=True)
 
@@ -737,17 +740,26 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     (repo / "references" / "slides" / "lecture-capture.mp4").write_bytes(b"fake-binary")
     conflict_path = repo / "tasks" / "deadlines" / "manual-study-block.sync-conflict-20260704.md"
     conflict_path.write_text("# conflict copy\n", encoding="utf-8", newline="\n")
+    (repo / ".env").write_text("API_KEY=local\n", encoding="utf-8", newline="\n")
+    (repo / ".venv").mkdir(parents=True, exist_ok=True)
+    (repo / ".venv" / "pyvenv.cfg").write_text("home = C:/Python\n", encoding="utf-8", newline="\n")
+    gitignore = repo / ".gitignore"
+    gitignore.write_text(gitignore.read_text(encoding="utf-8") + ".venv/\n", encoding="utf-8", newline="\n")
 
     payload = json.loads(run_script("group_git_changes.py", str(repo)))
     if not payload.get("is_git_repo"):
         raise AssertionError(f"Expected a git repository payload, got: {payload}")
     hold_back = set(payload["hold_back_files"])
     if "tmp/" not in hold_back:
-        raise AssertionError("group_git_changes.py should hold back temporary directories and their log files")
+        raise AssertionError("group_git_changes.py should hold back ignored temporary directories")
     if "references/slides/lecture-capture.mp4" not in hold_back:
         raise AssertionError("group_git_changes.py should hold back binary media assets by default")
     if "tasks/deadlines/manual-study-block.sync-conflict-20260704.md" not in hold_back:
         raise AssertionError("group_git_changes.py should hold back sync-conflict files")
+    if ".env" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back .env files")
+    if ".venv/" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back ignored local artifacts")
 
     grouped_tasks = payload["artifact_grouping"].get("tasks", [])
     if "tasks/deadlines/manual-study-block.md" not in grouped_tasks:
@@ -765,6 +777,12 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     reasons = payload.get("hold_back_reasons", {})
     if reasons.get("tmp/") != "temporary file":
         raise AssertionError("Expected a temporary-file reason for tmp/")
+    if reasons.get(".env") != "environment file":
+        raise AssertionError("Expected an environment-file reason for .env")
+    if reasons.get(".venv/") != "ignored local artifact":
+        raise AssertionError("Expected an ignored-local-artifact reason for .venv/")
+    if reasons.get("tasks/deadlines/manual-study-block.sync-conflict-20260704.md") != "sync-conflict file":
+        raise AssertionError("Expected a sync-conflict reason for the conflict copy")
 
 
 def main() -> int:
@@ -783,13 +801,14 @@ def main() -> int:
         multi_repo = tmp_root / "multi-semester-demo"
         legacy_repo = tmp_root / "legacy-layout-demo"
         weekly_parent_repo = tmp_root / "weekly" / "nested-weekly-parent-demo"
+        grouping_repo = tmp_root / "grouping-demo"
 
         build_single_semester(single_repo, today)
         build_multi_semester(multi_repo, today)
         build_legacy_layout(legacy_repo, today)
         build_repo_inside_weekly_parent(weekly_parent_repo, today)
         verify_inspect_repo(multi_repo)
-        verify_git_grouping(single_repo, today)
+        verify_git_grouping(grouping_repo, today)
 
         if args.refresh_examples:
             EXAMPLES_ROOT.mkdir(parents=True, exist_ok=True)

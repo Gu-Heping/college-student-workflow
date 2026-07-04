@@ -94,6 +94,8 @@ def hold_back_reason(path: str) -> str:
     normalized = path.replace("\\", "/")
     lower = normalized.lower()
     name = Path(lower).name
+    if name == ".env":
+        return "environment file"
     if ".sync-conflict-" in name:
         return "sync-conflict file"
     if any(needle.lower() in lower for needle in HOLD_BACK_PATH_NEEDLES):
@@ -150,7 +152,11 @@ def main() -> int:
     hold_back_files: list[str] = []
     hold_back_reasons: dict[str, str] = {}
     for line in lines:
-        _status, path = parse_status_path(line)
+        status, path = parse_status_path(line)
+        if status == "!!":
+            hold_back_files.append(path)
+            hold_back_reasons[path] = hold_back_reason(path) or "ignored local artifact"
+            continue
         reason = hold_back_reason(path)
         if reason:
             hold_back_files.append(path)
