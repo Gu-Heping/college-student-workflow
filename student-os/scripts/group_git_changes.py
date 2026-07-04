@@ -37,10 +37,6 @@ HOLD_BACK_PATH_NEEDLES = [
     "/__pycache__/",
     ".DS_Store",
     "Thumbs.db",
-    ".venv/",
-    "/.venv/",
-    "venv/",
-    "/venv/",
     "node_modules/",
     "/node_modules/",
     ".obsidian/workspace",
@@ -112,27 +108,30 @@ def display_path(source_path: str, target_path: str) -> str:
     return f"{source_path} -> {target_path}"
 
 
-def is_virtualenv_path(path: str) -> bool:
+def is_virtualenv_path(repo: Path, path: str) -> bool:
     raw = path.replace("\\", "/").lower()
     normalized = raw.strip("/")
     if not normalized:
         return False
     parts = [part for part in normalized.split("/") if part]
-    markers = {"pyvenv.cfg", "bin", "scripts", "lib", "include", "share"}
+    markers = {"pyvenv.cfg", "bin", "scripts", "lib", "lib64", "include", "share"}
     for index, part in enumerate(parts):
         if part not in {"env", "venv", ".venv"}:
             continue
-        if part in {"venv", ".venv"}:
-            return True
+        candidate_dir = repo.joinpath(*parts[: index + 1])
         tail = parts[index + 1 :]
-        if not tail:
+        if candidate_dir.joinpath("pyvenv.cfg").exists():
             return True
-        if tail[0] in markers:
+        if not tail:
+            continue
+        if tail[0] == "pyvenv.cfg":
+            return True
+        if tail[0] in markers and candidate_dir.joinpath("pyvenv.cfg").exists():
             return True
     return False
 
 
-def hold_back_reason(path: str) -> str:
+def hold_back_reason(repo: Path, path: str) -> str:
     normalized = path.replace("\\", "/")
     lower = normalized.lower()
     name = Path(lower).name
@@ -140,7 +139,7 @@ def hold_back_reason(path: str) -> str:
         return "environment file"
     if ".sync-conflict-" in name:
         return "sync-conflict file"
-    if is_virtualenv_path(lower):
+    if is_virtualenv_path(repo, lower):
         return "local virtual environment"
     if any(needle.lower() in lower for needle in HOLD_BACK_PATH_NEEDLES):
         if "__pycache__" in lower:
@@ -202,13 +201,13 @@ def main() -> int:
         change_path = display_path(source_path, target_path)
         if status == "!!":
             hold_back_files.append(change_path)
-            hold_back_reasons[change_path] = hold_back_reason(target_path) or "ignored local artifact"
+            hold_back_reasons[change_path] = hold_back_reason(repo, target_path) or "ignored local artifact"
             continue
         if is_pure_delete_status(status) and source_path == target_path:
             group = detect_group(source_path)
             groups.setdefault(group, []).append(source_path)
             continue
-        reason = hold_back_reason(source_path) or hold_back_reason(target_path)
+        reason = hold_back_reason(repo, source_path) or hold_back_reason(repo, target_path)
         if reason:
             hold_back_files.append(change_path)
             hold_back_reasons[change_path] = reason

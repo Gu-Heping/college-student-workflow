@@ -27,6 +27,7 @@
 - 修复示例导入产物中残留临时绝对路径的问题，改为稳定的仓库内相对语义。
 - 修复 MinerU-style PDF smoke fixture 对 raw 输出文件名的错误假设，避免回归测试误报。
 - 修复 `group_git_changes.py` 对嵌套 `env/pyvenv.cfg` 虚拟环境目录的漏检，避免课程或项目子目录中的本地虚拟环境被错误纳入推荐提交分组。
+- 修复 `group_git_changes.py` 对虚拟环境目录的证据判定：补充 `lib64` 覆盖，并避免把课程/项目中名为 `env`、`venv`、`.venv` 的正常路径在缺少 `pyvenv.cfg` 证据时误判为本地虚拟环境。
 
 ## [0.6.0] - 2026-07-03
 
