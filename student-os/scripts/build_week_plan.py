@@ -144,7 +144,8 @@ def imported_targets(repo: Path) -> list[str]:
         reference_dir = course_dir / "references"
         if not reference_dir.exists():
             continue
-        for path in sorted(reference_dir.glob("*.md"))[:10]:
+        candidates = [path for path in sorted(reference_dir.glob("*.md")) if not path.name.endswith("-repair-summary.md")]
+        for path in candidates[:10]:
             targets.append(path.relative_to(repo).as_posix())
     return targets
 
@@ -152,23 +153,37 @@ def imported_targets(repo: Path) -> list[str]:
 def course_action_lines(course_dirs: list[Path], task_entries: list[TaskEntry], repo: Path, today: date, horizon_end: date) -> list[str]:
     lines: list[str] = []
     deadlines_by_course: dict[str, list[TaskEntry]] = {}
+    course_title_counts: dict[str, int] = {}
+    course_titles_by_dir: dict[Path, str] = {}
     for entry in task_entries:
         if entry.course:
             deadlines_by_course.setdefault(normalize_course_key(entry.course), []).append(entry)
     for course_dir in course_dirs:
-        rel = course_dir.relative_to(repo / "courses").as_posix()
-        course_slug_name = rel.split("/")[-1].replace("-", " ")
-        candidates = {normalize_course_key(course_slug_name)}
         course_home = course_dir / "index.md"
-        if course_home.exists():
-            course_title = parse_title(course_home.read_text(encoding="utf-8"), "")
-            if course_title.lower().startswith("course - "):
-                course_title = course_title[9:].strip()
-            if course_title:
-                candidates.add(normalize_course_key(course_title))
+        if not course_home.exists():
+            continue
+        course_title = parse_title(course_home.read_text(encoding="utf-8"), "")
+        if course_title.lower().startswith("course - "):
+            course_title = course_title[9:].strip()
+        if not course_title:
+            continue
+        normalized = normalize_course_key(course_title)
+        course_titles_by_dir[course_dir] = normalized
+        course_title_counts[normalized] = course_title_counts.get(normalized, 0) + 1
+    for course_dir in course_dirs:
+        rel = course_dir.relative_to(repo / "courses").as_posix()
+        course_parts = rel.split("/")
+        course_slug_name = course_parts[-1].replace("-", " ")
+        candidates = {normalize_course_key(course_slug_name)}
+        course_title_key = course_titles_by_dir.get(course_dir, "")
+        if course_title_key and course_title_counts.get(course_title_key, 0) == 1:
+            candidates.add(course_title_key)
         matching = []
         for candidate in candidates:
             matching.extend(deadlines_by_course.get(candidate, []))
+        if len(course_parts) > 1:
+            semester_scope = f"/{course_parts[0]}-"
+            matching = [entry for entry in matching if semester_scope in f"/{entry.rel}"]
         matching = [entry for entry in matching if is_actionable(entry.status)]
         if matching:
             nearest = sorted(

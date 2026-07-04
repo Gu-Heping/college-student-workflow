@@ -4,6 +4,7 @@
 
 - tasks/weekly/2026-07-04-plus-14d.md
 - dashboards/weekly/2026-07-04-plus-14d.md
+- courses/linear-algebra/references/outline-import-repair-summary.md
 - references/imports/repaired/manual-repair-sample-repair-summary.md
 - references/imports/repaired/manual-repair-sample.md
 - references/imports/raw/manual-repair-sample.md
@@ -21,4 +22,3 @@
 - courses/linear-algebra/reviews/chapter-1-review.md
 - tasks/deadlines/linear-algebra-archived-quiz.md
 - tasks/deadlines/linear-algebra-overdue-reading.md
-- tasks/deadlines/linear-algebra-midterm-checkpoint.md

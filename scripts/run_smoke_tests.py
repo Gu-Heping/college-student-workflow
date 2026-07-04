@@ -308,6 +308,7 @@ def exercise_import_workflows(repo: Path) -> None:
     write_pdf_fixture(pdf_path)
 
     docx_output = repo / "courses" / "linear-algebra" / "references" / "outline-import.md"
+    course_repair_summary = repo / "courses" / "linear-algebra" / "references" / "outline-import-repair-summary.md"
     xlsx_output = repo / "dashboards" / "linear-algebra-progress-import.md"
     pptx_output = repo / "references" / "slides" / "linear-algebra-week-2.md"
     pdf_generic_output = repo / "courses" / "linear-algebra" / "references" / "handout-generic-import.md"
@@ -372,6 +373,7 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_exists(Path(docx_payload["output"]))
     ensure_contains(docx_output, "Linear Algebra Import Outline")
     ensure_contains(docx_output, "## Table 1")
+    course_repair_summary.write_text("# Repair Summary\n\n- Example only.\n", encoding="utf-8", newline="\n")
     ensure_exists(Path(xlsx_payload["output"]))
     ensure_contains(xlsx_output, "| Task | Score | Weight | Weighted |")
     ensure_contains(xlsx_output, "=B2*C2")
@@ -605,6 +607,7 @@ def build_multi_semester(repo: Path, today: date) -> None:
     run_script("scaffold_repo.py", str(repo))
     run_script("scaffold_course.py", str(repo), "CS 101", "--semester", "2026 Fall")
     run_script("scaffold_course.py", str(repo), "Calculus II", "--semester", "2026 Fall")
+    run_script("scaffold_course.py", str(repo), "CS 101", "--semester", "2027 Spring")
     run_script(
         "scaffold_homework.py",
         str(repo),
@@ -626,6 +629,10 @@ def build_multi_semester(repo: Path, today: date) -> None:
         repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md",
         "- `2026-fall/cs-101` -> prioritize CS 101 - Problem Set 1",
     )
+    if "- `2027-spring/cs-101` -> prioritize CS 101 - Problem Set 1" in (
+        repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md"
+    ).read_text(encoding="utf-8"):
+        raise AssertionError("Duplicate course titles across semesters should not steal another semester's deadline priority")
 
 
 def build_legacy_layout(repo: Path, today: date) -> None:
