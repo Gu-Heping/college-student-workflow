@@ -1,9 +1,9 @@
 ---
 type: feedback
 status: "triaged"
-created: 2026-07-03
-updated: 2026-07-03
-feedback_id: "fb-20260703-weekly-plan-omitted-imported-deadline-2"
+created: 2026-07-04
+updated: 2026-07-04
+feedback_id: "fb-20260704-weekly-plan-omitted-imported-deadline-2"
 tags: [feedback, workflow]
 feedback_kind: workflow
 severity: "medium"

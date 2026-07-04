@@ -2,8 +2,8 @@
 type: homework
 course: Linear Algebra
 status: active
-created: 2026-07-03
-updated: 2026-07-03
+created: 2026-07-04
+updated: 2026-07-04
 tags: [course/linear-algebra, homework]
 ---
 
@@ -12,7 +12,7 @@ tags: [course/linear-algebra, homework]
 ## Assignment
 
 - Source:
-- Due: 2026-07-11
+- Due: 2026-07-12
 - Scope:
 
 ## Deliverables

@@ -2,8 +2,8 @@
 type: task
 course: CS 101
 status: active
-created: 2026-07-03
-updated: 2026-07-03
+created: 2026-07-04
+updated: 2026-07-04
 tags: [task]
 ---
 
@@ -11,7 +11,7 @@ tags: [task]
 
 ## Details
 
-- Due: 2026-07-10
+- Due: 2026-07-11
 - Area: homework
 - Priority:
 

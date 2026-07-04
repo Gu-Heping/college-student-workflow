@@ -622,6 +622,10 @@ def build_multi_semester(repo: Path, today: date) -> None:
     ensure_contains(repo / ".student-os" / "repo-profile.md", "enabled: true")
     ensure_contains(repo / "semesters" / "2026-fall" / "overview.md", "[CS 101]")
     ensure_contains(repo / ".student-os" / "index" / "courses.md", "courses/2026-fall/cs-101")
+    ensure_contains(
+        repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md",
+        "- `2026-fall/cs-101` -> prioritize CS 101 - Problem Set 1",
+    )
 
 
 def build_legacy_layout(repo: Path, today: date) -> None:

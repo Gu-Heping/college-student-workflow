@@ -2,4 +2,4 @@
 
 ## Entries
 
-- dashboards/weekly/2026-07-03-plus-14d.md
+- dashboards/weekly/2026-07-04-plus-14d.md

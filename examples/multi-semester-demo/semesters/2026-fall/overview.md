@@ -2,8 +2,8 @@
 type: semester-overview
 semester: 2026 Fall
 status: active
-created: 2026-07-03
-updated: 2026-07-03
+created: 2026-07-04
+updated: 2026-07-04
 tags: [semester/2026-fall, dashboard]
 ---
 

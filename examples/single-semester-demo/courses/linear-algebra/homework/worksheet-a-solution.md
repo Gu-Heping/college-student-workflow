@@ -2,8 +2,8 @@
 type: homework-solution
 course: Linear Algebra
 status: active
-created: 2026-07-03
-updated: 2026-07-03
+created: 2026-07-04
+updated: 2026-07-04
 tags: [course/linear-algebra, homework, solution]
 source_artifacts: []
 solution_status: needs-review

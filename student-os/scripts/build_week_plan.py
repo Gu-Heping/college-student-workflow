@@ -90,6 +90,10 @@ def is_due_in_window(entry: TaskEntry, today: date, horizon_end: date) -> bool:
     return entry.due_date is not None and (entry.due_date < today or today <= entry.due_date <= horizon_end)
 
 
+def normalize_course_key(raw: str) -> str:
+    return " ".join(raw.replace("-", " ").replace("_", " ").lower().split())
+
+
 def read_task(path: Path, repo: Path) -> TaskEntry:
     text = path.read_text(encoding="utf-8")
     frontmatter = parse_frontmatter(text)
@@ -133,9 +137,8 @@ def imported_targets(repo: Path) -> list[str]:
     for root in roots:
         if not root.exists():
             continue
-        for path in sorted(root.glob("*.md"))[:10]:
-            if path.name.endswith("-repair-summary.md"):
-                continue
+        candidates = [path for path in sorted(root.glob("*.md")) if not path.name.endswith("-repair-summary.md")]
+        for path in candidates[:10]:
             targets.append(path.relative_to(repo).as_posix())
     for course_dir in discover_course_dirs(repo / "courses"):
         reference_dir = course_dir / "references"
@@ -151,14 +154,22 @@ def course_action_lines(course_dirs: list[Path], task_entries: list[TaskEntry], 
     deadlines_by_course: dict[str, list[TaskEntry]] = {}
     for entry in task_entries:
         if entry.course:
-            deadlines_by_course.setdefault(entry.course, []).append(entry)
+            deadlines_by_course.setdefault(normalize_course_key(entry.course), []).append(entry)
     for course_dir in course_dirs:
         rel = course_dir.relative_to(repo / "courses").as_posix()
-        course_name = rel.split("/")[-1].replace("-", " ")
-        matching = [
-            entry for entry in deadlines_by_course.get(course_name.title(), []) + deadlines_by_course.get(course_name, [])
-            if is_actionable(entry.status)
-        ]
+        course_slug_name = rel.split("/")[-1].replace("-", " ")
+        candidates = {normalize_course_key(course_slug_name)}
+        course_home = course_dir / "index.md"
+        if course_home.exists():
+            course_title = parse_title(course_home.read_text(encoding="utf-8"), "")
+            if course_title.lower().startswith("course - "):
+                course_title = course_title[9:].strip()
+            if course_title:
+                candidates.add(normalize_course_key(course_title))
+        matching = []
+        for candidate in candidates:
+            matching.extend(deadlines_by_course.get(candidate, []))
+        matching = [entry for entry in matching if is_actionable(entry.status)]
         if matching:
             nearest = sorted(
                 (entry for entry in matching if is_due_in_window(entry, today, horizon_end)),
