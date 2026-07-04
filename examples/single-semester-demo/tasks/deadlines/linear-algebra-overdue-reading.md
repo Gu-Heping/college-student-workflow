@@ -23,6 +23,6 @@ tags: [task]
 
 ## Links
 
-- Course:
+- Course: 
 - Project:
 - Source file:

@@ -20,6 +20,7 @@ class TaskEntry:
     priority: str
     tags: list[str]
     course: str
+    course_link: str
 
 
 def parse_frontmatter(text: str) -> dict[str, str]:
@@ -108,6 +109,7 @@ def read_task(path: Path, repo: Path) -> TaskEntry:
         priority=parse_detail(text, "Priority"),
         tags=tags,
         course=frontmatter.get("course", "").strip('"').strip("'"),
+        course_link=parse_detail(text, "Course"),
     )
 
 
@@ -153,8 +155,10 @@ def imported_targets(repo: Path) -> list[str]:
 def course_action_lines(course_dirs: list[Path], task_entries: list[TaskEntry], repo: Path, today: date, horizon_end: date) -> list[str]:
     lines: list[str] = []
     deadlines_by_course: dict[str, list[TaskEntry]] = {}
-    course_title_counts: dict[str, int] = {}
     course_titles_by_dir: dict[Path, str] = {}
+    course_title_counts: dict[str, int] = {}
+    course_slug_counts: dict[str, int] = {}
+    semester_slugs = {course_dir.relative_to(repo / "courses").parts[0] for course_dir in course_dirs if len(course_dir.relative_to(repo / "courses").parts) > 1}
     for entry in task_entries:
         if entry.course:
             deadlines_by_course.setdefault(normalize_course_key(entry.course), []).append(entry)
@@ -170,21 +174,46 @@ def course_action_lines(course_dirs: list[Path], task_entries: list[TaskEntry], 
         normalized = normalize_course_key(course_title)
         course_titles_by_dir[course_dir] = normalized
         course_title_counts[normalized] = course_title_counts.get(normalized, 0) + 1
+        slug_key = normalize_course_key(course_dir.name.replace("-", " "))
+        course_slug_counts[slug_key] = course_slug_counts.get(slug_key, 0) + 1
     for course_dir in course_dirs:
         rel = course_dir.relative_to(repo / "courses").as_posix()
         course_parts = rel.split("/")
-        course_slug_name = course_parts[-1].replace("-", " ")
-        candidates = {normalize_course_key(course_slug_name)}
+        course_slug_key = normalize_course_key(course_parts[-1].replace("-", " "))
+        candidates = {course_slug_key}
         course_title_key = course_titles_by_dir.get(course_dir, "")
-        if course_title_key and course_title_counts.get(course_title_key, 0) == 1:
+        if course_title_key:
             candidates.add(course_title_key)
-        matching = []
+        matching_by_rel: dict[str, TaskEntry] = {}
         for candidate in candidates:
-            matching.extend(deadlines_by_course.get(candidate, []))
-        if len(course_parts) > 1:
+            for entry in deadlines_by_course.get(candidate, []):
+                matching_by_rel.setdefault(entry.rel, entry)
+        matching = [entry for entry in matching_by_rel.values() if is_actionable(entry.status)]
+        explicit_matches = []
+        for entry in matching:
+            if not entry.course_link:
+                continue
+            linked = (entry.path.parent / entry.course_link).resolve()
+            if linked == (course_dir / "index.md").resolve():
+                explicit_matches.append(entry)
+        if explicit_matches:
+            matching = explicit_matches
+        elif len(course_parts) > 1:
             semester_scope = f"/{course_parts[0]}-"
-            matching = [entry for entry in matching if semester_scope in f"/{entry.rel}"]
-        matching = [entry for entry in matching if is_actionable(entry.status)]
+            scoped = [entry for entry in matching if semester_scope in f"/{entry.rel}"]
+            if scoped:
+                matching = scoped
+            elif course_slug_counts.get(course_slug_key, 0) > 1 or course_title_counts.get(course_title_key, 0) > 1:
+                semester_tagged = [
+                    entry
+                    for entry in matching
+                    if any(f"/{semester_slug}-" in f"/{entry.rel}" for semester_slug in semester_slugs)
+                ]
+                matching = [
+                    entry
+                    for entry in matching
+                    if not entry.course_link and entry not in semester_tagged
+                ]
         if matching:
             nearest = sorted(
                 (entry for entry in matching if is_due_in_window(entry, today, horizon_end)),

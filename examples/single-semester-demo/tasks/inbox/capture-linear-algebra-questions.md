@@ -23,6 +23,6 @@ tags: [task, inbox]
 
 ## Links
 
-- Course:
+- Course: 
 - Project:
 - Source file:

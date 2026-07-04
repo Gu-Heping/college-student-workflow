@@ -1,19 +1,19 @@
 ---
 type: task
-course: Linear Algebra
-status: archived
+course: Data & Models
+status: active
 created: 2026-07-04
 updated: 2026-07-04
-tags: [task, exam]
+tags: [task]
 ---
 
-# Linear Algebra Archived Quiz
+# Data & Models reading
 
 ## Details
 
-- Due: 2026-07-03
-- Area: exam
-- Priority: low
+- Due: 2026-07-11
+- Area: review
+- Priority: medium
 
 ## Checklist
 

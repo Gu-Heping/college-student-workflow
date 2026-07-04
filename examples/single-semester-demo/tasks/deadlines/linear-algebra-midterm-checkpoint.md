@@ -23,6 +23,6 @@ tags: [task, exam]
 
 ## Links
 
-- Course:
+- Course: 
 - Project:
 - Source file:

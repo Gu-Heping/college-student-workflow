@@ -19,6 +19,7 @@ tags: [semester/2027-spring, dashboard]
 
 <!-- student-os:course-links:start -->
 - [CS 101](../../courses/2027-spring/cs-101/index.md)
+- [Data & Models](../../courses/2027-spring/data-models/index.md)
 <!-- student-os:course-links:end -->
 
 ## Key Dates

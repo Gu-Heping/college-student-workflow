@@ -122,7 +122,17 @@ def rewrite_legacy_task_link(task_path: Path) -> None:
     task_path.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
 
 
-def write_task_fixture(path: Path, *, title: str, due: str = "", area: str = "", priority: str = "", course: str = "", tags: str = "[task]") -> None:
+def write_task_fixture(
+    path: Path,
+    *,
+    title: str,
+    due: str = "",
+    area: str = "",
+    priority: str = "",
+    course: str = "",
+    tags: str = "[task]",
+    course_link: str = "",
+) -> None:
     lines = [
         "---",
         "type: task",
@@ -149,7 +159,7 @@ def write_task_fixture(path: Path, *, title: str, due: str = "", area: str = "",
         "",
         "## Links",
         "",
-        "- Course:",
+        f"- Course: {course_link}",
         "- Project:",
         "- Source file:",
     ]
@@ -608,6 +618,8 @@ def build_multi_semester(repo: Path, today: date) -> None:
     run_script("scaffold_course.py", str(repo), "CS 101", "--semester", "2026 Fall")
     run_script("scaffold_course.py", str(repo), "Calculus II", "--semester", "2026 Fall")
     run_script("scaffold_course.py", str(repo), "CS 101", "--semester", "2027 Spring")
+    run_script("scaffold_course.py", str(repo), "Data & Models", "--semester", "2026 Fall")
+    run_script("scaffold_course.py", str(repo), "Data & Models", "--semester", "2027 Spring")
     run_script(
         "scaffold_homework.py",
         str(repo),
@@ -615,6 +627,23 @@ def build_multi_semester(repo: Path, today: date) -> None:
         "Problem Set 1",
         "--due",
         due_date,
+    )
+    write_task_fixture(
+        repo / "tasks" / "deadlines" / "problem-set-1.md",
+        title="Manual CS 101 checkpoint",
+        due=due_date,
+        area="homework",
+        priority="medium",
+        course="CS 101",
+        course_link="../../courses/2026-fall/cs-101/index.md",
+    )
+    write_task_fixture(
+        repo / "tasks" / "deadlines" / "2026-fall-data-models-reading.md",
+        title="Data & Models reading",
+        due=due_date,
+        area="review",
+        priority="medium",
+        course="Data & Models",
     )
     run_script("build_review_indexes.py", str(repo))
     run_script("build_week_plan.py", str(repo), "--days", "14")
@@ -629,10 +658,18 @@ def build_multi_semester(repo: Path, today: date) -> None:
         repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md",
         "- `2026-fall/cs-101` -> prioritize CS 101 - Problem Set 1",
     )
+    ensure_contains(
+        repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md",
+        "- `2026-fall/data-models` -> prioritize Data & Models reading",
+    )
     if "- `2027-spring/cs-101` -> prioritize CS 101 - Problem Set 1" in (
         repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md"
     ).read_text(encoding="utf-8"):
         raise AssertionError("Duplicate course titles across semesters should not steal another semester's deadline priority")
+    if "- `2027-spring/data-models` -> prioritize Data & Models reading" in (
+        repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md"
+    ).read_text(encoding="utf-8"):
+        raise AssertionError("Duplicate normalized titles should not steal another semester's title-based priority")
 
 
 def build_legacy_layout(repo: Path, today: date) -> None:

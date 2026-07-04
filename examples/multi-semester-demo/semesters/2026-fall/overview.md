@@ -20,6 +20,7 @@ tags: [semester/2026-fall, dashboard]
 <!-- student-os:course-links:start -->
 - [CS 101](../../courses/2026-fall/cs-101/index.md)
 - [Calculus II](../../courses/2026-fall/calculus-ii/index.md)
+- [Data & Models](../../courses/2026-fall/data-models/index.md)
 <!-- student-os:course-links:end -->
 
 ## Key Dates
