@@ -109,17 +109,18 @@ def display_path(source_path: str, target_path: str) -> str:
 
 
 def is_virtualenv_path(repo: Path, path: str) -> bool:
-    raw = path.replace("\\", "/").lower()
-    normalized = raw.strip("/")
-    if not normalized:
+    raw_normalized = path.replace("\\", "/").strip("/")
+    if not raw_normalized:
         return False
-    parts = [part for part in normalized.split("/") if part]
+    lower_normalized = raw_normalized.lower()
+    parts = [part for part in raw_normalized.split("/") if part]
+    lower_parts = [part for part in lower_normalized.split("/") if part]
     markers = {"pyvenv.cfg", "bin", "scripts", "lib", "lib64", "include", "share"}
-    for index, part in enumerate(parts):
+    for index, part in enumerate(lower_parts):
         if part not in {"env", "venv", ".venv"}:
             continue
         candidate_dir = repo.joinpath(*parts[: index + 1])
-        tail = parts[index + 1 :]
+        tail = lower_parts[index + 1 :]
         if candidate_dir.joinpath("pyvenv.cfg").exists():
             return True
         if not tail:

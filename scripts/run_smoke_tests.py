@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import shutil
@@ -15,6 +16,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 STUDENT_OS_SCRIPTS = ROOT / "student-os" / "scripts"
 EXAMPLES_ROOT = ROOT / "examples"
+
+
+def load_group_git_changes_module():
+    script_path = STUDENT_OS_SCRIPTS / "group_git_changes.py"
+    spec = importlib.util.spec_from_file_location("student_os_group_git_changes", script_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load module spec for {script_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def run_script(name: str, *args: str, cwd: Path = ROOT) -> str:
@@ -764,6 +775,11 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     (nested_virtualenv / "pyvenv.cfg").write_text("home = C:/Python\n", encoding="utf-8", newline="\n")
     (nested_virtualenv / "lib64").mkdir(parents=True, exist_ok=True)
     (nested_virtualenv / "lib64" / "python3.12.txt").write_text("stdlib marker\n", encoding="utf-8", newline="\n")
+    mixed_case_virtualenv = repo / "courses" / "Project" / "env"
+    mixed_case_virtualenv.mkdir(parents=True, exist_ok=True)
+    (mixed_case_virtualenv / "pyvenv.cfg").write_text("home = C:/Python\n", encoding="utf-8", newline="\n")
+    (mixed_case_virtualenv / "lib64").mkdir(parents=True, exist_ok=True)
+    (mixed_case_virtualenv / "lib64" / "python3.12.txt").write_text("stdlib marker\n", encoding="utf-8", newline="\n")
     (repo / "references" / "slides" / "old-capture.mp4").unlink()
     subprocess.run(
         ["git", "-C", str(repo), "mv", ".env.shared", "tasks/env-note.md"],
@@ -868,6 +884,12 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError("Expected an environment-file reason for mixed delete env states")
     if reasons.get("tasks/deadlines/manual-study-block.sync-conflict-20260704.md") != "sync-conflict file":
         raise AssertionError("Expected a sync-conflict reason for the conflict copy")
+
+    group_git_changes = load_group_git_changes_module()
+    if not group_git_changes.is_virtualenv_path(repo, "courses/Project/env/pyvenv.cfg"):
+        raise AssertionError("group_git_changes.py should detect mixed-case nested env virtual environment pyvenv markers")
+    if not group_git_changes.is_virtualenv_path(repo, "courses/Project/env/lib64/python3.12.txt"):
+        raise AssertionError("group_git_changes.py should detect mixed-case nested env virtual environment lib64 files")
 
 
 def main() -> int:
