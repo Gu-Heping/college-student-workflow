@@ -40,8 +40,9 @@ def run_script(name: str, *args: str, cwd: Path = ROOT) -> str:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         cwd=cwd,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
     )
     return result.stdout.strip()
 
@@ -53,8 +54,9 @@ def run_script_failure(name: str, *args: str, cwd: Path = ROOT) -> str:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         cwd=cwd,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
     )
     if result.returncode == 0:
         raise AssertionError(f"Expected {name} to fail for args {args!r}")
@@ -728,6 +730,11 @@ def verify_chinese_slug_support(repo: Path, today: date) -> None:
         repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md",
         "- `2026-春/模电` -> prioritize 模电 - 第 1 次作业",
     )
+    hindi_course_path = Path(
+        run_script("scaffold_course.py", str(repo), "हिन्दी", "--semester", "2026 वसंत")
+    )
+    if hindi_course_path.relative_to(repo).as_posix() != "courses/2026-वसंत/हिन्दी":
+        raise AssertionError("Unicode slugs should preserve combining marks for non-Latin scripts")
 
 
 def build_legacy_layout(repo: Path, today: date) -> None:

@@ -23,7 +23,7 @@ These references informed direction and packaging rather than being copied into 
 - Semester-aware repositories can use `courses/<semester>/<course>/`
 - Shared semester overviews live under `semesters/<semester>/`
 - `.student-os/repo-profile.md` starts with `semesters.enabled: false` and flips to `true` when you scaffold semester-tagged courses
-- Course and semester slugs can preserve Chinese names such as `courses/2026-春/模电/`
+- Course and semester slugs can preserve readable Unicode names, including Chinese and combining-mark scripts such as `courses/2026-春/模电/` or `courses/2026-वसंत/हिन्दी/`
 
 Example:
 

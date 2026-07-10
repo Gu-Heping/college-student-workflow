@@ -6,7 +6,7 @@ import os
 from datetime import date
 from pathlib import Path
 
-from course_layout import resolve_course_dir, slugify
+from course_layout import configure_stdout_utf8, resolve_course_dir, slugify
 
 
 def fill_template(template_path: Path, replacements: dict[str, str]) -> str:
@@ -50,6 +50,7 @@ def read_course_name(course_dir: Path) -> str:
 
 
 def main() -> int:
+    configure_stdout_utf8()
     parser = argparse.ArgumentParser(description="Scaffold homework, linked solution, and deadline task artifacts.")
     parser.add_argument("repo", help="Target repository root")
     parser.add_argument("course_slug", help="Course slug, e.g. analog-electronics")

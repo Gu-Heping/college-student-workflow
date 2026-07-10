@@ -2,10 +2,20 @@
 from __future__ import annotations
 
 import re
+import sys
 import unicodedata
 from pathlib import Path
 
 COURSE_MARKERS = {"notes", "homework", "reviews", "labs", "references"}
+
+
+def configure_stdout_utf8() -> None:
+    stream = getattr(sys, "stdout", None)
+    if stream is None or not hasattr(stream, "reconfigure"):
+        return
+    if (stream.encoding or "").lower() == "utf-8":
+        return
+    stream.reconfigure(encoding="utf-8")
 
 
 def slugify(value: str, fallback: str = "item") -> str:
@@ -17,6 +27,11 @@ def slugify(value: str, fallback: str = "item") -> str:
         if category[0] in {"L", "N"}:
             pieces.append(char.casefold())
             last_was_separator = False
+            continue
+        if category[0] == "M":
+            if not pieces or last_was_separator:
+                continue
+            pieces.append(char)
             continue
         if not pieces or last_was_separator:
             continue

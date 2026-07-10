@@ -32,6 +32,8 @@
 - 修复 `group_git_changes.py` 在虚拟环境证据探测中丢失原始路径大小写的问题，避免大小写敏感文件系统上的混合大小写课程路径漏检本地虚拟环境。
 - 修复 `group_git_changes.py` 的 review 收尾问题：CLI 分类链路现已保留原始路径大小写传入虚拟环境检测，`tmp/temp` 只按真实路径组件命中，且 smoke test 不再写出额外 `__pycache__` 噪音。
 - 修复中文课程名、中文学期名和中文作业标题会退化成 `course`、`semester` 等 ASCII 兜底 slug 的问题，避免真实知识库中的路径冲突和不可读目录名。
+- 修复 Unicode slug 规则把组合附加符号误当作分隔符的问题，避免印地语等脚本的课程名和学期名在脚手架路径中被打碎。
+- 修复 Windows 下脚手架脚本与 smoke harness 处理 Unicode 路径输出时的编码不一致问题，避免非 GBK 路径名触发 `UnicodeEncodeError` 或 `UnicodeDecodeError`。
 
 ## [0.6.0] - 2026-07-03
 
