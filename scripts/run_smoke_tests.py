@@ -1002,7 +1002,9 @@ def main() -> int:
         build_multi_semester(multi_repo, today)
         build_legacy_layout(legacy_repo, today)
         build_repo_inside_weekly_parent(weekly_parent_repo, today)
-        verify_inspect_repo(multi_repo)
+        inspect_repo_fixture = tmp_root / "inspect-repo-demo"
+        copy_repo(multi_repo, inspect_repo_fixture)
+        verify_inspect_repo(inspect_repo_fixture)
         verify_git_grouping(grouping_repo, today)
         verify_chinese_slug_support(tmp_root / "unicode-course-demo", today)
 
