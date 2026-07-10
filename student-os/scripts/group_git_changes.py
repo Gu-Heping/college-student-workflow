@@ -249,7 +249,7 @@ def main() -> int:
         "hold_back_files": hold_back_files,
         "hold_back_reasons": hold_back_reasons,
     }
-    print(json.dumps(payload, indent=2))
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
 

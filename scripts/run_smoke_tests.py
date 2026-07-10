@@ -892,7 +892,12 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     gitignore = repo / ".gitignore"
     gitignore.write_text(gitignore.read_text(encoding="utf-8") + ".venv/\n", encoding="utf-8", newline="\n")
 
-    payload = json.loads(run_script("group_git_changes.py", str(repo)))
+    raw_grouping_output = run_script("group_git_changes.py", str(repo))
+    if "tasks/deadlines/模电-第1次作业.md" not in raw_grouping_output:
+        raise AssertionError("group_git_changes.py CLI output should preserve readable Unicode paths")
+    if "\\u6a21\\u7535" in raw_grouping_output:
+        raise AssertionError("group_git_changes.py CLI output should not ASCII-escape Unicode task paths")
+    payload = json.loads(raw_grouping_output)
     if not payload.get("is_git_repo"):
         raise AssertionError(f"Expected a git repository payload, got: {payload}")
     hold_back = set(payload["hold_back_files"])
