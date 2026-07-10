@@ -15,7 +15,7 @@ def git_lines(root: Path) -> list[str]:
         return []
     try:
         output = subprocess.run(
-            ["git", "-C", str(root), "status", "--short"],
+            ["git", "-C", str(root), "status", "--short", "--untracked-files=all"],
             check=False,
             capture_output=True,
             text=True,

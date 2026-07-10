@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import shutil
@@ -15,6 +16,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 STUDENT_OS_SCRIPTS = ROOT / "student-os" / "scripts"
 EXAMPLES_ROOT = ROOT / "examples"
+
+
+def load_group_git_changes_module():
+    script_path = STUDENT_OS_SCRIPTS / "group_git_changes.py"
+    spec = importlib.util.spec_from_file_location("student_os_group_git_changes", script_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load module spec for {script_path}")
+    module = importlib.util.module_from_spec(spec)
+    original_flag = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = original_flag
+    return module
 
 
 def run_script(name: str, *args: str, cwd: Path = ROOT) -> str:
@@ -716,6 +732,179 @@ def verify_inspect_repo(repo: Path) -> None:
         raise AssertionError(f"Expected no dirty files in smoke-test repo, found: {payload['dirty_files']}")
 
 
+def verify_git_grouping(repo: Path, today: date) -> None:
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "-C", str(repo), "init"], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Smoke Test"], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "smoke@example.com"], check=True, capture_output=True, text=True)
+    run_script("scaffold_repo.py", str(repo))
+    run_script("scaffold_course.py", str(repo), "Linear Algebra")
+    (repo / "references" / "slides").mkdir(parents=True, exist_ok=True)
+    (repo / "references" / "slides" / "old-capture.mp4").write_bytes(b"tracked-binary")
+    (repo / ".env.shared").write_text("TRACKED_SECRET=1\n", encoding="utf-8", newline="\n")
+    (repo / ".env.tracked").write_text("TRACKED_SECRET=baseline\n", encoding="utf-8", newline="\n")
+    nested_env_note = repo / "courses" / "env" / "notes.md"
+    nested_env_note.parent.mkdir(parents=True, exist_ok=True)
+    nested_env_note.write_text("# Environment course note\n", encoding="utf-8", newline="\n")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", "baseline"], check=True, capture_output=True, text=True)
+
+    write_task_fixture(
+        repo / "tasks" / "deadlines" / "manual-study-block.md",
+        title="Manual Study Block",
+        due=(today + timedelta(days=5)).isoformat(),
+        area="study",
+        priority="medium",
+        course="Linear Algebra",
+    )
+    (repo / "tmp").mkdir(parents=True, exist_ok=True)
+    (repo / "tmp" / "scratch.log").write_text("temporary notes\n", encoding="utf-8", newline="\n")
+    (repo / "references" / "slides").mkdir(parents=True, exist_ok=True)
+    (repo / "references" / "slides" / "lecture-capture.mp4").write_bytes(b"fake-binary")
+    (repo / "references" / "textbooks").mkdir(parents=True, exist_ok=True)
+    (repo / "references" / "textbooks" / "linear-algebra-textbook.pdf").write_bytes(b"%PDF-1.4\n")
+    (repo / "references" / "imports" / "raw").mkdir(parents=True, exist_ok=True)
+    (repo / "references" / "imports" / "raw" / "lecture-slides.pptx").write_bytes(b"PK\x03\x04")
+    conflict_path = repo / "tasks" / "deadlines" / "manual-study-block.sync-conflict-20260704.md"
+    conflict_path.write_text("# conflict copy\n", encoding="utf-8", newline="\n")
+    (repo / ".env").write_text("API_KEY=local\n", encoding="utf-8", newline="\n")
+    (repo / ".env.local").write_text("API_KEY=override\n", encoding="utf-8", newline="\n")
+    (repo / "env").mkdir(parents=True, exist_ok=True)
+    (repo / "env" / "pyvenv.cfg").write_text("home = C:/Python\n", encoding="utf-8", newline="\n")
+    (repo / "venv").mkdir(parents=True, exist_ok=True)
+    (repo / "venv" / "pyvenv.cfg").write_text("home = C:/Python\n", encoding="utf-8", newline="\n")
+    (repo / ".venv").mkdir(parents=True, exist_ok=True)
+    (repo / ".venv" / "pyvenv.cfg").write_text("home = C:/Python\n", encoding="utf-8", newline="\n")
+    nested_virtualenv = repo / "courses" / "project" / "env"
+    nested_virtualenv.mkdir(parents=True, exist_ok=True)
+    (nested_virtualenv / "pyvenv.cfg").write_text("home = C:/Python\n", encoding="utf-8", newline="\n")
+    (nested_virtualenv / "lib64").mkdir(parents=True, exist_ok=True)
+    (nested_virtualenv / "lib64" / "python3.12.txt").write_text("stdlib marker\n", encoding="utf-8", newline="\n")
+    mixed_case_virtualenv = repo / "courses" / "Project" / "env"
+    mixed_case_virtualenv.mkdir(parents=True, exist_ok=True)
+    (mixed_case_virtualenv / "pyvenv.cfg").write_text("home = C:/Python\n", encoding="utf-8", newline="\n")
+    (mixed_case_virtualenv / "lib64").mkdir(parents=True, exist_ok=True)
+    (mixed_case_virtualenv / "lib64" / "python3.12.txt").write_text("stdlib marker\n", encoding="utf-8", newline="\n")
+    (repo / "references" / "slides" / "old-capture.mp4").unlink()
+    subprocess.run(
+        ["git", "-C", str(repo), "mv", ".env.shared", "tasks/env-note.md"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    nested_env_note.write_text("# Environment course note\n\nUpdated for grouping test.\n", encoding="utf-8", newline="\n")
+    nested_venv_course_note = repo / "courses" / "venv" / "notes" / "week1.md"
+    nested_venv_course_note.parent.mkdir(parents=True, exist_ok=True)
+    nested_venv_course_note.write_text("# Venv Course Note\n\nThis is coursework, not a virtualenv.\n", encoding="utf-8", newline="\n")
+    nested_env_scripts_note = repo / "courses" / "env" / "scripts" / "week1.md"
+    nested_env_scripts_note.parent.mkdir(parents=True, exist_ok=True)
+    nested_env_scripts_note.write_text("# Env Scripts Note\n\nThis is coursework, not a virtualenv.\n", encoding="utf-8", newline="\n")
+    tmp_slug_note = repo / "courses" / "notmp" / "notes.md"
+    tmp_slug_note.parent.mkdir(parents=True, exist_ok=True)
+    tmp_slug_note.write_text("# Notmp Course Note\n\nThis should not be treated as a temp path.\n", encoding="utf-8", newline="\n")
+    (repo / ".env.tracked").write_text("TRACKED_SECRET=staged-update\n", encoding="utf-8", newline="\n")
+    subprocess.run(["git", "-C", str(repo), "add", ".env.tracked"], check=True, capture_output=True, text=True)
+    (repo / ".env.tracked").unlink()
+    gitignore = repo / ".gitignore"
+    gitignore.write_text(gitignore.read_text(encoding="utf-8") + ".venv/\n", encoding="utf-8", newline="\n")
+
+    payload = json.loads(run_script("group_git_changes.py", str(repo)))
+    if not payload.get("is_git_repo"):
+        raise AssertionError(f"Expected a git repository payload, got: {payload}")
+    hold_back = set(payload["hold_back_files"])
+    if "tmp/" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back ignored temporary directories")
+    if "references/slides/lecture-capture.mp4" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back binary media assets by default")
+    if "tasks/deadlines/manual-study-block.sync-conflict-20260704.md" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back sync-conflict files")
+    if ".env" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back .env files")
+    if ".env.local" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back .env.* files")
+    if "env/pyvenv.cfg" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back env/ virtual environment files")
+    if ".venv/" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back ignored local virtual environments")
+    if "venv/pyvenv.cfg" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back unignored virtual environment files")
+    if "courses/project/env/pyvenv.cfg" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back nested env virtual environment files")
+    if "courses/project/env/lib64/python3.12.txt" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back nested env virtual environment lib64 files")
+    if "references/textbooks/linear-algebra-textbook.pdf" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back raw imported PDF source documents")
+    if "references/imports/raw/lecture-slides.pptx" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back raw imported office source documents")
+    if ".env.shared -> tasks/env-note.md" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back renames from environment files")
+    if ".env.tracked" not in hold_back:
+        raise AssertionError("group_git_changes.py should keep mixed delete statuses for env files on hold-back")
+
+    grouped_tasks = payload["artifact_grouping"].get("tasks", [])
+    if "tasks/deadlines/manual-study-block.md" not in grouped_tasks:
+        raise AssertionError("group_git_changes.py should keep normal task artifacts in the tasks group")
+    grouped_imports = payload["artifact_grouping"].get("imports", [])
+    if "references/slides/old-capture.mp4" not in grouped_imports:
+        raise AssertionError("group_git_changes.py should keep tracked hold-back deletions in commit guidance")
+    split_paths = {
+        path
+        for split in payload["recommended_commit_split"]
+        for path in split["paths"]
+    }
+    for expected_path, message in [
+        ("courses/env/notes.md", "group_git_changes.py should not treat nested env course paths as virtual environments"),
+        ("courses/venv/notes/week1.md", "group_git_changes.py should not treat course slugs named venv as virtual environments without evidence"),
+        ("courses/env/scripts/week1.md", "group_git_changes.py should not treat coursework under env/scripts as a virtual environment without pyvenv evidence"),
+        ("courses/notmp/notes.md", "group_git_changes.py should not treat path components that only end with tmp as temporary directories"),
+    ]:
+        if expected_path in hold_back:
+            raise AssertionError(message)
+        if expected_path not in split_paths:
+            raise AssertionError(f"{message}; expected {expected_path} to remain in recommended commit guidance")
+    unexpected = hold_back & split_paths
+    if unexpected:
+        raise AssertionError(f"Hold-back files should not be suggested for commit splits: {sorted(unexpected)}")
+
+    reasons = payload.get("hold_back_reasons", {})
+    if reasons.get("tmp/") != "temporary file":
+        raise AssertionError("Expected a temporary-file reason for tmp/")
+    if reasons.get(".env") != "environment file":
+        raise AssertionError("Expected an environment-file reason for .env")
+    if reasons.get(".env.local") != "environment file":
+        raise AssertionError("Expected an environment-file reason for .env.local")
+    if reasons.get("env/pyvenv.cfg") != "local virtual environment":
+        raise AssertionError("Expected a local-virtual-environment reason for env/pyvenv.cfg")
+    if reasons.get(".venv/") != "local virtual environment":
+        raise AssertionError("Expected a local-virtual-environment reason for .venv/")
+    if reasons.get("venv/pyvenv.cfg") != "local virtual environment":
+        raise AssertionError("Expected a local-virtual-environment reason for venv/pyvenv.cfg")
+    if reasons.get("courses/project/env/pyvenv.cfg") != "local virtual environment":
+        raise AssertionError("Expected a local-virtual-environment reason for nested env/pyvenv.cfg")
+    if reasons.get("courses/project/env/lib64/python3.12.txt") != "local virtual environment":
+        raise AssertionError("Expected a local-virtual-environment reason for nested env/lib64 virtualenv files")
+    if reasons.get("references/textbooks/linear-algebra-textbook.pdf") != "binary source document":
+        raise AssertionError("Expected a binary-source-document reason for imported PDFs")
+    if reasons.get("references/imports/raw/lecture-slides.pptx") != "binary source document":
+        raise AssertionError("Expected a binary-source-document reason for imported office files")
+    if reasons.get(".env.shared -> tasks/env-note.md") != "environment file":
+        raise AssertionError("Expected an environment-file reason for renames from environment files")
+    if reasons.get(".env.tracked") != "environment file":
+        raise AssertionError("Expected an environment-file reason for mixed delete env states")
+    if reasons.get("tasks/deadlines/manual-study-block.sync-conflict-20260704.md") != "sync-conflict file":
+        raise AssertionError("Expected a sync-conflict reason for the conflict copy")
+
+    group_git_changes = load_group_git_changes_module()
+    if not group_git_changes.is_virtualenv_path(repo, "courses/Project/env/pyvenv.cfg"):
+        raise AssertionError("group_git_changes.py should detect mixed-case nested env virtual environment pyvenv markers")
+    if not group_git_changes.is_virtualenv_path(repo, "courses/Project/env/lib64/python3.12.txt"):
+        raise AssertionError("group_git_changes.py should detect mixed-case nested env virtual environment lib64 files")
+    if group_git_changes.hold_back_reason(repo, "courses/notmp/notes.md"):
+        raise AssertionError("group_git_changes.py should not mark coursework paths like courses/notmp/notes.md as temporary files")
+    if group_git_changes.hold_back_reason(repo, "courses/Project/env/lib64/python3.12.txt") != "local virtual environment":
+        raise AssertionError("group_git_changes.py should preserve original path casing when classifying virtualenv artifacts from CLI paths")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run smoke tests for student-os scaffolding workflows.")
     parser.add_argument(
@@ -732,12 +921,14 @@ def main() -> int:
         multi_repo = tmp_root / "multi-semester-demo"
         legacy_repo = tmp_root / "legacy-layout-demo"
         weekly_parent_repo = tmp_root / "weekly" / "nested-weekly-parent-demo"
+        grouping_repo = tmp_root / "grouping-demo"
 
         build_single_semester(single_repo, today)
         build_multi_semester(multi_repo, today)
         build_legacy_layout(legacy_repo, today)
         build_repo_inside_weekly_parent(weekly_parent_repo, today)
         verify_inspect_repo(multi_repo)
+        verify_git_grouping(grouping_repo, today)
 
         if args.refresh_examples:
             EXAMPLES_ROOT.mkdir(parents=True, exist_ok=True)

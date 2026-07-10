@@ -19,12 +19,17 @@
 - 重写 `CHANGELOG.md` 为规范 UTF-8 中文版本，便于后续按 Keep a Changelog 持续维护。
 - 扩展 smoke runner 与 `examples/single-semester-demo/`，使其同时展示课程导入稿、仪表盘汇总、slides 摘要和 PDF 修复产物。
 - 扩展 `task-and-planning.md`、`weekly-plan.md` 和单学期示例，使计划链路从单纯 deadline 列表升级为更完整的学生周执行面板。
+- 扩展 `group_git_changes.py`，为混合 dirty worktree 提供默认 hold-back 建议，并把冲突文件、缓存、临时日志与明显的二进制媒体/归档文件从推荐提交分组里分离出来。
 
 ### Fixed
 
 - 修复多学期周计划中的课程动作匹配逻辑：优先保留显式课程链接，重复课程名仍保留标题匹配，避免借用其他学期自动生成的 deadline 任务，保留同课程未链接的紧急任务，并兼容 legacy task link 回退匹配。
 - 修复示例导入产物中残留临时绝对路径的问题，改为稳定的仓库内相对语义。
 - 修复 MinerU-style PDF smoke fixture 对 raw 输出文件名的错误假设，避免回归测试误报。
+- 修复 `group_git_changes.py` 对嵌套 `env/pyvenv.cfg` 虚拟环境目录的漏检，避免课程或项目子目录中的本地虚拟环境被错误纳入推荐提交分组。
+- 修复 `group_git_changes.py` 对虚拟环境目录的证据判定：补充 `lib64` 覆盖，并避免把课程/项目中名为 `env`、`venv`、`.venv` 的正常路径在缺少 `pyvenv.cfg` 证据时误判为本地虚拟环境。
+- 修复 `group_git_changes.py` 在虚拟环境证据探测中丢失原始路径大小写的问题，避免大小写敏感文件系统上的混合大小写课程路径漏检本地虚拟环境。
+- 修复 `group_git_changes.py` 的 review 收尾问题：CLI 分类链路现已保留原始路径大小写传入虚拟环境检测，`tmp/temp` 只按真实路径组件命中，且 smoke test 不再写出额外 `__pycache__` 噪音。
 
 ## [0.6.0] - 2026-07-03
 

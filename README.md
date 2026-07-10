@@ -255,6 +255,8 @@ Typical agent requests this skill is meant to support:
 - "Check which current changes are safe to commit and which ones should be ignored"
 - "Map my existing Obsidian vault into the standard contract without renaming everything"
 
+`group_git_changes.py` now separates normal student-workflow edits from default hold-back candidates such as sync-conflict files, temporary logs, caches, and obvious binary media or archive artifacts, so mixed dirty worktrees are easier to review safely.
+
 ## Current status
 
 This repository currently contains the initial version of the `student-os` skill and its supporting scripts, references, and templates.
@@ -283,7 +285,7 @@ Planned directions for the next iterations:
 
 1. Add more robust legacy-vault detection and mapping rules.
 2. Expand templates for labs, weekly plans, and course dashboards.
-3. Add safer Git grouping helpers for mixed dirty worktrees.
+3. Expand Git grouping into richer hold-back and review guidance for mixed dirty worktrees.
 4. Expand the example repositories and smoke tests into broader end-to-end regression coverage, especially for multi-role collaboration, planning edge cases, and harder import edge cases.
 
 ## Notes
