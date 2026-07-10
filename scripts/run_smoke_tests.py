@@ -763,6 +763,48 @@ def verify_inspect_repo(repo: Path) -> None:
         raise AssertionError("inspect_repo.py did not report semesters as a canonical directory")
     if payload["dirty_files"]:
         raise AssertionError(f"Expected no dirty files in smoke-test repo, found: {payload['dirty_files']}")
+    (repo / "tasks" / "deadlines" / "linear-algebra.sync-conflict-20260710.md").write_text(
+        "# conflict copy\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (repo / ".obsidian").mkdir(parents=True, exist_ok=True)
+    (repo / ".obsidian" / "workspace.json").write_text("{}", encoding="utf-8", newline="\n")
+    (repo / "__pycache__").mkdir(parents=True, exist_ok=True)
+    (repo / "__pycache__" / "inspect_repo.cpython-310.pyc").write_bytes(b"\0PYCCACHE")
+    (repo / "tmp").mkdir(parents=True, exist_ok=True)
+    (repo / "tmp" / "scratch.log").write_text("temporary scratch\n", encoding="utf-8", newline="\n")
+    (repo / "references" / "textbooks").mkdir(parents=True, exist_ok=True)
+    (repo / "references" / "textbooks" / "linear-algebra-textbook.pdf").write_bytes(b"%PDF-1.4\n")
+    (repo / "references" / "slides").mkdir(parents=True, exist_ok=True)
+    (repo / "references" / "slides" / "week-1-capture.mp4").write_bytes(b"fake-binary")
+
+    payload = json.loads(run_script("inspect_repo.py", str(repo)))
+    if "tasks/deadlines/linear-algebra.sync-conflict-20260710.md" not in payload["conflict_files"]:
+        raise AssertionError("inspect_repo.py should report sync-conflict copies")
+    if ".obsidian/workspace.json" not in payload["local_only_files"]:
+        raise AssertionError("inspect_repo.py should report local workspace files")
+    if "__pycache__/inspect_repo.cpython-310.pyc" not in payload["generated_cache_files"]:
+        raise AssertionError("inspect_repo.py should report generated cache files")
+    if "tmp/scratch.log" not in payload["temp_files"]:
+        raise AssertionError("inspect_repo.py should report files under tmp/temp paths")
+    if "references/textbooks/linear-algebra-textbook.pdf" not in payload["binary_files"]:
+        raise AssertionError("inspect_repo.py should report binary source documents")
+    if "references/slides/week-1-capture.mp4" not in payload["binary_files"]:
+        raise AssertionError("inspect_repo.py should report binary media files")
+    binary_zone_paths = {zone["path"] for zone in payload["binary_zones"]}
+    if "references/textbooks" not in binary_zone_paths or "references/slides" not in binary_zone_paths:
+        raise AssertionError("inspect_repo.py should summarize binary-heavy repository areas")
+    warnings = payload.get("hygiene_warnings", [])
+    for snippet in [
+        "sync-conflict files detected",
+        "generated caches detected",
+        "local-only workspace or environment files detected",
+        "temporary files detected under tmp/temp paths",
+        "binary-heavy areas detected",
+    ]:
+        if not any(snippet in warning for warning in warnings):
+            raise AssertionError(f"inspect_repo.py should emit a hygiene warning containing: {snippet}")
 
 
 def verify_git_grouping(repo: Path, today: date) -> None:
@@ -960,7 +1002,9 @@ def main() -> int:
         build_multi_semester(multi_repo, today)
         build_legacy_layout(legacy_repo, today)
         build_repo_inside_weekly_parent(weekly_parent_repo, today)
-        verify_inspect_repo(multi_repo)
+        inspect_repo_fixture = tmp_root / "inspect-repo-demo"
+        copy_repo(multi_repo, inspect_repo_fixture)
+        verify_inspect_repo(inspect_repo_fixture)
         verify_git_grouping(grouping_repo, today)
         verify_chinese_slug_support(tmp_root / "unicode-course-demo", today)
 

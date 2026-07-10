@@ -21,9 +21,11 @@
 - 扩展 `task-and-planning.md`、`weekly-plan.md` 和单学期示例，使计划链路从单纯 deadline 列表升级为更完整的学生周执行面板。
 - 扩展 `group_git_changes.py`，为混合 dirty worktree 提供默认 hold-back 建议，并把冲突文件、缓存、临时日志与明显的二进制媒体/归档文件从推荐提交分组里分离出来。
 - 扩展课程 slug 规则、academic workflow 文档与 smoke coverage，使课程名、学期名和作业标题在中文场景下保持可读、稳定的 Unicode 路径。
+- 扩展 `inspect_repo.py` 与 `vault-governance.md`，使仓库检查结果能直接暴露 sync-conflict、缓存、本地工作区文件、临时文件与 binary-heavy 区域。
 
 ### Fixed
 
+- 修复 `run_smoke_tests.py --refresh-examples` 会把 `inspect_repo.py` 的 hygiene fixture 污染进 `examples/multi-semester-demo` 的问题，改为在隔离副本中验证仓库检查输出。
 - 修复多学期周计划中的课程动作匹配逻辑：优先保留显式课程链接，重复课程名仍保留标题匹配，避免借用其他学期自动生成的 deadline 任务，保留同课程未链接的紧急任务，并兼容 legacy task link 回退匹配。
 - 修复示例导入产物中残留临时绝对路径的问题，改为稳定的仓库内相对语义。
 - 修复 MinerU-style PDF smoke fixture 对 raw 输出文件名的错误假设，避免回归测试误报。

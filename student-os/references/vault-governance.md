@@ -44,6 +44,15 @@ paths:
 
 ## Git hygiene
 
+Use `scripts/inspect_repo.py` before restructuring or preparing a commit. Its snapshot should help the agent distinguish:
+- canonical repository directories
+- dirty git paths
+- sync-conflict copies
+- generated cache files
+- local-only workspace or environment files
+- temporary files under `tmp/` or `temp/`
+- binary-heavy areas such as imported source documents or media folders
+
 Default ignore candidates:
 - `*.sync-conflict-*`
 - `__pycache__/`
