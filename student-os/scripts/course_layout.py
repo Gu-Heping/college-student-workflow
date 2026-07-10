@@ -2,13 +2,28 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from pathlib import Path
 
 COURSE_MARKERS = {"notes", "homework", "reviews", "labs", "references"}
 
 
 def slugify(value: str, fallback: str = "item") -> str:
-    slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
+    normalized = unicodedata.normalize("NFKC", value).strip()
+    pieces: list[str] = []
+    last_was_separator = False
+    for char in normalized:
+        category = unicodedata.category(char)
+        if category[0] in {"L", "N"}:
+            pieces.append(char.casefold())
+            last_was_separator = False
+            continue
+        if not pieces or last_was_separator:
+            continue
+        pieces.append("-")
+        last_was_separator = True
+    slug = "".join(pieces).strip("-")
+    slug = re.sub(r"-{2,}", "-", slug)
     return slug or fallback
 
 

@@ -704,6 +704,32 @@ def build_multi_semester(repo: Path, today: date) -> None:
         raise AssertionError("Ambiguous unscoped duplicate-course tasks should stay out of course-action prioritization")
 
 
+def verify_chinese_slug_support(repo: Path, today: date) -> None:
+    due_date = (today + timedelta(days=6)).isoformat()
+    run_script("scaffold_repo.py", str(repo))
+    course_path = Path(run_script("scaffold_course.py", str(repo), "模电", "--semester", "2026 春"))
+    if course_path.relative_to(repo).as_posix() != "courses/2026-春/模电":
+        raise AssertionError("Chinese semester and course names should produce stable unicode-aware course paths")
+    run_script(
+        "scaffold_homework.py",
+        str(repo),
+        "2026-春/模电",
+        "第 1 次作业",
+        "--due",
+        due_date,
+    )
+    ensure_exists(repo / "courses" / "2026-春" / "模电" / "homework" / "第-1-次作业.md")
+    ensure_exists(repo / "courses" / "2026-春" / "模电" / "homework" / "第-1-次作业-solution.md")
+    ensure_exists(repo / "tasks" / "deadlines" / "2026-春-模电-第-1-次作业.md")
+    ensure_contains(repo / ".student-os" / "repo-profile.md", "enabled: true")
+    ensure_contains(repo / "semesters" / "2026-春" / "overview.md", "[模电]")
+    run_script("build_week_plan.py", str(repo), "--days", "14")
+    ensure_contains(
+        repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md",
+        "- `2026-春/模电` -> prioritize 模电 - 第 1 次作业",
+    )
+
+
 def build_legacy_layout(repo: Path, today: date) -> None:
     due_date = (today + timedelta(days=9)).isoformat()
     weekly_plan = repo / "tasks" / "weekly" / f"{today.isoformat()}-plus-14d.md"
@@ -929,6 +955,7 @@ def main() -> int:
         build_repo_inside_weekly_parent(weekly_parent_repo, today)
         verify_inspect_repo(multi_repo)
         verify_git_grouping(grouping_repo, today)
+        verify_chinese_slug_support(tmp_root / "unicode-course-demo", today)
 
         if args.refresh_examples:
             EXAMPLES_ROOT.mkdir(parents=True, exist_ok=True)
@@ -947,6 +974,7 @@ def main() -> int:
     print("OK single-semester-demo")
     print("OK multi-semester-demo")
     print("OK legacy-layout-demo")
+    print("OK unicode-course-demo")
     if args.refresh_examples:
         print(f"REFRESHED {EXAMPLES_ROOT}")
     return 0

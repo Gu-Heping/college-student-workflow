@@ -21,6 +21,10 @@ If the repository actively tracks multiple semesters, or `.student-os/repo-profi
 - `semesters/<semester-slug>/overview.md`
 - `semesters/<semester-slug>/courses.md`
 
+Slug notes:
+- Keep readable Unicode slugs when the course or semester is named in Chinese or another non-ASCII script.
+- Normalize whitespace and punctuation into `-`, but do not force Chinese course names into generic ASCII fallbacks like `course` or `semester`.
+
 ## Common task patterns
 
 ### Add a new course
