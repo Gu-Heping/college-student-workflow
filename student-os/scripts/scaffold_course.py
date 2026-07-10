@@ -6,7 +6,7 @@ from datetime import date
 from pathlib import Path
 import re
 
-from course_layout import slugify
+from course_layout import configure_stdout_utf8, slugify
 
 GENERATED_START = "<!-- student-os:course-links:start -->"
 GENERATED_END = "<!-- student-os:course-links:end -->"
@@ -84,6 +84,7 @@ def enable_semester_mode(repo: Path) -> None:
 
 
 def main() -> int:
+    configure_stdout_utf8()
     parser = argparse.ArgumentParser(description="Scaffold a course workspace for a student repository.")
     parser.add_argument("repo", help="Target repository root")
     parser.add_argument("course_name", help="Human-readable course name")
