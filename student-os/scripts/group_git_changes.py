@@ -179,10 +179,24 @@ def read_git_status(repo: Path) -> tuple[list[str], bool, str]:
     if not (repo / ".git").exists():
         return [], False, "not a git repository"
     result = subprocess.run(
-        ["git", "-C", str(repo), "status", "--short", "--untracked-files=all", "--ignored=matching"],
+        [
+            "git",
+            "-c",
+            "core.quotepath=false",
+            "-c",
+            "i18n.logOutputEncoding=utf-8",
+            "-C",
+            str(repo),
+            "status",
+            "--short",
+            "--untracked-files=all",
+            "--ignored=matching",
+        ],
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         stderr = result.stderr.strip() or "git status failed"

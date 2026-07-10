@@ -832,6 +832,15 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         priority="medium",
         course="Linear Algebra",
     )
+    write_task_fixture(
+        repo / "tasks" / "deadlines" / "模电-第1次作业.md",
+        title="模电 第1次作业",
+        due=(today + timedelta(days=6)).isoformat(),
+        area="homework",
+        priority="high",
+        course="模电",
+        tags="[task, homework]",
+    )
     (repo / "tmp").mkdir(parents=True, exist_ok=True)
     (repo / "tmp" / "scratch.log").write_text("temporary notes\n", encoding="utf-8", newline="\n")
     (repo / "references" / "slides").mkdir(parents=True, exist_ok=True)
@@ -919,6 +928,8 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     grouped_tasks = payload["artifact_grouping"].get("tasks", [])
     if "tasks/deadlines/manual-study-block.md" not in grouped_tasks:
         raise AssertionError("group_git_changes.py should keep normal task artifacts in the tasks group")
+    if "tasks/deadlines/模电-第1次作业.md" not in grouped_tasks:
+        raise AssertionError("group_git_changes.py should preserve readable Unicode task paths in grouped output")
     grouped_imports = payload["artifact_grouping"].get("imports", [])
     if "references/slides/old-capture.mp4" not in grouped_imports:
         raise AssertionError("group_git_changes.py should keep tracked hold-back deletions in commit guidance")
@@ -928,6 +939,7 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         for path in split["paths"]
     }
     for expected_path, message in [
+        ("tasks/deadlines/模电-第1次作业.md", "group_git_changes.py should not escape or drop Unicode task paths"),
         ("courses/env/notes.md", "group_git_changes.py should not treat nested env course paths as virtual environments"),
         ("courses/venv/notes/week1.md", "group_git_changes.py should not treat course slugs named venv as virtual environments without evidence"),
         ("courses/env/scripts/week1.md", "group_git_changes.py should not treat coursework under env/scripts as a virtual environment without pyvenv evidence"),
