@@ -24,7 +24,12 @@ def load_group_git_changes_module():
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Unable to load module spec for {script_path}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    original_flag = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = original_flag
     return module
 
 
@@ -794,6 +799,9 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     nested_env_scripts_note = repo / "courses" / "env" / "scripts" / "week1.md"
     nested_env_scripts_note.parent.mkdir(parents=True, exist_ok=True)
     nested_env_scripts_note.write_text("# Env Scripts Note\n\nThis is coursework, not a virtualenv.\n", encoding="utf-8", newline="\n")
+    tmp_slug_note = repo / "courses" / "notmp" / "notes.md"
+    tmp_slug_note.parent.mkdir(parents=True, exist_ok=True)
+    tmp_slug_note.write_text("# Notmp Course Note\n\nThis should not be treated as a temp path.\n", encoding="utf-8", newline="\n")
     (repo / ".env.tracked").write_text("TRACKED_SECRET=staged-update\n", encoding="utf-8", newline="\n")
     subprocess.run(["git", "-C", str(repo), "add", ".env.tracked"], check=True, capture_output=True, text=True)
     (repo / ".env.tracked").unlink()
@@ -848,6 +856,7 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         ("courses/env/notes.md", "group_git_changes.py should not treat nested env course paths as virtual environments"),
         ("courses/venv/notes/week1.md", "group_git_changes.py should not treat course slugs named venv as virtual environments without evidence"),
         ("courses/env/scripts/week1.md", "group_git_changes.py should not treat coursework under env/scripts as a virtual environment without pyvenv evidence"),
+        ("courses/notmp/notes.md", "group_git_changes.py should not treat path components that only end with tmp as temporary directories"),
     ]:
         if expected_path in hold_back:
             raise AssertionError(message)
@@ -890,6 +899,10 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError("group_git_changes.py should detect mixed-case nested env virtual environment pyvenv markers")
     if not group_git_changes.is_virtualenv_path(repo, "courses/Project/env/lib64/python3.12.txt"):
         raise AssertionError("group_git_changes.py should detect mixed-case nested env virtual environment lib64 files")
+    if group_git_changes.hold_back_reason(repo, "courses/notmp/notes.md"):
+        raise AssertionError("group_git_changes.py should not mark coursework paths like courses/notmp/notes.md as temporary files")
+    if group_git_changes.hold_back_reason(repo, "courses/Project/env/lib64/python3.12.txt") != "local virtual environment":
+        raise AssertionError("group_git_changes.py should preserve original path casing when classifying virtualenv artifacts from CLI paths")
 
 
 def main() -> int:

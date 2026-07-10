@@ -40,10 +40,6 @@ HOLD_BACK_PATH_NEEDLES = [
     "node_modules/",
     "/node_modules/",
     ".obsidian/workspace",
-    "tmp/",
-    "/tmp/",
-    "temp/",
-    "/temp/",
 ]
 
 HOLD_BACK_SUFFIXES = {
@@ -132,6 +128,14 @@ def is_virtualenv_path(repo: Path, path: str) -> bool:
     return False
 
 
+def has_path_component(path: str, names: set[str]) -> bool:
+    normalized = path.replace("\\", "/").strip("/")
+    if not normalized:
+        return False
+    parts = [part.lower() for part in normalized.split("/") if part]
+    return any(part in names for part in parts)
+
+
 def hold_back_reason(repo: Path, path: str) -> str:
     normalized = path.replace("\\", "/")
     lower = normalized.lower()
@@ -140,8 +144,10 @@ def hold_back_reason(repo: Path, path: str) -> str:
         return "environment file"
     if ".sync-conflict-" in name:
         return "sync-conflict file"
-    if is_virtualenv_path(repo, lower):
+    if is_virtualenv_path(repo, normalized):
         return "local virtual environment"
+    if has_path_component(normalized, {"tmp", "temp"}):
+        return "temporary file"
     if any(needle.lower() in lower for needle in HOLD_BACK_PATH_NEEDLES):
         if "__pycache__" in lower:
             return "generated cache"
@@ -149,8 +155,6 @@ def hold_back_reason(repo: Path, path: str) -> str:
             return "local workspace file"
         if "node_modules/" in lower:
             return "dependency cache"
-        if "/tmp/" in lower or "/temp/" in lower or lower.startswith("tmp/") or lower.startswith("temp/"):
-            return "temporary file"
         if lower.endswith(".log"):
             return "log file"
         return "local-only file"

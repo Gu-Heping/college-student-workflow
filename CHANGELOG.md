@@ -29,6 +29,7 @@
 - 修复 `group_git_changes.py` 对嵌套 `env/pyvenv.cfg` 虚拟环境目录的漏检，避免课程或项目子目录中的本地虚拟环境被错误纳入推荐提交分组。
 - 修复 `group_git_changes.py` 对虚拟环境目录的证据判定：补充 `lib64` 覆盖，并避免把课程/项目中名为 `env`、`venv`、`.venv` 的正常路径在缺少 `pyvenv.cfg` 证据时误判为本地虚拟环境。
 - 修复 `group_git_changes.py` 在虚拟环境证据探测中丢失原始路径大小写的问题，避免大小写敏感文件系统上的混合大小写课程路径漏检本地虚拟环境。
+- 修复 `group_git_changes.py` 的 review 收尾问题：CLI 分类链路现已保留原始路径大小写传入虚拟环境检测，`tmp/temp` 只按真实路径组件命中，且 smoke test 不再写出额外 `__pycache__` 噪音。
 
 ## [0.6.0] - 2026-07-03
 
