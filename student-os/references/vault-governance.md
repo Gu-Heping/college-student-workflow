@@ -51,6 +51,7 @@ Use `scripts/inspect_repo.py` before restructuring or preparing a commit. Its sn
 - generated cache files
 - local-only workspace or environment files
 - temporary files under `tmp/` or `temp/`
+- unexpectedly large files such as OCR dumps or bulky exports
 - binary-heavy areas such as imported source documents or media folders
 
 Default ignore candidates:
@@ -72,6 +73,7 @@ Default review candidates:
 
 Default holdbacks:
 - large media folders
+- unexpectedly large exports or text dumps
 - unknown archives
 - generated caches
 - local environment files

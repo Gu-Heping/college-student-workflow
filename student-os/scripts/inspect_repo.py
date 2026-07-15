@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 
 CANONICAL_DIRS = ["courses", "semesters", "projects", "tasks", "reviews", "references", "dashboards", ".student-os"]
@@ -44,6 +45,7 @@ BINARY_SUFFIXES = {
 }
 CACHE_DIR_NAMES = {"__pycache__", "node_modules"}
 TEMP_DIR_NAMES = {"tmp", "temp"}
+LARGE_FILE_BYTES = 10 * 1024 * 1024
 
 
 def iter_repo_files(root: Path) -> list[Path]:
@@ -58,6 +60,41 @@ def iter_repo_files(root: Path) -> list[Path]:
 
 def relpath(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
+
+
+def parse_status_path(line: str) -> tuple[str, str, str]:
+    status = line[:2]
+    payload = line[3:].strip()
+    if " -> " in payload:
+        source, target = payload.split(" -> ", 1)
+        return status, source.strip(), target.strip()
+    return status, payload, payload
+
+
+def safe_file_size(path: Path) -> int | None:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return None
+
+
+def staged_blob_size(repo: Path, path: str) -> int | None:
+    if not (repo / ".git").exists():
+        return None
+    result = subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "-s", f":{path}"],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return None
 
 
 def has_dir_component(path: Path, names: set[str]) -> bool:
@@ -88,6 +125,7 @@ def build_hygiene_warnings(
     generated_cache_files: list[str],
     local_only_files: list[str],
     temp_files: list[str],
+    large_files: list[dict[str, object]],
     binary_zones: list[dict[str, object]],
 ) -> list[str]:
     warnings: list[str] = []
@@ -99,9 +137,35 @@ def build_hygiene_warnings(
         warnings.append("local-only workspace or environment files detected; keep them out of shared history by default")
     if temp_files:
         warnings.append("temporary files detected under tmp/temp paths; clean or ignore them before committing")
+    if large_files:
+        warnings.append("large files detected; keep bulky exports or OCR dumps out of normal commits unless explicitly intended")
     if binary_zones:
         warnings.append("binary-heavy areas detected; treat raw source documents and media as hold-back candidates by default")
     return warnings
+
+
+def collect_large_files(root: Path, files: list[Path], dirty_lines: list[str]) -> list[dict[str, Any]]:
+    large_entries: dict[str, dict[str, Any]] = {}
+    for path in files:
+        size = safe_file_size(path)
+        if size is None or size <= LARGE_FILE_BYTES:
+            continue
+        relative = relpath(root, path)
+        large_entries[relative] = {"path": relative, "bytes": size, "source": "worktree"}
+
+    for line in dirty_lines:
+        _, source_path, target_path = parse_status_path(line)
+        for candidate_path in {source_path, target_path}:
+            if not candidate_path:
+                continue
+            size = staged_blob_size(root, candidate_path)
+            if size is None or size <= LARGE_FILE_BYTES:
+                continue
+            existing = large_entries.get(candidate_path)
+            if existing is None or int(existing["bytes"]) < size:
+                large_entries[candidate_path] = {"path": candidate_path, "bytes": size, "source": "index"}
+
+    return [large_entries[key] for key in sorted(large_entries)]
 
 
 def git_lines(root: Path) -> list[str]:
@@ -146,6 +210,8 @@ def main() -> int:
     generated_caches = [p for p in files if has_dir_component(p.relative_to(root), CACHE_DIR_NAMES)]
     local_only_files = [p for p in files if is_local_only_file(p.relative_to(root))]
     temp_files = [p for p in files if has_dir_component(p.relative_to(root), TEMP_DIR_NAMES)]
+    dirty = git_lines(root)
+    large_files = collect_large_files(root, files, dirty)
     binary_files = [p for p in files if p.suffix.lower() in BINARY_SUFFIXES]
     binary_zone_counts: dict[str, dict[str, object]] = {}
     for binary_file in binary_files:
@@ -155,7 +221,6 @@ def main() -> int:
         cast_extensions = entry["extensions"]
         assert isinstance(cast_extensions, set)
         cast_extensions.add(binary_file.suffix.lower())
-    dirty = git_lines(root)
     binary_zones = [
         {
             "path": entry["path"],
@@ -174,6 +239,7 @@ def main() -> int:
         "generated_cache_files": [relpath(root, p) for p in generated_caches[:50]],
         "local_only_files": [relpath(root, p) for p in local_only_files[:50]],
         "temp_files": [relpath(root, p) for p in temp_files[:50]],
+        "large_files": large_files[:50],
         "binary_files": [relpath(root, p) for p in binary_files[:50]],
         "binary_zones": binary_zones[:50],
         "hygiene_warnings": build_hygiene_warnings(
@@ -181,6 +247,7 @@ def main() -> int:
             generated_cache_files=[relpath(root, p) for p in generated_caches[:50]],
             local_only_files=[relpath(root, p) for p in local_only_files[:50]],
             temp_files=[relpath(root, p) for p in temp_files[:50]],
+            large_files=large_files[:50],
             binary_zones=binary_zones[:50],
         ),
         "dirty_files": dirty,

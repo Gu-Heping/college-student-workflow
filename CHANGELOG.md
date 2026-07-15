@@ -23,9 +23,11 @@
 - 扩展课程 slug 规则、academic workflow 文档与 smoke coverage，使课程名、学期名和作业标题在中文场景下保持可读、稳定的 Unicode 路径。
 - 扩展 `inspect_repo.py` 与 `vault-governance.md`，使仓库检查结果能直接暴露 sync-conflict、缓存、本地工作区文件、临时文件与 binary-heavy 区域。
 - 扩展 `group_git_changes.py` 的 Git 状态读取与 smoke coverage，使混合 dirty worktree 下的中文任务路径保持 UTF-8 可读输出。
+- 扩展 `inspect_repo.py`、`group_git_changes.py` 与 smoke coverage，使超大 OCR/导出文本等 bulky 文件在默认仓库检查和 Git 分组中得到显式风险提示与 hold-back。
 
 ### Fixed
 
+- 修复大文件检查对损坏符号链接的 `stat()` 崩溃问题，并补齐“已暂存但工作区已缩小/删除”的 oversized 文件识别，避免 `inspect_repo.py` 与 `group_git_changes.py` 漏报 index 中的大体积产物。
 - 修复 `group_git_changes.py` CLI 输出仍将中文路径做 ASCII 转义的问题，改为直接输出 UTF-8 可读 JSON，并由 smoke test 锁定原始 stdout 行为。
 - 修复 `run_smoke_tests.py --refresh-examples` 会把 `inspect_repo.py` 的 hygiene fixture 污染进 `examples/multi-semester-demo` 的问题，改为在隔离副本中验证仓库检查输出。
 - 修复多学期周计划中的课程动作匹配逻辑：优先保留显式课程链接，重复课程名仍保留标题匹配，避免借用其他学期自动生成的 deadline 任务，保留同课程未链接的紧急任务，并兼容 legacy task link 回退匹配。

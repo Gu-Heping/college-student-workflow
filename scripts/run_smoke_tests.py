@@ -763,6 +763,11 @@ def verify_inspect_repo(repo: Path) -> None:
         raise AssertionError("inspect_repo.py did not report semesters as a canonical directory")
     if payload["dirty_files"]:
         raise AssertionError(f"Expected no dirty files in smoke-test repo, found: {payload['dirty_files']}")
+    subprocess.run(["git", "-C", str(repo), "init"], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Smoke Test"], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "smoke@example.com"], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", "baseline"], check=True, capture_output=True, text=True)
     (repo / "tasks" / "deadlines" / "linear-algebra.sync-conflict-20260710.md").write_text(
         "# conflict copy\n",
         encoding="utf-8",
@@ -778,8 +783,26 @@ def verify_inspect_repo(repo: Path) -> None:
     (repo / "references" / "textbooks" / "linear-algebra-textbook.pdf").write_bytes(b"%PDF-1.4\n")
     (repo / "references" / "slides").mkdir(parents=True, exist_ok=True)
     (repo / "references" / "slides" / "week-1-capture.mp4").write_bytes(b"fake-binary")
+    (repo / "references" / "imports" / "raw").mkdir(parents=True, exist_ok=True)
+    (repo / "references" / "imports" / "raw" / "ocr-dump.txt").write_text(
+        "x" * (10 * 1024 * 1024 + 1),
+        encoding="utf-8",
+        newline="\n",
+    )
+    broken_link_supported = True
+    broken_link = repo / "references" / "imports" / "raw" / "broken-link.txt"
+    try:
+        broken_link.symlink_to(repo / "references" / "imports" / "raw" / "missing-target.txt")
+    except OSError:
+        broken_link_supported = False
+    staged_only_large = repo / "references" / "imports" / "raw" / "staged-large.txt"
+    staged_only_large.write_text("x" * (10 * 1024 * 1024 + 2), encoding="utf-8", newline="\n")
+    subprocess.run(["git", "-C", str(repo), "add", "references/imports/raw/staged-large.txt"], check=True, capture_output=True, text=True)
+    staged_only_large.write_text("shrunk\n", encoding="utf-8", newline="\n")
 
     payload = json.loads(run_script("inspect_repo.py", str(repo)))
+    if broken_link_supported and "references/imports/raw/broken-link.txt" in {item["path"] for item in payload["large_files"]}:
+        raise AssertionError("inspect_repo.py should skip unreadable broken symlinks instead of treating them as large files")
     if "tasks/deadlines/linear-algebra.sync-conflict-20260710.md" not in payload["conflict_files"]:
         raise AssertionError("inspect_repo.py should report sync-conflict copies")
     if ".obsidian/workspace.json" not in payload["local_only_files"]:
@@ -792,6 +815,11 @@ def verify_inspect_repo(repo: Path) -> None:
         raise AssertionError("inspect_repo.py should report binary source documents")
     if "references/slides/week-1-capture.mp4" not in payload["binary_files"]:
         raise AssertionError("inspect_repo.py should report binary media files")
+    large_file_paths = {item["path"] for item in payload["large_files"]}
+    if "references/imports/raw/ocr-dump.txt" not in large_file_paths:
+        raise AssertionError("inspect_repo.py should report files above the large-file threshold")
+    if "references/imports/raw/staged-large.txt" not in large_file_paths:
+        raise AssertionError("inspect_repo.py should report oversized staged blobs even after the worktree copy shrinks")
     binary_zone_paths = {zone["path"] for zone in payload["binary_zones"]}
     if "references/textbooks" not in binary_zone_paths or "references/slides" not in binary_zone_paths:
         raise AssertionError("inspect_repo.py should summarize binary-heavy repository areas")
@@ -801,6 +829,7 @@ def verify_inspect_repo(repo: Path) -> None:
         "generated caches detected",
         "local-only workspace or environment files detected",
         "temporary files detected under tmp/temp paths",
+        "large files detected",
         "binary-heavy areas detected",
     ]:
         if not any(snippet in warning for warning in warnings):
@@ -849,6 +878,13 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     (repo / "references" / "textbooks" / "linear-algebra-textbook.pdf").write_bytes(b"%PDF-1.4\n")
     (repo / "references" / "imports" / "raw").mkdir(parents=True, exist_ok=True)
     (repo / "references" / "imports" / "raw" / "lecture-slides.pptx").write_bytes(b"PK\x03\x04")
+    (repo / "references" / "imports" / "raw" / "ocr-dump.txt").write_text(
+        "x" * (10 * 1024 * 1024 + 1),
+        encoding="utf-8",
+        newline="\n",
+    )
+    staged_only_large = repo / "references" / "imports" / "raw" / "staged-large.txt"
+    staged_only_large.write_text("x" * (10 * 1024 * 1024 + 2), encoding="utf-8", newline="\n")
     conflict_path = repo / "tasks" / "deadlines" / "manual-study-block.sync-conflict-20260704.md"
     conflict_path.write_text("# conflict copy\n", encoding="utf-8", newline="\n")
     (repo / ".env").write_text("API_KEY=local\n", encoding="utf-8", newline="\n")
@@ -888,7 +924,9 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     tmp_slug_note.write_text("# Notmp Course Note\n\nThis should not be treated as a temp path.\n", encoding="utf-8", newline="\n")
     (repo / ".env.tracked").write_text("TRACKED_SECRET=staged-update\n", encoding="utf-8", newline="\n")
     subprocess.run(["git", "-C", str(repo), "add", ".env.tracked"], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(repo), "add", "references/imports/raw/staged-large.txt"], check=True, capture_output=True, text=True)
     (repo / ".env.tracked").unlink()
+    staged_only_large.write_text("shrunk\n", encoding="utf-8", newline="\n")
     gitignore = repo / ".gitignore"
     gitignore.write_text(gitignore.read_text(encoding="utf-8") + ".venv/\n", encoding="utf-8", newline="\n")
 
@@ -925,6 +963,10 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError("group_git_changes.py should hold back raw imported PDF source documents")
     if "references/imports/raw/lecture-slides.pptx" not in hold_back:
         raise AssertionError("group_git_changes.py should hold back raw imported office source documents")
+    if "references/imports/raw/ocr-dump.txt" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back oversized text exports by default")
+    if "references/imports/raw/staged-large.txt" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back oversized staged blobs even after the worktree copy shrinks")
     if ".env.shared -> tasks/env-note.md" not in hold_back:
         raise AssertionError("group_git_changes.py should hold back renames from environment files")
     if ".env.tracked" not in hold_back:
@@ -979,6 +1021,10 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError("Expected a binary-source-document reason for imported PDFs")
     if reasons.get("references/imports/raw/lecture-slides.pptx") != "binary source document":
         raise AssertionError("Expected a binary-source-document reason for imported office files")
+    if reasons.get("references/imports/raw/ocr-dump.txt") != "large file":
+        raise AssertionError("Expected a large-file reason for oversized text exports")
+    if reasons.get("references/imports/raw/staged-large.txt") != "large file":
+        raise AssertionError("Expected a large-file reason for oversized staged blobs")
     if reasons.get(".env.shared -> tasks/env-note.md") != "environment file":
         raise AssertionError("Expected an environment-file reason for renames from environment files")
     if reasons.get(".env.tracked") != "environment file":
