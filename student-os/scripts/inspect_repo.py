@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 
 CANONICAL_DIRS = ["courses", "semesters", "projects", "tasks", "reviews", "references", "dashboards", ".student-os"]
@@ -61,6 +62,41 @@ def relpath(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
+def parse_status_path(line: str) -> tuple[str, str, str]:
+    status = line[:2]
+    payload = line[3:].strip()
+    if " -> " in payload:
+        source, target = payload.split(" -> ", 1)
+        return status, source.strip(), target.strip()
+    return status, payload, payload
+
+
+def safe_file_size(path: Path) -> int | None:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return None
+
+
+def staged_blob_size(repo: Path, path: str) -> int | None:
+    if not (repo / ".git").exists():
+        return None
+    result = subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "-s", f":{path}"],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return None
+
+
 def has_dir_component(path: Path, names: set[str]) -> bool:
     return any(part.lower() in names for part in path.parts[:-1])
 
@@ -108,6 +144,30 @@ def build_hygiene_warnings(
     return warnings
 
 
+def collect_large_files(root: Path, files: list[Path], dirty_lines: list[str]) -> list[dict[str, Any]]:
+    large_entries: dict[str, dict[str, Any]] = {}
+    for path in files:
+        size = safe_file_size(path)
+        if size is None or size <= LARGE_FILE_BYTES:
+            continue
+        relative = relpath(root, path)
+        large_entries[relative] = {"path": relative, "bytes": size, "source": "worktree"}
+
+    for line in dirty_lines:
+        _, source_path, target_path = parse_status_path(line)
+        for candidate_path in {source_path, target_path}:
+            if not candidate_path:
+                continue
+            size = staged_blob_size(root, candidate_path)
+            if size is None or size <= LARGE_FILE_BYTES:
+                continue
+            existing = large_entries.get(candidate_path)
+            if existing is None or int(existing["bytes"]) < size:
+                large_entries[candidate_path] = {"path": candidate_path, "bytes": size, "source": "index"}
+
+    return [large_entries[key] for key in sorted(large_entries)]
+
+
 def git_lines(root: Path) -> list[str]:
     if not (root / ".git").exists():
         return []
@@ -150,14 +210,8 @@ def main() -> int:
     generated_caches = [p for p in files if has_dir_component(p.relative_to(root), CACHE_DIR_NAMES)]
     local_only_files = [p for p in files if is_local_only_file(p.relative_to(root))]
     temp_files = [p for p in files if has_dir_component(p.relative_to(root), TEMP_DIR_NAMES)]
-    large_files = [
-        {
-            "path": relpath(root, p),
-            "bytes": p.stat().st_size,
-        }
-        for p in files
-        if p.stat().st_size > LARGE_FILE_BYTES
-    ]
+    dirty = git_lines(root)
+    large_files = collect_large_files(root, files, dirty)
     binary_files = [p for p in files if p.suffix.lower() in BINARY_SUFFIXES]
     binary_zone_counts: dict[str, dict[str, object]] = {}
     for binary_file in binary_files:
@@ -167,7 +221,6 @@ def main() -> int:
         cast_extensions = entry["extensions"]
         assert isinstance(cast_extensions, set)
         cast_extensions.add(binary_file.suffix.lower())
-    dirty = git_lines(root)
     binary_zones = [
         {
             "path": entry["path"],

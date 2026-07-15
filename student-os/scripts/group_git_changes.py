@@ -137,6 +137,32 @@ def has_path_component(path: str, names: set[str]) -> bool:
     return any(part in names for part in parts)
 
 
+def safe_file_size(path: Path) -> int | None:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return None
+
+
+def staged_blob_size(repo: Path, path: str) -> int | None:
+    if not (repo / ".git").exists():
+        return None
+    result = subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "-s", f":{path}"],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return None
+
+
 def hold_back_reason(repo: Path, path: str) -> str:
     normalized = path.replace("\\", "/")
     lower = normalized.lower()
@@ -174,12 +200,12 @@ def hold_back_reason(repo: Path, path: str) -> str:
         if suffix == ".log":
             return "log file"
     candidate = repo / Path(normalized)
-    if candidate.is_file():
-        try:
-            if candidate.stat().st_size > LARGE_FILE_BYTES:
-                return "large file"
-        except OSError:
-            return ""
+    size = safe_file_size(candidate)
+    if size is not None and size > LARGE_FILE_BYTES:
+        return "large file"
+    staged_size = staged_blob_size(repo, normalized)
+    if staged_size is not None and staged_size > LARGE_FILE_BYTES:
+        return "large file"
     return ""
 
 

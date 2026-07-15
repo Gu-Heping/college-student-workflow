@@ -27,6 +27,7 @@
 
 ### Fixed
 
+- 修复大文件检查对损坏符号链接的 `stat()` 崩溃问题，并补齐“已暂存但工作区已缩小/删除”的 oversized 文件识别，避免 `inspect_repo.py` 与 `group_git_changes.py` 漏报 index 中的大体积产物。
 - 修复 `group_git_changes.py` CLI 输出仍将中文路径做 ASCII 转义的问题，改为直接输出 UTF-8 可读 JSON，并由 smoke test 锁定原始 stdout 行为。
 - 修复 `run_smoke_tests.py --refresh-examples` 会把 `inspect_repo.py` 的 hygiene fixture 污染进 `examples/multi-semester-demo` 的问题，改为在隔离副本中验证仓库检查输出。
 - 修复多学期周计划中的课程动作匹配逻辑：优先保留显式课程链接，重复课程名仍保留标题匹配，避免借用其他学期自动生成的 deadline 任务，保留同课程未链接的紧急任务，并兼容 legacy task link 回退匹配。
