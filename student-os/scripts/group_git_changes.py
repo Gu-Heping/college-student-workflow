@@ -75,6 +75,7 @@ HOLD_BACK_SUFFIXES = {
     ".xlsx",
     ".zip",
 }
+LARGE_FILE_BYTES = 10 * 1024 * 1024
 
 
 def detect_group(path: str) -> str:
@@ -172,6 +173,13 @@ def hold_back_reason(repo: Path, path: str) -> str:
             return "environment file"
         if suffix == ".log":
             return "log file"
+    candidate = repo / Path(normalized)
+    if candidate.is_file():
+        try:
+            if candidate.stat().st_size > LARGE_FILE_BYTES:
+                return "large file"
+        except OSError:
+            return ""
     return ""
 
 

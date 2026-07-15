@@ -44,6 +44,7 @@ BINARY_SUFFIXES = {
 }
 CACHE_DIR_NAMES = {"__pycache__", "node_modules"}
 TEMP_DIR_NAMES = {"tmp", "temp"}
+LARGE_FILE_BYTES = 10 * 1024 * 1024
 
 
 def iter_repo_files(root: Path) -> list[Path]:
@@ -88,6 +89,7 @@ def build_hygiene_warnings(
     generated_cache_files: list[str],
     local_only_files: list[str],
     temp_files: list[str],
+    large_files: list[dict[str, object]],
     binary_zones: list[dict[str, object]],
 ) -> list[str]:
     warnings: list[str] = []
@@ -99,6 +101,8 @@ def build_hygiene_warnings(
         warnings.append("local-only workspace or environment files detected; keep them out of shared history by default")
     if temp_files:
         warnings.append("temporary files detected under tmp/temp paths; clean or ignore them before committing")
+    if large_files:
+        warnings.append("large files detected; keep bulky exports or OCR dumps out of normal commits unless explicitly intended")
     if binary_zones:
         warnings.append("binary-heavy areas detected; treat raw source documents and media as hold-back candidates by default")
     return warnings
@@ -146,6 +150,14 @@ def main() -> int:
     generated_caches = [p for p in files if has_dir_component(p.relative_to(root), CACHE_DIR_NAMES)]
     local_only_files = [p for p in files if is_local_only_file(p.relative_to(root))]
     temp_files = [p for p in files if has_dir_component(p.relative_to(root), TEMP_DIR_NAMES)]
+    large_files = [
+        {
+            "path": relpath(root, p),
+            "bytes": p.stat().st_size,
+        }
+        for p in files
+        if p.stat().st_size > LARGE_FILE_BYTES
+    ]
     binary_files = [p for p in files if p.suffix.lower() in BINARY_SUFFIXES]
     binary_zone_counts: dict[str, dict[str, object]] = {}
     for binary_file in binary_files:
@@ -174,6 +186,7 @@ def main() -> int:
         "generated_cache_files": [relpath(root, p) for p in generated_caches[:50]],
         "local_only_files": [relpath(root, p) for p in local_only_files[:50]],
         "temp_files": [relpath(root, p) for p in temp_files[:50]],
+        "large_files": large_files[:50],
         "binary_files": [relpath(root, p) for p in binary_files[:50]],
         "binary_zones": binary_zones[:50],
         "hygiene_warnings": build_hygiene_warnings(
@@ -181,6 +194,7 @@ def main() -> int:
             generated_cache_files=[relpath(root, p) for p in generated_caches[:50]],
             local_only_files=[relpath(root, p) for p in local_only_files[:50]],
             temp_files=[relpath(root, p) for p in temp_files[:50]],
+            large_files=large_files[:50],
             binary_zones=binary_zones[:50],
         ),
         "dirty_files": dirty,

@@ -778,6 +778,12 @@ def verify_inspect_repo(repo: Path) -> None:
     (repo / "references" / "textbooks" / "linear-algebra-textbook.pdf").write_bytes(b"%PDF-1.4\n")
     (repo / "references" / "slides").mkdir(parents=True, exist_ok=True)
     (repo / "references" / "slides" / "week-1-capture.mp4").write_bytes(b"fake-binary")
+    (repo / "references" / "imports" / "raw").mkdir(parents=True, exist_ok=True)
+    (repo / "references" / "imports" / "raw" / "ocr-dump.txt").write_text(
+        "x" * (10 * 1024 * 1024 + 1),
+        encoding="utf-8",
+        newline="\n",
+    )
 
     payload = json.loads(run_script("inspect_repo.py", str(repo)))
     if "tasks/deadlines/linear-algebra.sync-conflict-20260710.md" not in payload["conflict_files"]:
@@ -792,6 +798,9 @@ def verify_inspect_repo(repo: Path) -> None:
         raise AssertionError("inspect_repo.py should report binary source documents")
     if "references/slides/week-1-capture.mp4" not in payload["binary_files"]:
         raise AssertionError("inspect_repo.py should report binary media files")
+    large_file_paths = {item["path"] for item in payload["large_files"]}
+    if "references/imports/raw/ocr-dump.txt" not in large_file_paths:
+        raise AssertionError("inspect_repo.py should report files above the large-file threshold")
     binary_zone_paths = {zone["path"] for zone in payload["binary_zones"]}
     if "references/textbooks" not in binary_zone_paths or "references/slides" not in binary_zone_paths:
         raise AssertionError("inspect_repo.py should summarize binary-heavy repository areas")
@@ -801,6 +810,7 @@ def verify_inspect_repo(repo: Path) -> None:
         "generated caches detected",
         "local-only workspace or environment files detected",
         "temporary files detected under tmp/temp paths",
+        "large files detected",
         "binary-heavy areas detected",
     ]:
         if not any(snippet in warning for warning in warnings):
@@ -849,6 +859,11 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     (repo / "references" / "textbooks" / "linear-algebra-textbook.pdf").write_bytes(b"%PDF-1.4\n")
     (repo / "references" / "imports" / "raw").mkdir(parents=True, exist_ok=True)
     (repo / "references" / "imports" / "raw" / "lecture-slides.pptx").write_bytes(b"PK\x03\x04")
+    (repo / "references" / "imports" / "raw" / "ocr-dump.txt").write_text(
+        "x" * (10 * 1024 * 1024 + 1),
+        encoding="utf-8",
+        newline="\n",
+    )
     conflict_path = repo / "tasks" / "deadlines" / "manual-study-block.sync-conflict-20260704.md"
     conflict_path.write_text("# conflict copy\n", encoding="utf-8", newline="\n")
     (repo / ".env").write_text("API_KEY=local\n", encoding="utf-8", newline="\n")
@@ -925,6 +940,8 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError("group_git_changes.py should hold back raw imported PDF source documents")
     if "references/imports/raw/lecture-slides.pptx" not in hold_back:
         raise AssertionError("group_git_changes.py should hold back raw imported office source documents")
+    if "references/imports/raw/ocr-dump.txt" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back oversized text exports by default")
     if ".env.shared -> tasks/env-note.md" not in hold_back:
         raise AssertionError("group_git_changes.py should hold back renames from environment files")
     if ".env.tracked" not in hold_back:
@@ -979,6 +996,8 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError("Expected a binary-source-document reason for imported PDFs")
     if reasons.get("references/imports/raw/lecture-slides.pptx") != "binary source document":
         raise AssertionError("Expected a binary-source-document reason for imported office files")
+    if reasons.get("references/imports/raw/ocr-dump.txt") != "large file":
+        raise AssertionError("Expected a large-file reason for oversized text exports")
     if reasons.get(".env.shared -> tasks/env-note.md") != "environment file":
         raise AssertionError("Expected an environment-file reason for renames from environment files")
     if reasons.get(".env.tracked") != "environment file":
