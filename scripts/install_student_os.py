@@ -2,14 +2,20 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
-import shutil
-from dataclasses import dataclass
 import os
+import shutil
+import subprocess
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 
 SKILL_NAME = "student-os"
+MANIFEST_FILENAME = ".student-os-install.json"
+LOCAL_OVERRIDE_NAMES = [".student-os-local-overrides", ".student-os-install.local.json"]
+DEFAULT_SOURCE_REPO = "https://github.com/Gu-Heping/college-student-workflow.git"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCE_SKILL_DIR = REPO_ROOT / SKILL_NAME
 CODEX_HOME = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
@@ -142,8 +148,114 @@ def remove_existing(path: Path) -> None:
         shutil.rmtree(path)
 
 
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def git_output(*args: str, cwd: Path = REPO_ROOT) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(cwd), *args],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def discover_source_ref() -> str:
+    ref = git_output("rev-parse", "--abbrev-ref", "HEAD")
+    if not ref or ref == "HEAD":
+        return "main"
+    return ref
+
+
+def discover_source_commit() -> str:
+    return git_output("rev-parse", "HEAD")
+
+
+def hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def should_skip_snapshot(path: Path, root: Path) -> bool:
+    rel = path.relative_to(root)
+    if rel.name == MANIFEST_FILENAME:
+        return True
+    if rel.parts and rel.parts[0] in LOCAL_OVERRIDE_NAMES:
+        return True
+    return False
+
+
+def snapshot_skill_files(root: Path) -> dict[str, str]:
+    snapshot: dict[str, str] = {}
+    if not root.exists():
+        return snapshot
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        if should_skip_snapshot(path, root):
+            continue
+        snapshot[path.relative_to(root).as_posix()] = hash_file(path)
+    return snapshot
+
+
+def build_install_manifest(
+    *,
+    destination: Path,
+    agent: str,
+    scope: str,
+    install_method: str,
+    used_symlink: bool,
+    source_repo: str = DEFAULT_SOURCE_REPO,
+    source_ref: str | None = None,
+    installed_commit: str | None = None,
+    linked_source_path: str = "",
+) -> dict[str, object]:
+    return {
+        "manifest_version": 1,
+        "skill_name": SKILL_NAME,
+        "source_repo": source_repo,
+        "source_ref": source_ref or discover_source_ref(),
+        "installed_commit": installed_commit or discover_source_commit(),
+        "installed_at": utc_now_iso(),
+        "install_method": install_method,
+        "agent": agent,
+        "scope": scope,
+        "target_path": str(destination.resolve()),
+        "used_symlink": used_symlink,
+        "linked_source_path": linked_source_path,
+        "local_override_paths": LOCAL_OVERRIDE_NAMES,
+        "tracked_files": snapshot_skill_files(destination),
+    }
+
+
+def write_manifest(destination: Path, manifest: dict[str, object]) -> Path:
+    manifest_path = destination / MANIFEST_FILENAME
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return manifest_path
+
+
+def same_link_install(destination: Path) -> bool:
+    skill_link = destination / "SKILL.md"
+    return destination.exists() and skill_link.is_symlink() and skill_link.resolve() == (SOURCE_SKILL_DIR / "SKILL.md").resolve()
+
+
 def install_with_symlink(source: Path, target: Path) -> str:
-    target.symlink_to(source, target_is_directory=True)
+    target.mkdir(parents=True, exist_ok=False)
+    try:
+        for child in source.iterdir():
+            (target / child.name).symlink_to(child.resolve(), target_is_directory=child.is_dir())
+    except Exception:
+        remove_existing(target)
+        raise
     return "linked"
 
 
@@ -167,14 +279,23 @@ def install_one(target: InstallTarget, mode: str, force: bool) -> dict[str, str]
     destination = target.root / SKILL_NAME
 
     if destination.exists() or destination.is_symlink():
-        same_link = destination.is_symlink() and destination.resolve() == SOURCE_SKILL_DIR.resolve()
-        if same_link and not force:
+        if same_link_install(destination) and not force:
+            manifest = build_install_manifest(
+                destination=destination,
+                agent=target.agent,
+                scope=target.scope,
+                install_method="linked",
+                used_symlink=True,
+                linked_source_path=str(SOURCE_SKILL_DIR.resolve()),
+            )
+            manifest_path = write_manifest(destination, manifest)
             return {
                 "agent": target.agent,
                 "scope": target.scope,
                 "destination": str(destination),
                 "status": "unchanged",
                 "method": "linked",
+                "manifest": str(manifest_path),
             }
         if not force:
             raise SystemExit(
@@ -187,12 +308,22 @@ def install_one(target: InstallTarget, mode: str, force: bool) -> dict[str, str]
     for method in method_order:
         try:
             installed_as = install_with_symlink(SOURCE_SKILL_DIR, destination) if method == "link" else install_with_copy(SOURCE_SKILL_DIR, destination)
+            manifest = build_install_manifest(
+                destination=destination,
+                agent=target.agent,
+                scope=target.scope,
+                install_method=installed_as,
+                used_symlink=installed_as == "linked",
+                linked_source_path=str(SOURCE_SKILL_DIR.resolve()) if installed_as == "linked" else "",
+            )
+            manifest_path = write_manifest(destination, manifest)
             return {
                 "agent": target.agent,
                 "scope": target.scope,
                 "destination": str(destination),
                 "status": "installed",
                 "method": installed_as,
+                "manifest": str(manifest_path),
             }
         except OSError as exc:
             last_error = exc
@@ -216,7 +347,19 @@ def main() -> int:
     results = [install_one(target, args.mode, args.force) for target in targets]
 
     if args.json:
-        print(json.dumps({"source": str(SOURCE_SKILL_DIR), "results": results}, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {
+                    "source": str(SOURCE_SKILL_DIR),
+                    "source_repo": DEFAULT_SOURCE_REPO,
+                    "source_ref": discover_source_ref(),
+                    "source_commit": discover_source_commit(),
+                    "results": results,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return 0
 
     print(f"Installed {SKILL_NAME} from {SOURCE_SKILL_DIR}")
@@ -224,6 +367,7 @@ def main() -> int:
         print(
             f"- {result['agent']} ({result['scope']}): {result['status']} via {result['method']} -> {result['destination']}"
         )
+        print(f"  Manifest: {result['manifest']}")
     print("")
     print("Restart the target agent if the skill does not appear immediately.")
     return 0

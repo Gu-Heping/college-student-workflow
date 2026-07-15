@@ -6,6 +6,7 @@
 
 ### Added
 
+- 为 `student-os` 新增自更新工作流：安装 manifest、`update_student_os.py`、更新命令入口与更新 reference，支持检查已安装版本、验证更新并提供回滚指引。
 - 为 `student-os` 的反馈闭环补充生命周期脚本：`triage_feedback.py`、`resolve_feedback.py`，支持从原始反馈到已解决条目的标准流转。
 - 为反馈条目新增稳定 `feedback_id`、开发者摘要、修复版本和 changelog 提示位，便于长期跟踪和开发回流。
 - 为反馈汇总新增 `--audience developer` 视图，便于生成 issue-ready 的开发者交接摘要。
@@ -14,6 +15,8 @@
 
 ### Changed
 
+- 扩展安装器，使每次成功安装都写入 `.student-os-install.json`，并为后续安全更新保留安装来源、提交版本与文件快照。
+- 扩展 `README.md` 与 `SKILL.md`，明确 `update student-os` / `更新 student-os` 属于 skill maintenance，不会触碰用户知识库。
 - 扩展 `feedback-ops` reference、`feedback` command、`feedback-operator` companion 和 `SKILL.md`，使反馈工作流覆盖记录、triage、resolve 和开发者交接四个阶段。
 - 扩展 smoke test，将反馈生命周期纳入示例仓库与回归验证。
 - 重写 `CHANGELOG.md` 为规范 UTF-8 中文版本，便于后续按 Keep a Changelog 持续维护。
@@ -27,6 +30,7 @@
 
 ### Fixed
 
+- 修复安装流程缺少可追踪安装元数据的问题，避免后续自更新无法判断安装来源、覆盖风险与回滚路径。
 - 修复大文件检查对损坏符号链接的 `stat()` 崩溃问题，并补齐“已暂存但工作区已缩小/删除”的 oversized 文件识别，避免 `inspect_repo.py` 与 `group_git_changes.py` 漏报 index 中的大体积产物。
 - 修复 `group_git_changes.py` CLI 输出仍将中文路径做 ASCII 转义的问题，改为直接输出 UTF-8 可读 JSON，并由 smoke test 锁定原始 stdout 行为。
 - 修复 `run_smoke_tests.py --refresh-examples` 会把 `inspect_repo.py` 的 hygiene fixture 污染进 `examples/multi-semester-demo` 的问题，改为在隔离副本中验证仓库检查输出。

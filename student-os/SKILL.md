@@ -1,6 +1,6 @@
 ---
 name: student-os
-description: Git-first student knowledge base operating system for Claude Code, Codex, OpenCode, and similar agents. Use when an agent needs to initialize or govern a markdown-first knowledge repository; create course spaces, semester overviews, lecture notes, homework pages, review sheets, lab reports, weekly plans, inbox tasks, dashboards, and learning summaries; import or transform PDF, DOCX, XLSX, and PPTX materials into the repository; route work across coordinator, course tutor, project helper, review coach, planning assistant, file operator, and feedback operator roles; inspect git status and separate task-specific changes from pre-existing dirty work; or prepare branch names, commit messages, and grouped change summaries for day-to-day student workflows.
+description: Git-first student knowledge base operating system for Claude Code, Codex, OpenCode, and similar agents. Use when an agent needs to initialize or govern a markdown-first knowledge repository; create course spaces, semester overviews, lecture notes, homework pages, review sheets, lab reports, weekly plans, inbox tasks, dashboards, and learning summaries; import or transform PDF, DOCX, XLSX, and PPTX materials into the repository; route work across coordinator, course tutor, project helper, review coach, planning assistant, file operator, and feedback operator roles; inspect git status and separate task-specific changes from pre-existing dirty work; prepare branch names, commit messages, and grouped change summaries for day-to-day student workflows; or safely update the installed student-os skill itself without touching the managed vault.
 ---
 
 # Student OS
@@ -9,7 +9,7 @@ Run this skill as the single entry point for a university knowledge repository. 
 
 ## Core workflow
 
-1. Identify the request type: repository governance, daily academic work, project work, planning, review work, file ingestion, knowledge operations, feedback operations, or git review.
+1. Identify the request type: repository governance, daily academic work, project work, planning, review work, file ingestion, knowledge operations, feedback operations, skill maintenance, or git review.
 2. Inspect the target repository before editing anything.
 3. Choose the primary role and any supporting roles from the companion layer.
 4. Resolve the target paths and templates that will be touched.
@@ -153,6 +153,21 @@ Handle:
 - marking feedback as resolved
 - generating periodic feedback summaries
 
+### Skill maintenance
+
+Use `references/update-workflow.md`.
+
+Handle:
+- checking installed `student-os` version metadata
+- safely updating the installed skill
+- reinstalling `student-os` into the existing skill location
+- reporting backup and rollback guidance
+
+Treat update requests as skill maintenance only:
+- do not edit the managed vault
+- do not re-run repository scaffolding against the user's notes
+- do not mix vault migration work into the skill update
+
 ## Course packs
 
 When a request targets one of the seed courses, read the matching course pack before drafting content:
@@ -188,6 +203,7 @@ Use the command templates to expose common entry points:
 - `commands/pdf-to-md.md`
 - `commands/tabular-summary.md`
 - `commands/feedback.md`
+- `commands/update.md`
 
 Default routing:
 - `study` -> `coordinator` with `course-tutor` as the usual primary specialist
@@ -199,6 +215,7 @@ Default routing:
 - `pdf-to-md` -> `coordinator` with `file-operator`
 - `tabular-summary` -> `coordinator` with `file-operator` and `planning-assistant` when the result is a planning or dashboard artifact
 - `feedback` -> `coordinator` with `feedback-operator`
+- `update` -> `coordinator` with the update workflow
 
 ## File conventions
 
@@ -257,6 +274,14 @@ Suggested student-day grouping:
 - imported raw or repaired references
 - feedback capture and summary updates
 - repository ops and generated indexes
+
+## Update workflow contract
+
+When the user asks to update or upgrade `student-os`:
+- run a check first unless the user explicitly asks to skip straight to the check result they already approved
+- require one confirmation before applying the update
+- limit changes to the installed skill directory
+- report the current commit, latest commit, files updated, validation result, backup path, and rollback command
 
 ## Output contract
 
