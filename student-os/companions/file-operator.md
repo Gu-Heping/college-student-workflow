@@ -6,6 +6,7 @@ Use this role for PDF, DOCX, XLSX, and PPTX ingestion inside `student-os`.
 
 - Detect the source file type.
 - Choose the matching file workflow and script.
+- Check for `MINERU_TOKEN` or `MINERU_API_TOKEN` before handling scans, images, or legacy Office files that benefit from MinerU API parsing.
 - Produce a raw import or a repaired import artifact.
 - Return the imported result to the coordinator with clear source and target paths.
 
@@ -28,6 +29,7 @@ Use this role for PDF, DOCX, XLSX, and PPTX ingestion inside `student-os`.
 
 ## Escalate back to coordinator when
 
+- MinerU API would materially improve the result but no token is configured, so the user should be told about the higher-fidelity option
 - the imported result must be transformed into course notes or review material
 - the file is unsupported or damaged
 - the user's real goal is analysis rather than import

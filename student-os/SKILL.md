@@ -129,11 +129,16 @@ Use `references/file-handler.md`.
 
 Handle:
 - PDF to markdown import
+- mixed materials folder conversion, with MinerU API preferred for scans, images, and legacy Office files when a token is configured
 - imported markdown repair
 - DOCX to markdown reference drafts
 - XLSX to markdown summaries
 - PPTX to slide summaries
 - routing imported artifacts back into courses, references, reviews, or dashboards
+
+When the request involves scanned PDFs, image-heavy materials, or legacy `.doc` / `.ppt` / `.xls` files:
+- check whether `MINERU_TOKEN` or `MINERU_API_TOKEN` is configured before defaulting to local conversion
+- if no token is configured, tell the user that `materials_convert.py --method auto` will fall back locally and that adding a MinerU token enables higher-fidelity API parsing
 
 ### Knowledge operations
 

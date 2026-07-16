@@ -11,6 +11,7 @@ Recommended API mode:
 - set `MINERU_TOKEN` or pass `--api-token`
 - run `python scripts/materials_convert.py <folder> --method api --api-model vlm`
 - use `--method auto` to prefer MinerU API when a token is present and fall back to local converters otherwise
+- if the materials include scans, images, or legacy `.doc` / `.ppt` / `.xls` files, first check whether a MinerU token is already configured and prompt the user to add one when higher-fidelity parsing is likely to help
 
 Default route:
 - primary role: `file-operator`
