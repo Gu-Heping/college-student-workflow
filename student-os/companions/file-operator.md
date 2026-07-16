@@ -12,6 +12,7 @@ Use this role for PDF, DOCX, XLSX, and PPTX ingestion inside `student-os`.
 ## Typical tasks
 
 - convert a PDF into markdown
+- batch-convert a materials folder into markdown sidecars
 - repair an imported markdown draft
 - summarize a DOCX into a markdown reference
 - summarize an XLSX workbook into a markdown table summary

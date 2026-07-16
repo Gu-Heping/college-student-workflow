@@ -31,6 +31,7 @@ Use these scripts when helpful:
 - `scripts/scaffold_homework.py` for creating homework, linked task artifacts, and basic backlinks.
 - `scripts/pdf_probe.py` for PDF file facts such as page count and metadata.
 - `scripts/pdf_to_markdown.py` for PDF import in generic or MinerU-style mode.
+- `scripts/materials_convert.py` for batch conversion of mixed materials folders into markdown sidecars.
 - `scripts/repair_markdown_import.py` for conservative cleanup of imported markdown plus repair summaries.
 - `scripts/docx_to_md.py` for DOCX import into markdown reference drafts.
 - `scripts/xlsx_to_md.py` for XLSX import into markdown table summaries.
@@ -206,6 +207,7 @@ Use the command templates to expose common entry points:
 - `commands/plan-week.md`
 - `commands/inbox.md`
 - `commands/import-file.md`
+- `commands/materials-convert.md`
 - `commands/pdf-to-md.md`
 - `commands/tabular-summary.md`
 - `commands/feedback.md`
@@ -219,6 +221,7 @@ Default routing:
 - `plan-week` -> `coordinator` with `planning-assistant`
 - `inbox` -> `coordinator` with `planning-assistant`
 - `import-file` -> `coordinator` with `file-operator`
+- `materials-convert` -> `coordinator` with `file-operator`
 - `pdf-to-md` -> `coordinator` with `file-operator`
 - `tabular-summary` -> `coordinator` with `file-operator` and `planning-assistant` when the result is a planning or dashboard artifact
 - `feedback` -> `coordinator` with `feedback-operator`
