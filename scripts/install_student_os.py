@@ -283,13 +283,7 @@ def sync_linked_entries(destination: Path, source: Path) -> list[str]:
 
 
 def install_with_symlink(source: Path, target: Path) -> str:
-    target.mkdir(parents=True, exist_ok=False)
-    try:
-        for child in source.iterdir():
-            (target / child.name).symlink_to(child.resolve(), target_is_directory=child.is_dir())
-    except Exception:
-        remove_existing(target)
-        raise
+    target.symlink_to(source.resolve(), target_is_directory=True)
     return "linked"
 
 
