@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 
 from feedback_utils import extract_title, normalize_scalar, parse_frontmatter, resolve_feedback_path
@@ -105,6 +106,65 @@ def redact_sensitive_text(text: str) -> str:
     redacted = PRIVATE_IP_RE.sub("[REDACTED_PRIVATE_IP]", redacted)
     redacted = INTERNAL_HOST_RE.sub("[REDACTED_INTERNAL_HOST]", redacted)
     return redacted
+
+
+def sanitize_stdin(text: str) -> tuple[str, list[str], list[str]]:
+    """
+    Standalone sanitize for any text input.
+    Returns (sanitized_text, blockers, warnings).
+    If blockers is non-empty, callers should abort public publishing.
+    """
+    blockers = detect_privacy_blockers(text)
+    warnings = detect_privacy_warnings(text)
+    return redact_sensitive_text(text), blockers, warnings
+
+
+def extract_stdin_text(raw: str, stdin_format: str) -> str:
+    if stdin_format == "text":
+        return raw
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid JSON for --stdin-format json: {exc}") from exc
+    if isinstance(payload, str):
+        return payload
+    if isinstance(payload, dict):
+        if "body" in payload and isinstance(payload["body"], str):
+            return payload["body"]
+        if "text" in payload and isinstance(payload["text"], str):
+            return payload["text"]
+        raise SystemExit('JSON stdin must include a string "body" or "text" field.')
+    raise SystemExit("JSON stdin must be a string or an object with a body/text field.")
+
+
+def format_privacy_messages(blockers: list[str], warnings: list[str]) -> str:
+    lines: list[str] = []
+    for blocker in blockers:
+        lines.append(f"BLOCK: {blocker}")
+    for warning in warnings:
+        lines.append(f"WARN: {warning}")
+    return "\n".join(lines)
+
+
+def run_stdin_mode(args: argparse.Namespace) -> int:
+    raw = sys.stdin.read()
+    text = extract_stdin_text(raw, args.stdin_format)
+    sanitized, blockers, warnings = sanitize_stdin(text)
+    messages = format_privacy_messages(blockers, warnings)
+    if messages:
+        print(messages, file=sys.stderr)
+    if args.check_only:
+        return 1 if blockers else 0
+    if blockers:
+        print(
+            "Aborting: privacy blockers detected. Clean the draft before publishing.",
+            file=sys.stderr,
+        )
+        return 1
+    sys.stdout.write(sanitized)
+    if sanitized and not sanitized.endswith("\n"):
+        sys.stdout.write("\n")
+    return 0
 
 
 def public_feedback_id(frontmatter: dict[str, str], feedback_path: Path) -> str:
@@ -312,10 +372,35 @@ def build_issue_body(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Prepare a GitHub issue draft from a student-os feedback entry.")
-    parser.add_argument("repo", help="Target repository root")
-    parser.add_argument("feedback", help="Feedback path, relative to repo or absolute")
+    parser = argparse.ArgumentParser(
+        description="Prepare a GitHub issue draft from a student-os feedback entry, or sanitize arbitrary issue text via --stdin."
+    )
+    parser.add_argument("repo", nargs="?", help="Target repository root (required unless --stdin)")
+    parser.add_argument("feedback", nargs="?", help="Feedback path, relative to repo or absolute (required unless --stdin)")
+    parser.add_argument(
+        "--stdin",
+        action="store_true",
+        help="Read issue text from stdin, sanitize it, and write sanitized text to stdout.",
+    )
+    parser.add_argument(
+        "--check-only",
+        action="store_true",
+        help="With --stdin, only report privacy findings to stderr and exit non-zero when blockers exist.",
+    )
+    parser.add_argument(
+        "--stdin-format",
+        choices=["text", "json"],
+        default="text",
+        help="Input format for --stdin. json accepts gh-style {\"body\": \"...\"} payloads.",
+    )
     args = parser.parse_args()
+
+    if args.check_only and not args.stdin:
+        raise SystemExit("--check-only requires --stdin")
+    if args.stdin:
+        return run_stdin_mode(args)
+    if not args.repo or not args.feedback:
+        raise SystemExit("repo and feedback are required unless --stdin is used")
 
     repo = Path(args.repo).resolve()
     feedback_path = resolve_feedback_path(repo, args.feedback)

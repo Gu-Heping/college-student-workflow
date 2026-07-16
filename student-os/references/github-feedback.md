@@ -84,6 +84,19 @@ Useful scripts:
   - default behavior: refuse direct publish when privacy warnings exist
   - use `--allow-privacy-warnings` only after explicit user confirmation
 
+Standalone sanitize pipe (for drafts that do not go through a local feedback entry):
+
+```bash
+python scripts/prepare_github_issue.py --stdin < draft.md | gh issue create -F -
+python scripts/prepare_github_issue.py --stdin --check-only < draft.md
+python scripts/prepare_github_issue.py --stdin --stdin-format json < payload.json
+```
+
+- `--stdin` reads arbitrary issue text, prints privacy `BLOCK:` / `WARN:` lines to stderr, and writes sanitized text to stdout
+- blockers abort the pipe with a non-zero exit code so unsafe drafts are not published
+- `--check-only` reports findings without rewriting the draft
+- `--stdin-format json` accepts `gh`-style JSON payloads that include a `body` field
+
 Default behavior:
 - Prepare first
 - Confirm second

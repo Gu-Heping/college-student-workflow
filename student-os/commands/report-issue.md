@@ -21,3 +21,11 @@ Expected outputs:
 - mandatory cleanup before posting when blocking sensitive data is detected
 - explicit confirmation before public posting
 - stored GitHub issue metadata after publish
+
+When the draft does not come from a local feedback entry, sanitize through:
+
+```bash
+python scripts/prepare_github_issue.py --stdin < draft.md | gh issue create -F -
+```
+
+Do not call `gh issue create` directly on unsanitized text.
