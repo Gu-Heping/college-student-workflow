@@ -665,7 +665,7 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     ensure_contains(resolved_path, "feedback_id:")
     ensure_contains(resolved_path, 'github_issue_url: "https://github.com/Gu-Heping/college-student-workflow/issues/42"')
     ensure_contains(resolved_path, 'github_issue_number: "42"')
-    ensure_contains(resolved_path, 'github_issue_status: "closed"')
+    ensure_contains(resolved_path, 'github_issue_status: "open"')
     ensure_contains(resolved_path, 'reported_to_github_at: "2026-07-16"')
     ensure_contains(resolved_path, "## Triage Notes")
     ensure_contains(resolved_path, "## Resolution Summary")
@@ -746,6 +746,22 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         raise AssertionError("prepare_github_issue.py should derive labels from feedback kind and severity")
     if "## Feedback ID" not in issue_payload["body"] or "## Privacy Check" not in issue_payload["body"]:
         raise AssertionError("prepare_github_issue.py should emit the expected issue body sections")
+    for leaked_text in [
+        r"D:\vault\private-course\notes.md",
+        "/Users/alice/private-notes.md",
+        "sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST",
+        "github_pat_1234567890ABCDEFGHIJKLMNOP",
+    ]:
+        if leaked_text in issue_payload["body"]:
+            raise AssertionError(f"prepare_github_issue.py should redact sensitive text from public issue bodies: {leaked_text}")
+    for redacted_marker in [
+        "[REDACTED_WINDOWS_PATH]",
+        "[REDACTED_UNIX_PATH]",
+        "[REDACTED_TOKEN]",
+        "[REDACTED_ENV_FILE]",
+    ]:
+        if redacted_marker not in issue_payload["body"]:
+            raise AssertionError(f"prepare_github_issue.py should include redaction marker {redacted_marker}")
     joined_warnings = "\n".join(issue_payload["privacy_warnings"])
     for expected_warning in ["Windows absolute paths", "Unix-style absolute paths", ".env", "token-like strings", "private vault path"]:
         if expected_warning not in joined_warnings:
@@ -840,9 +856,15 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         body_path.relative_to(repo / "feedback" / "summaries")
     except ValueError as exc:
         raise AssertionError("Fallback GitHub issue body should stay inside feedback/summaries") from exc
+    if body_path.name != "manual-path-feedback-github-issue-body.md":
+        raise AssertionError("Fallback body file should use a unique source-based name when feedback_id is unsafe or empty")
     gh_command = publish_payload["gh_command"]
     if "'../../notes/leak: Manual path $(danger) `tick` test'" not in gh_command:
         raise AssertionError("Fallback gh command should shell-quote feedback-controlled titles safely")
+    if "--label" in gh_command:
+        raise AssertionError("Fallback gh command should omit labels when the repo label set cannot be verified")
+    if publish_payload["omitted_labels"] != ["feedback", "feedback:other", "severity:medium"]:
+        raise AssertionError("publish_github_issue.py should report labels omitted from fallback publication guidance")
 
 
 def build_single_semester(repo: Path, today: date) -> None:

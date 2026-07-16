@@ -48,10 +48,21 @@ def quote_for_shell(parts: list[str]) -> str:
 
 
 def safe_feedback_slug(value: object) -> str:
-    text = str(value or "").strip().lower()
+    raw = str(value or "").strip()
+    if not raw or "/" in raw or "\\" in raw or ".." in raw:
+        return "issue"
+    text = raw.lower()
     text = re.sub(r"[^a-z0-9._-]+", "-", text)
     text = text.strip("-.")
     return text or "issue"
+
+
+def draft_body_filename(payload: dict[str, object]) -> str:
+    feedback_id = safe_feedback_slug(payload.get("feedback_id"))
+    source_stem = safe_feedback_slug(Path(str(payload.get("source_feedback_path") or "issue")).stem)
+    if feedback_id == "issue":
+        return f"{source_stem}-github-issue-body.md"
+    return f"{feedback_id}-{source_stem}-github-issue-body.md"
 
 
 def replace_body_file_argument(command: list[str], body_file: str) -> list[str]:
@@ -82,6 +93,26 @@ def existing_issue_link(frontmatter: dict[str, str]) -> tuple[str, str]:
     return issue_url, issue_number
 
 
+def available_repo_labels(github_repo: str) -> set[str]:
+    if not gh_available() or not gh_authenticated():
+        return set()
+    result = subprocess.run(
+        ["gh", "label", "list", "--repo", github_repo, "--limit", "200", "--json", "name"],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        return set()
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return set()
+    return {str(item.get("name", "")).strip() for item in payload if str(item.get("name", "")).strip()}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Publish a student-os feedback item to GitHub Issues when gh is available.")
     parser.add_argument("repo", help="Target repository root")
@@ -102,7 +133,10 @@ def main() -> int:
             f"Existing link: {existing_url or existing_number}"
         )
     payload = prepare_payload(repo, args.feedback)
-    labels = payload["labels"]
+    requested_labels = [str(label) for label in payload["labels"]]
+    known_labels = available_repo_labels(args.github_repo)
+    labels = [label for label in requested_labels if label in known_labels] if known_labels else []
+    omitted_labels = [label for label in requested_labels if label not in labels]
     command = [
         "gh",
         "issue",
@@ -118,7 +152,7 @@ def main() -> int:
         command.extend(["--label", str(label)])
 
     if not gh_available() or not gh_authenticated():
-        temp_body = repo / "feedback" / "summaries" / f"{safe_feedback_slug(payload['feedback_id'])}-github-issue-body.md"
+        temp_body = repo / "feedback" / "summaries" / draft_body_filename(payload)
         temp_body.parent.mkdir(parents=True, exist_ok=True)
         temp_body.write_text(str(payload["body"]), encoding="utf-8", newline="\n")
         ready_command = quote_for_shell(replace_body_file_argument(command, str(temp_body)))
@@ -129,6 +163,7 @@ def main() -> int:
             "gh_command": ready_command,
             "body_path": str(temp_body.relative_to(repo)).replace("\\", "/"),
             "privacy_warnings": payload["privacy_warnings"],
+            "omitted_labels": omitted_labels,
         }
         if args.json:
             print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -168,6 +203,7 @@ def main() -> int:
         "feedback_id": payload["feedback_id"],
         "source_feedback_path": payload["source_feedback_path"],
         "privacy_warnings": payload["privacy_warnings"],
+        "omitted_labels": omitted_labels,
     }
     if args.json:
         print(json.dumps(output, ensure_ascii=False, indent=2))

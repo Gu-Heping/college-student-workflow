@@ -15,6 +15,7 @@ UNIX_PATH_RE = re.compile(r"(?:(?<=\s)|^)/(?:Users|home|var|tmp|opt|srv|mnt)/[^\
 TOKEN_RE = re.compile(
     r"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9][A-Za-z0-9\-]{19,}|AIza[0-9A-Za-z\-_]{20,})"
 )
+VAULT_PATH_RE = re.compile(r"(?i)(?:[A-Za-z]:\\|/)[^\s`]*(?:vault)[^\s`]*")
 
 
 def extract_section(body: str, heading: str) -> str:
@@ -51,6 +52,15 @@ def detect_privacy_warnings(text: str) -> list[str]:
     return warnings
 
 
+def redact_sensitive_text(text: str) -> str:
+    redacted = WINDOWS_PATH_RE.sub("[REDACTED_WINDOWS_PATH]", text)
+    redacted = UNIX_PATH_RE.sub("[REDACTED_UNIX_PATH]", redacted)
+    redacted = TOKEN_RE.sub("[REDACTED_TOKEN]", redacted)
+    redacted = VAULT_PATH_RE.sub("[REDACTED_VAULT_PATH]", redacted)
+    redacted = re.sub(r"(?i)(?<![A-Za-z0-9_.-])\.env(?![A-Za-z0-9_.-])", "[REDACTED_ENV_FILE]", redacted)
+    return redacted
+
+
 def likely_area(frontmatter: dict[str, str]) -> str:
     kind = normalize_scalar(frontmatter.get("feedback_kind", "other")) or "other"
     return {
@@ -74,8 +84,8 @@ def issue_labels(frontmatter: dict[str, str]) -> list[str]:
 
 
 def build_issue_title(frontmatter: dict[str, str], feedback_path: Path, body: str) -> str:
-    title = normalize_scalar(frontmatter.get("feedback_id", "")) or feedback_path.stem
-    body_title = extract_title(body) or feedback_path.stem.replace("-", " ")
+    title = redact_sensitive_text(normalize_scalar(frontmatter.get("feedback_id", "")) or feedback_path.stem)
+    body_title = redact_sensitive_text(extract_title(body) or feedback_path.stem.replace("-", " "))
     return f"{title}: {body_title}"
 
 
@@ -100,12 +110,12 @@ def infer_agent_runtime(frontmatter: dict[str, str], body: str) -> str:
 
 def build_issue_body(feedback_path: Path, frontmatter: dict[str, str], body: str, warnings: list[str]) -> str:
     feedback_id = normalize_scalar(frontmatter.get("feedback_id", ""))
-    what_happened = extract_section(body, "What Happened") or "- "
-    expected_behavior = extract_section(body, "Expected Behavior") or "- "
-    evidence = extract_section(body, "Evidence") or "- "
-    likely_cause = extract_section(body, "Likely Cause") or "- "
-    suggested_improvement = extract_section(body, "Suggested Improvement") or "- "
-    source_context = normalize_scalar(frontmatter.get("source_context", "")) or "unknown"
+    what_happened = redact_sensitive_text(extract_section(body, "What Happened") or "- ")
+    expected_behavior = redact_sensitive_text(extract_section(body, "Expected Behavior") or "- ")
+    evidence = redact_sensitive_text(extract_section(body, "Evidence") or "- ")
+    likely_cause = redact_sensitive_text(extract_section(body, "Likely Cause") or "- ")
+    suggested_improvement = redact_sensitive_text(extract_section(body, "Suggested Improvement") or "- ")
+    source_context = redact_sensitive_text(normalize_scalar(frontmatter.get("source_context", "")) or "unknown")
     severity = normalize_scalar(frontmatter.get("severity", "medium")) or "medium"
     privacy_lines = warnings or ["No obvious privacy warnings detected."]
     issue_lines = [
