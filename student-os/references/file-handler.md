@@ -5,6 +5,7 @@ Use this reference when the request starts from a PDF, DOCX, XLSX, or PPTX file 
 ## Goals
 
 - Convert external files into repository-friendly markdown artifacts.
+- Support mixed materials folders without forcing users to import one file at a time.
 - Keep imported artifacts traceable back to their source files.
 - Prefer conservative transformations that preserve meaning over aggressive rewriting.
 - Hand the imported result back to the main study/review/planning workflows.
@@ -12,6 +13,7 @@ Use this reference when the request starts from a PDF, DOCX, XLSX, or PPTX file 
 ## Runtime expectation
 
 - Install the optional converter dependencies from the repository `requirements.txt` before running the import scripts.
+- For higher-fidelity OCR and legacy Office parsing, configure `MINERU_TOKEN` and prefer `materials_convert.py --method api` or `--method auto`.
 
 ## Default landing zones
 

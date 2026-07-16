@@ -34,7 +34,7 @@ def load_group_git_changes_module():
     return module
 
 
-def run_script(name: str, *args: str, cwd: Path = ROOT) -> str:
+def run_script(name: str, *args: str, cwd: Path = ROOT, env: dict[str, str] | None = None) -> str:
     script_path = STUDENT_OS_SCRIPTS / name
     result = subprocess.run(
         [sys.executable, "-B", str(script_path), *args],
@@ -43,7 +43,12 @@ def run_script(name: str, *args: str, cwd: Path = ROOT) -> str:
         text=True,
         encoding="utf-8",
         cwd=cwd,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+        env={
+            **os.environ,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONIOENCODING": "utf-8",
+            **(env or {}),
+        },
     )
     return result.stdout.strip()
 
@@ -423,6 +428,57 @@ def write_pdf_fixture(path: Path) -> None:
         writer.write(handle)
 
 
+def write_png_fixture(path: Path) -> None:
+    path.write_bytes(
+        bytes.fromhex(
+            "89504E470D0A1A0A0000000D4948445200000001000000010802000000907753DE"
+            "0000000C49444154789C6360600000000400010D0A2DB40000000049454E44AE426082"
+        )
+    )
+
+
+def write_fake_mineru_sdk(root: Path) -> Path:
+    module_path = root / "mineru.py"
+    module_path.write_text(
+        "\n".join(
+            [
+                "from dataclasses import dataclass, field",
+                "from pathlib import Path",
+                "",
+                "@dataclass",
+                "class Image:",
+                "    name: str",
+                "    data: bytes",
+                "",
+                "@dataclass",
+                "class ExtractResult:",
+                "    markdown: str",
+                "    images: list[Image] = field(default_factory=list)",
+                "    error: str | None = None",
+                "",
+                "class MinerU:",
+                "    def __init__(self, token=None, base_url='https://mineru.net/api/v4', flash_base_url=None):",
+                "        self.token = token",
+                "",
+                "    def extract(self, source, *, model=None, ocr=None, formula=None, table=None, language=None, pages=None, extra_formats=None, file_params=None, timeout=300):",
+                "        path = Path(source)",
+                "        body = [",
+                "            f'# API Parsed - {path.name}',",
+                "            '',",
+                "            f'- model: {model}',",
+                "            f'- language: {language}',",
+                "            f'- pages: {pages}',",
+                "        ]",
+                "        return ExtractResult(markdown='\\n'.join(body))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    return root
+
+
 def exercise_import_workflows(repo: Path) -> None:
     fixture_root = repo / "references" / "imports" / "source"
     fixture_root.mkdir(parents=True, exist_ok=True)
@@ -430,10 +486,14 @@ def exercise_import_workflows(repo: Path) -> None:
     xlsx_path = fixture_root / "linear-algebra-progress.xlsx"
     pptx_path = fixture_root / "linear-algebra-week-2.pptx"
     pdf_path = fixture_root / "linear-algebra-handout.pdf"
+    png_path = fixture_root / "homework-photo.png"
+    binary_path = fixture_root / "fpga-lab.bit"
     write_docx_fixture(docx_path)
     write_xlsx_fixture(xlsx_path)
     write_pptx_fixture(pptx_path)
     write_pdf_fixture(pdf_path)
+    write_png_fixture(png_path)
+    binary_path.write_bytes(b"\x00\x01\x02fpga")
 
     docx_output = repo / "courses" / "linear-algebra" / "references" / "outline-import.md"
     course_repair_summary = repo / "courses" / "linear-algebra" / "references" / "outline-import-repair-summary.md"
@@ -454,6 +514,14 @@ def exercise_import_workflows(repo: Path) -> None:
     )
     pdf_mineru_payload = json.loads(
         run_script("pdf_to_markdown.py", str(pdf_path), "--output", str(pdf_mineru_output), "--mode", "mineru-style")
+    )
+    materials_payload = json.loads(
+        run_script(
+            "materials_convert.py",
+            str(fixture_root),
+            "--course",
+            "Linear Algebra",
+        )
     )
 
     repair_input.write_text(
@@ -526,11 +594,64 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_contains(repair_summary, "Removed isolated page labels.")
     ensure_contains(repair_summary, "Normalized heading spacing.")
     ensure_contains(repair_summary, "Trimmed heading dot leaders or page-number residue.")
+    if len(materials_payload["converted"]) != 6:
+        raise AssertionError(f"Expected six converted material outputs, got: {materials_payload}")
+    ensure_exists(fixture_root / "linear-algebra-outline.docx.md")
+    ensure_contains(fixture_root / "linear-algebra-outline.docx.md", 'course: "Linear Algebra"')
+    ensure_exists(fixture_root / "linear-algebra-progress.xlsx.md")
+    ensure_contains(fixture_root / "linear-algebra-progress.xlsx.md", "| Task | Score | Weight | Weighted |")
+    ensure_exists(fixture_root / "linear-algebra-week-2.pptx.md")
+    ensure_contains(fixture_root / "linear-algebra-week-2.pptx.md", "## Slide 1: Linear Algebra Week 2")
+    ensure_exists(fixture_root / "linear-algebra-handout.pdf.md")
+    ensure_exists(fixture_root / "linear-algebra-handout.pdf.raw.md")
+    ensure_exists(fixture_root / "linear-algebra-handout.pdf-repair-summary.md")
+    ensure_contains(fixture_root / "linear-algebra-handout.pdf.md", "repair_status: repaired")
+    ensure_exists(fixture_root / "homework-photo.png.md")
+    ensure_contains(fixture_root / "homework-photo.png.md", "OCR is not bundled in the local workflow yet.")
+    ensure_exists(fixture_root / "fpga-lab.bit.md")
+    ensure_contains(fixture_root / "fpga-lab.bit.md", "Binary or tool-specific source detected.")
+
+    fake_sdk_root = repo / "references" / "imports" / "fake-sdk"
+    fake_sdk_root.mkdir(parents=True, exist_ok=True)
+    write_fake_mineru_sdk(fake_sdk_root)
+    api_output_root = repo / "references" / "imports" / "api-output"
+    api_payload = json.loads(
+        run_script(
+            "materials_convert.py",
+            str(fixture_root),
+            "--output-root",
+            str(api_output_root),
+            "--course",
+            "Linear Algebra",
+            "--method",
+            "api",
+            "--api-token",
+            "test-token",
+            "--language",
+            "en",
+            "--pages",
+            "1-1",
+            env={"PYTHONPATH": str(fake_sdk_root)},
+        )
+    )
+    if api_payload["applied_method"] != "api":
+        raise AssertionError(f"Expected API mode to be applied, got: {api_payload}")
+    ensure_exists(api_output_root / "linear-algebra-outline.docx.md")
+    ensure_contains(api_output_root / "linear-algebra-outline.docx.md", "Import method: mineru-api:vlm")
+    ensure_contains(api_output_root / "linear-algebra-outline.docx.md", "# API Parsed - linear-algebra-outline.docx")
+    ensure_exists(api_output_root / "homework-photo.png.md")
+    ensure_contains(api_output_root / "homework-photo.png.md", "# API Parsed - homework-photo.png")
+    ensure_exists(api_output_root / "linear-algebra-handout.pdf.md")
+    ensure_contains(api_output_root / "linear-algebra-handout.pdf.md", "- pages: 1-1")
+    ensure_exists(api_output_root / "fpga-lab.bit.md")
+    ensure_contains(api_output_root / "fpga-lab.bit.md", "Binary or tool-specific source detected.")
 
     docx_path.unlink()
     xlsx_path.unlink()
     pptx_path.unlink()
     pdf_path.unlink()
+    png_path.unlink()
+    binary_path.unlink()
 
 
 def exercise_feedback_lifecycle(repo: Path) -> None:

@@ -3,3 +3,4 @@ pypdf
 python-docx
 openpyxl
 python-pptx
+mineru-open-sdk>=0.2.5
