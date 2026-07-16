@@ -4,9 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import platform
 import re
-import sys
 from pathlib import Path
 
 from feedback_utils import extract_title, normalize_scalar, parse_frontmatter, resolve_feedback_path
@@ -24,7 +22,9 @@ SECRET_KV_RE = re.compile(
     r"(?im)\b(?:token|password|secret|api[_-]?key|access[_-]?key|database_url)\b\s*[:=]\s*(?:\"[^\r\n\"]*\"|'[^\r\n']*'|[^\r\n`]+)"
 )
 JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b")
-PHONE_RE = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
+PHONE_RE = re.compile(
+    r"(?:(?<!\w)(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4})(?!\w)|(?<!\d)1[3-9]\d{9}(?!\d))"
+)
 EMAIL_RE = re.compile(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[A-Za-z]{2,}\b")
 PRIVATE_IP_RE = re.compile(r"\b(?:10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b")
 INTERNAL_HOST_RE = re.compile(r"\b(?:[A-Za-z0-9-]+\.)+(?:local|lan|internal|corp)\b", re.IGNORECASE)
@@ -96,6 +96,8 @@ def redact_sensitive_text(text: str) -> str:
     redacted = WINDOWS_PATH_RE.sub("[REDACTED_WINDOWS_PATH]", text)
     redacted = UNIX_PATH_RE.sub("[REDACTED_UNIX_PATH]", redacted)
     redacted = TOKEN_RE.sub("[REDACTED_TOKEN]", redacted)
+    redacted = JWT_RE.sub("[REDACTED_JWT]", redacted)
+    redacted = PHONE_RE.sub("[REDACTED_PHONE]", redacted)
     redacted = VAULT_PATH_RE.sub("[REDACTED_VAULT_PATH]", redacted)
     redacted = ENV_FILE_RE.sub("[REDACTED_ENV_FILE]", redacted)
     redacted = SECRET_KV_RE.sub("[REDACTED_SECRET_KV]", redacted)
@@ -172,6 +174,18 @@ def infer_os(frontmatter: dict[str, str], body: str) -> str:
     return "unknown"
 
 
+def infer_python_version(frontmatter: dict[str, str], body: str) -> str:
+    source_context = normalize_scalar(frontmatter.get("source_context", ""))
+    text = "\n".join([source_context, body])
+    match = re.search(r"\bpython(?: version)?[: ]+([0-9]+(?:\.[0-9]+){1,2})\b", text, flags=re.IGNORECASE)
+    if match:
+        return match.group(1)
+    match = re.search(r"\bpy(?:thon)?\s*([0-9]+(?:\.[0-9]+){1,2})\b", text, flags=re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return "unknown"
+
+
 def detect_completeness_warnings(frontmatter: dict[str, str], body: str) -> list[str]:
     warnings: list[str] = []
     what_happened = extract_section(body, "What Happened")
@@ -235,7 +249,7 @@ def build_issue_body(
         "## Environment",
         "",
         f"- OS: {infer_os(frontmatter, body)}",
-        f"- Python: {platform.python_version()}",
+        f"- Python: {infer_python_version(frontmatter, body)}",
         "",
         "## What Happened",
         "",

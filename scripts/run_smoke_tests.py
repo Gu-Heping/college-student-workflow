@@ -935,7 +935,7 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
             "--expected-behavior",
             "- Public reports should redact private Windows paths and vault references.",
             "--evidence",
-            "- D:\\vault\\private-course\\notes.md\n- C:\\Users\\Alice\\My Vault\\notes.md\n- /Users/alice/My Vault/notes.md\n- .env.local: DATABASE_URL=postgres://secret@example\n- password: \"correct horse battery staple\"\n- sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST\n- github_pat_1234567890ABCDEFGHIJKLMNOP",
+            "- D:\\vault\\private-course\\notes.md\n- C:\\Users\\Alice\\My Vault\\notes.md\n- /Users/alice/My Vault/notes.md\n- .env.local: DATABASE_URL=postgres://secret@example\n- password: \"correct horse battery staple\"\n- sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST\n- github_pat_1234567890ABCDEFGHIJKLMNOP\n- eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature\n- +1 555-123-4567",
         )
     )
     issue_payload = json.loads(
@@ -963,6 +963,8 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         "version-secret.txt",
         "DATABASE_URL=postgres://secret@example",
         "correct horse battery staple",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature",
+        "+1 555-123-4567",
         "d-vault-private-course",
         "my-vault-notes",
     ]:
@@ -972,6 +974,8 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         "[REDACTED_WINDOWS_PATH]",
         "[REDACTED_UNIX_PATH]",
         "[REDACTED_TOKEN]",
+        "[REDACTED_JWT]",
+        "[REDACTED_PHONE]",
         "[REDACTED_ENV_FILE]",
     ]:
         if redacted_marker not in issue_payload["body"]:
@@ -981,7 +985,7 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         if expected_warning not in joined_warnings:
             raise AssertionError(f"Expected privacy warning containing {expected_warning!r}, got: {joined_warnings}")
     joined_blockers = "\n".join(issue_payload["privacy_blockers"])
-    for expected_blocker in ["secret-like key/value"]:
+    for expected_blocker in ["secret-like key/value", "JWT-like tokens", "phone-number-like"]:
         if expected_blocker not in joined_blockers:
             raise AssertionError(f"Expected privacy blocker containing {expected_blocker!r}, got: {joined_blockers}")
     if not issue_payload["sanitized"]:
@@ -990,6 +994,8 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         raise AssertionError("prepare_github_issue.py should return completeness warnings as a list")
     if "fb-public-" not in issue_payload["title"] or "fb-public-" not in issue_payload["body"]:
         raise AssertionError("prepare_github_issue.py should use a neutral public feedback identifier")
+    if "- Python: unknown" not in issue_payload["body"]:
+        raise AssertionError("prepare_github_issue.py should leave Python version as unknown unless the feedback explicitly captured it")
 
     privacy_blocked_payload = json.loads(
         run_path_script(
@@ -1009,6 +1015,8 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         raise AssertionError("publish_github_issue.py should report privacy-blockers when blocking sensitive data is present")
     if "--allow-privacy-warnings" in privacy_blocked_payload["next_step"]:
         raise AssertionError("publish_github_issue.py should not suggest overriding blocking sensitive data")
+    if "gh_command" in privacy_blocked_payload:
+        raise AssertionError("publish_github_issue.py should not emit a runnable gh command for blocker-only drafts")
     privacy_blocked_stdout = run_script(
         "publish_github_issue.py",
         str(repo),

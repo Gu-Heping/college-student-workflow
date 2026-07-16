@@ -185,21 +185,20 @@ def main() -> int:
         temp_body = repo / "feedback" / "summaries" / draft_body_filename(payload)
         temp_body.parent.mkdir(parents=True, exist_ok=True)
         temp_body.write_text(str(payload["body"]), encoding="utf-8", newline="\n")
-        ready_command = quote_for_shell(replace_body_file_argument(command, str(temp_body)))
-        return emit_result(
-            {
-                "published": False,
-                "blocked_reason": blocked_reason,
-                "feedback_id": payload["feedback_id"],
-                "source_feedback_path": payload["source_feedback_path"],
-                "gh_command": ready_command,
-                "body_path": str(temp_body.relative_to(repo)).replace("\\", "/"),
-                "privacy_warnings": payload["privacy_warnings"],
-                "omitted_labels": omitted_labels,
-                "next_step": next_step,
-            },
-            as_json=args.json,
-        )
+        result_payload = {
+            "published": False,
+            "blocked_reason": blocked_reason,
+            "feedback_id": payload["feedback_id"],
+            "source_feedback_path": payload["source_feedback_path"],
+            "body_path": str(temp_body.relative_to(repo)).replace("\\", "/"),
+            "privacy_warnings": payload["privacy_warnings"],
+            "omitted_labels": omitted_labels,
+            "next_step": next_step,
+        }
+        if blocked_reason != "privacy-blockers":
+            ready_command = quote_for_shell(replace_body_file_argument(command, str(temp_body)))
+            result_payload["gh_command"] = ready_command
+        return emit_result(result_payload, as_json=args.json)
 
     if payload.get("privacy_blockers"):
         return emit_draft(
