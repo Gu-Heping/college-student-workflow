@@ -97,7 +97,12 @@ def emit_result(payload: dict[str, object], *, as_json: bool) -> int:
     if as_json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
-        if "gh_command" in payload:
+        if payload.get("blocked_reason") == "privacy-warnings":
+            print("Publishing blocked due to privacy warnings.")
+            print(payload.get("next_step", "Review the draft body before retrying."))
+            if payload.get("body_path"):
+                print(f"Draft body: {payload['body_path']}")
+        elif "gh_command" in payload:
             print(payload["gh_command"])
         elif "issue_url" in payload:
             print(payload["issue_url"])

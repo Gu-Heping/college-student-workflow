@@ -19,7 +19,7 @@ TOKEN_RE = re.compile(
 VAULT_PATH_RE = re.compile(r"(?i)(?:[A-Za-z]:\\|/)[^\s`]*(?:vault)[^\s`]*")
 ENV_FILE_RE = re.compile(r"(?im)(?<![A-Za-z0-9_.-])\.env(?:\.[A-Za-z0-9_.-]+)*(?::[^\r\n]*)?")
 SECRET_KV_RE = re.compile(
-    r"(?im)\b(?:token|password|secret|api[_-]?key|access[_-]?key|database_url)\b\s*[:=]\s*[^\s\r\n`]+"
+    r"(?im)\b(?:token|password|secret|api[_-]?key|access[_-]?key|database_url)\b\s*[:=]\s*(?:\"[^\r\n\"]*\"|'[^\r\n']*'|[^\r\n`]+)"
 )
 
 

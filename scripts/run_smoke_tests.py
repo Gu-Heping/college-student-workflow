@@ -730,7 +730,7 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
             "--expected-behavior",
             "- Public reports should redact private Windows paths and vault references.",
             "--evidence",
-            "- D:\\vault\\private-course\\notes.md\n- C:\\Users\\Alice\\My Vault\\notes.md\n- /Users/alice/My Vault/notes.md\n- .env.local: DATABASE_URL=postgres://secret@example\n- sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST\n- github_pat_1234567890ABCDEFGHIJKLMNOP",
+            "- D:\\vault\\private-course\\notes.md\n- C:\\Users\\Alice\\My Vault\\notes.md\n- /Users/alice/My Vault/notes.md\n- .env.local: DATABASE_URL=postgres://secret@example\n- password: \"correct horse battery staple\"\n- sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST\n- github_pat_1234567890ABCDEFGHIJKLMNOP",
         )
     )
     issue_payload = json.loads(
@@ -755,6 +755,7 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         "github_pat_1234567890ABCDEFGHIJKLMNOP",
         "version-secret.txt",
         "DATABASE_URL=postgres://secret@example",
+        "correct horse battery staple",
         "d-vault-private-course",
         "my-vault-notes",
     ]:
@@ -793,6 +794,17 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         raise AssertionError("publish_github_issue.py should report privacy-warnings as the blocking reason by default")
     if "--allow-privacy-warnings" not in privacy_blocked_payload["next_step"]:
         raise AssertionError("publish_github_issue.py should explain how to override privacy blocking after explicit confirmation")
+    privacy_blocked_stdout = run_script(
+        "publish_github_issue.py",
+        str(repo),
+        str(github_issue_feedback),
+        "--github-repo",
+        "Gu-Heping/college-student-workflow",
+    )
+    if "Publishing blocked due to privacy warnings." not in privacy_blocked_stdout:
+        raise AssertionError("Non-JSON privacy blocking output should explain that publishing was blocked")
+    if "gh issue create" in privacy_blocked_stdout:
+        raise AssertionError("Non-JSON privacy blocking output should not print a ready-to-run publish command")
 
     publish_failure = json.loads(
         run_script(
