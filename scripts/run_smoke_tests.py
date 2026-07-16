@@ -1185,6 +1185,12 @@ def build_copy_install_fixture(base_dir: Path, source_repo: Path, installed_comm
     return target
 
 
+def assert_no_pycache(root: Path) -> None:
+    pycache_paths = sorted(str(path) for path in root.rglob("__pycache__"))
+    if pycache_paths:
+        raise AssertionError(f"Validation should not leave __pycache__ artifacts behind: {pycache_paths}")
+
+
 def verify_install_manifest_generation(tmp_root: Path) -> None:
     codex_home = tmp_root / "codex-home"
     payload = json.loads(
@@ -1225,6 +1231,58 @@ def verify_install_manifest_generation(tmp_root: Path) -> None:
         raise AssertionError("install manifest should record the skill name")
     if manifest["install_method"] != "copied":
         raise AssertionError("copy installs should record copied as the install method")
+
+
+def verify_update_source_override_and_project_copy_detection(tmp_root: Path) -> None:
+    install_module = load_root_script_module("install_student_os.py", "student_os_install_override_smoke")
+    update_module = load_root_script_module("update_student_os.py", "student_os_update_override_smoke")
+
+    override_repo = tmp_root / "override-source"
+    init_git_repo(override_repo)
+    override_commit = seed_fake_student_os_source(override_repo, version_label="override")
+
+    target = tmp_root / "override-install"
+    shutil.copytree(override_repo / "student-os", target)
+    manifest = install_module.build_install_manifest(
+        destination=target,
+        agent="codex",
+        scope="user",
+        install_method="copied",
+        used_symlink=False,
+        source_repo="https://github.com/Gu-Heping/college-student-workflow.git",
+        source_ref="main",
+        installed_commit=override_commit,
+        linked_source_path="",
+    )
+    install_module.write_manifest(target, manifest)
+    info = update_module.build_install_info(target, str(override_repo.resolve()), "main")
+    if info.source_repo != str(override_repo.resolve()):
+        raise AssertionError("Explicit --repo equivalents should override manifest source_repo values")
+    if info.source_ref != "main":
+        raise AssertionError("Explicit --ref equivalents should override manifest source_ref values")
+
+    vault_repo = tmp_root / "vault-repo"
+    init_git_repo(vault_repo)
+    (vault_repo / "README.md").write_text("# Vault\n", encoding="utf-8", newline="\n")
+    commit_all(vault_repo, "init vault")
+    project_install = vault_repo / ".codex" / "skills" / "student-os"
+    project_install.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(override_repo / "student-os", project_install)
+    project_manifest = install_module.build_install_manifest(
+        destination=project_install,
+        agent="codex",
+        scope="project",
+        install_method="copied",
+        used_symlink=False,
+        source_repo=str(override_repo.resolve()),
+        source_ref="main",
+        installed_commit=override_commit,
+        linked_source_path="",
+    )
+    install_module.write_manifest(project_install, project_manifest)
+    project_info = update_module.build_install_info(project_install, None, None)
+    if project_info.install_kind != "copy":
+        raise AssertionError("Copied project installs inside a git repository should still be treated as copy installs")
 
 
 def verify_self_update_workflow(tmp_root: Path) -> None:
@@ -1292,6 +1350,8 @@ def verify_self_update_workflow(tmp_root: Path) -> None:
         raise AssertionError("copy-mode self-update should refresh the install manifest commit")
     if manifest["source_repo"] != str(source_repo.resolve()):
         raise AssertionError("copy-mode self-update should preserve the configured source repo in the manifest")
+    assert_no_pycache(install_target)
+    assert_no_pycache(source_repo)
 
     (install_target / "SKILL.md").write_text(
         (install_target / "SKILL.md").read_text(encoding="utf-8") + "\nLocal drift\n",
@@ -1346,6 +1406,7 @@ def main() -> int:
         verify_git_grouping(grouping_repo, today)
         verify_chinese_slug_support(tmp_root / "unicode-course-demo", today)
         verify_install_manifest_generation(tmp_root / "install-manifest-demo")
+        verify_update_source_override_and_project_copy_detection(tmp_root / "update-override-demo")
         verify_self_update_workflow(tmp_root / "self-update-demo")
 
         if args.refresh_examples:
@@ -1367,6 +1428,7 @@ def main() -> int:
     print("OK legacy-layout-demo")
     print("OK unicode-course-demo")
     print("OK install-manifest-demo")
+    print("OK update-override-demo")
     print("OK self-update-demo")
     if args.refresh_examples:
         print(f"REFRESHED {EXAMPLES_ROOT}")

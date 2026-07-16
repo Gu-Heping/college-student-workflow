@@ -56,8 +56,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--check", action="store_true", help="Inspect the installed and remote versions without changing files.")
     parser.add_argument("--apply", action="store_true", help="Apply the update after validation.")
     parser.add_argument("--target", help="Explicit path to the installed student-os directory.")
-    parser.add_argument("--ref", default=DEFAULT_REF, help="Source ref to inspect or apply. Defaults to main.")
-    parser.add_argument("--repo", default=DEFAULT_SOURCE_REPO, help="Source repo URL. Defaults to the public GitHub repo.")
+    parser.add_argument("--ref", help="Source ref to inspect or apply. Defaults to main.")
+    parser.add_argument("--repo", help="Source repo URL. Defaults to the public GitHub repo.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     parser.add_argument("--force", action="store_true", help="Allow overwriting local installed-skill changes.")
     parser.add_argument("--restore-backup", help="Restore a previously created backup directory into --target.")
@@ -87,6 +87,14 @@ def git_output(*args: str, cwd: Path | None = None) -> str:
     return result.stdout.strip()
 
 
+def absolute_path(path: Path | str) -> Path:
+    return Path(os.path.abspath(os.path.expanduser(str(path))))
+
+
+def path_exists(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
+
+
 def load_manifest(target: Path) -> tuple[Path, dict[str, object]]:
     manifest_path = target / MANIFEST_FILENAME
     if manifest_path.exists():
@@ -96,16 +104,16 @@ def load_manifest(target: Path) -> tuple[Path, dict[str, object]]:
 
 def discover_target(explicit_target: str | None, *, allow_missing: bool = False) -> Path:
     if explicit_target:
-        target = Path(explicit_target).expanduser().resolve()
-        if not allow_missing and not target.exists():
+        target = absolute_path(explicit_target)
+        if not allow_missing and not path_exists(target):
             raise SystemExit(f"Installed skill directory was not found: {target}")
         return target
 
     existing = []
     for candidate in COMMON_TARGETS:
-        resolved = candidate.expanduser().resolve()
-        if resolved.exists():
-            existing.append(resolved)
+        candidate_path = absolute_path(candidate)
+        if path_exists(candidate_path):
+            existing.append(candidate_path)
     unique: list[Path] = []
     for candidate in existing:
         if candidate not in unique:
@@ -119,18 +127,31 @@ def discover_target(explicit_target: str | None, *, allow_missing: bool = False)
 
 
 def detect_install_kind(target: Path, manifest: dict[str, object]) -> str:
+    install_method = manifest.get("install_method")
+    if isinstance(install_method, str):
+        normalized = install_method.lower()
+        if normalized in {"copy", "copied"}:
+            return "copy"
+        if normalized in {"link", "linked"} and (target.is_symlink() or (target / "SKILL.md").is_symlink()):
+            return "symlink"
+    if target.is_symlink():
+        return "symlink"
     skill_entry = target / "SKILL.md"
     if skill_entry.is_symlink():
         return "symlink"
-    if (target / ".git").exists() or git_output("rev-parse", "--show-toplevel", cwd=target):
+    if (target / ".git").exists():
         return "git"
     if manifest.get("used_symlink"):
         return "symlink"
+    if git_output("rev-parse", "--show-toplevel", cwd=target):
+        return "git"
     return "copy"
 
 
 def resolve_repo_root(target: Path, install_kind: str, manifest: dict[str, object]) -> Path | None:
     if install_kind == "symlink":
+        if target.is_symlink():
+            return target.resolve().parent
         linked_source = manifest.get("linked_source_path")
         if isinstance(linked_source, str) and linked_source:
             return Path(linked_source).expanduser().resolve().parent
@@ -182,13 +203,13 @@ def remote_latest_commit(repo: str, ref: str) -> str:
     return result.stdout.split()[0]
 
 
-def build_install_info(target: Path, repo: str, ref: str) -> InstallInfo:
+def build_install_info(target: Path, repo: str | None, ref: str | None) -> InstallInfo:
     manifest_path, manifest = load_manifest(target)
-    source_repo = repo
-    source_ref = ref
-    if isinstance(manifest.get("source_repo"), str) and manifest["source_repo"]:
+    source_repo = repo or DEFAULT_SOURCE_REPO
+    source_ref = ref or DEFAULT_REF
+    if repo is None and isinstance(manifest.get("source_repo"), str) and manifest["source_repo"]:
         source_repo = str(manifest["source_repo"])
-    if isinstance(manifest.get("source_ref"), str) and manifest["source_ref"]:
+    if ref is None and isinstance(manifest.get("source_ref"), str) and manifest["source_ref"]:
         source_ref = str(manifest["source_ref"])
     install_kind = detect_install_kind(target, manifest)
     current_commit = current_commit_for_install(target, install_kind, manifest)
@@ -207,9 +228,14 @@ def build_install_info(target: Path, repo: str, ref: str) -> InstallInfo:
 
 def compile_python_files(skill_root: Path) -> list[str]:
     compiled: list[str] = []
-    for path in sorted(skill_root.rglob("*.py")):
-        py_compile.compile(str(path), doraise=True)
-        compiled.append(path.relative_to(skill_root).as_posix())
+    with tempfile.TemporaryDirectory(prefix="student-os-validate-") as temp_dir:
+        temp_root = Path(temp_dir)
+        for path in sorted(skill_root.rglob("*.py")):
+            relative = path.relative_to(skill_root)
+            cfile = temp_root / relative.parent / f"{relative.stem}.pyc"
+            cfile.parent.mkdir(parents=True, exist_ok=True)
+            py_compile.compile(str(path), cfile=str(cfile), doraise=True)
+            compiled.append(relative.as_posix())
     return compiled
 
 
@@ -264,6 +290,44 @@ def create_backup(target: Path) -> Path:
     return backup_path
 
 
+def git_status_paths(repo_root: Path) -> list[str]:
+    result = git_run("status", "--porcelain", "--untracked-files=all", cwd=repo_root, check=False)
+    if result.returncode != 0:
+        return []
+    paths: list[str] = []
+    for line in result.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        path_text = line[3:]
+        if " -> " in path_text:
+            before, after = path_text.split(" -> ", 1)
+            paths.append(Path(before).as_posix())
+            paths.append(Path(after).as_posix())
+            continue
+        paths.append(Path(path_text).as_posix())
+    return paths
+
+
+def split_dirty_paths(dirty_paths: list[str]) -> tuple[list[str], list[str]]:
+    skill_prefix = f"{SKILL_NAME}/"
+    skill_only: list[str] = []
+    outside: list[str] = []
+    for path in dirty_paths:
+        if path == SKILL_NAME or path.startswith(skill_prefix):
+            skill_only.append(path)
+        else:
+            outside.append(path)
+    return skill_only, outside
+
+
+def current_branch(repo_root: Path) -> str:
+    return git_output("rev-parse", "--abbrev-ref", "HEAD", cwd=repo_root)
+
+
+def latest_stash_ref(repo_root: Path) -> str:
+    return git_output("stash", "list", "-1", "--format=%gd", cwd=repo_root)
+
+
 def list_relative_files(root: Path) -> list[str]:
     files: list[str] = []
     for path in sorted(root.rglob("*")):
@@ -271,6 +335,13 @@ def list_relative_files(root: Path) -> list[str]:
             continue
         files.append(path.relative_to(root).as_posix())
     return files
+
+
+def rollback_command_for_git(repo_root: Path, commit: str, stash_ref: str = "") -> str:
+    command = f"git -C \"{repo_root}\" checkout {commit}"
+    if stash_ref:
+        command += f" && git -C \"{repo_root}\" stash apply {stash_ref}"
+    return command
 
 
 def replace_copy_install(
@@ -321,6 +392,7 @@ def replace_copy_install(
         "updated_files": replaced_files,
         "backup_path": str(backup_path),
         "preserved_override_paths": preserved,
+        "stash_ref": "",
         "rollback_command": (
             f"{sys.executable} scripts/update_student_os.py --restore-backup "
             f"\"{backup_path}\" --target \"{info.target}\""
@@ -333,17 +405,55 @@ def update_git_install(info: InstallInfo, *, force: bool) -> dict[str, object]:
     repo_root = resolve_repo_root(info.target, info.install_kind, info.manifest)
     if repo_root is None:
         raise SystemExit("Unable to resolve the source repository for the installed skill.")
-    status = git_output("status", "--porcelain", cwd=repo_root)
-    if status:
+    branch = current_branch(repo_root)
+    if branch != info.source_ref:
+        raise SystemExit(
+            f"Installed git-backed skill is currently on branch '{branch}', not the configured update ref '{info.source_ref}'. "
+            "Switch the source checkout to the configured branch before applying the update."
+        )
+    dirty_paths = git_status_paths(repo_root)
+    skill_dirty, outside_dirty = split_dirty_paths(dirty_paths)
+    if outside_dirty:
+        preview = ", ".join(outside_dirty[:5])
+        if len(outside_dirty) > 5:
+            preview += ", ..."
+        raise SystemExit(
+            "Installed git-backed skill shares a repository with unrelated local changes outside student-os. "
+            f"Resolve or stash those paths manually before updating: {preview}"
+        )
+    stash_ref = ""
+    if skill_dirty:
         if not force:
             raise SystemExit(
-                "Installed git-linked skill has local repository changes. Re-run with --force to update after stashing."
+                "Installed git-backed skill has local changes inside student-os. Re-run with --force to overwrite them."
             )
-        git_run("stash", "push", "--include-untracked", "--message", "student-os self-update", cwd=repo_root)
+        git_run(
+            "stash",
+            "push",
+            "--include-untracked",
+            "--message",
+            "student-os self-update",
+            "--",
+            SKILL_NAME,
+            cwd=repo_root,
+        )
+        stash_ref = latest_stash_ref(repo_root)
     before = git_output("rev-parse", "HEAD", cwd=repo_root)
-    git_run("fetch", "--all", "--prune", cwd=repo_root)
-    git_run("pull", "--ff-only", cwd=repo_root)
-    after = git_output("rev-parse", "HEAD", cwd=repo_root)
+    temp_dir, checkout_root, validated_commit = clone_source(info.source_repo, info.source_ref)
+    validated_files = list_relative_files(checkout_root / SKILL_NAME)
+    try:
+        git_run("fetch", info.source_repo, info.source_ref, cwd=repo_root)
+        fetched_commit = git_output("rev-parse", "FETCH_HEAD", cwd=repo_root)
+        if validated_commit and fetched_commit and validated_commit != fetched_commit:
+            raise SystemExit(
+                "Validation source and fetched source do not match. Aborting to avoid applying an unvalidated git-backed update."
+            )
+    finally:
+        temp_dir.cleanup()
+    after = fetched_commit or before
+    updated_files = validated_files
+    if before != after:
+        git_run("merge", "--ff-only", "FETCH_HEAD", cwd=repo_root)
     compile_python_files(repo_root / SKILL_NAME)
     manifest = build_install_manifest(
         destination=info.target,
@@ -360,10 +470,11 @@ def update_git_install(info: InstallInfo, *, force: bool) -> dict[str, object]:
     return {
         "updated": before != after,
         "install_kind": info.install_kind,
-        "updated_files": [],
+        "updated_files": updated_files,
         "backup_path": "",
         "preserved_override_paths": [],
-        "rollback_command": f"git -C \"{repo_root}\" checkout {before}",
+        "stash_ref": stash_ref,
+        "rollback_command": rollback_command_for_git(repo_root, before, stash_ref=stash_ref),
         "validation": {"compiled_python": True},
     }
 
@@ -425,6 +536,8 @@ def print_human_apply(result: dict[str, object]) -> None:
     print(f"Files updated: {len(result['updated_files'])}")
     print(f"Validation: {'passed' if result['validation'].get('compiled_python') else 'failed'}")
     print(f"Backup path: {result['backup_path'] or 'not needed'}")
+    if result.get("stash_ref"):
+        print(f"Saved local skill changes: {result['stash_ref']}")
     print(f"Rollback command: {result['rollback_command']}")
 
 
