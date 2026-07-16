@@ -428,6 +428,15 @@ def write_pdf_fixture(path: Path) -> None:
         writer.write(handle)
 
 
+def write_multipage_pdf_fixture(path: Path, page_count: int) -> None:
+    _, _, _, PdfWriter = load_import_dependencies()
+    writer = PdfWriter()
+    for _ in range(page_count):
+        writer.add_blank_page(width=612, height=792)
+    with path.open("wb") as handle:
+        writer.write(handle)
+
+
 def write_png_fixture(path: Path) -> None:
     path.write_bytes(
         bytes.fromhex(
@@ -689,6 +698,63 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_exists(api_repair_root / "linear-algebra-outline.docx-repair-summary.md")
     ensure_contains(api_repair_root / "linear-algebra-outline.docx.md", "repair_status: repaired")
 
+    large_pdf_path = fixture_root / "large-textbook.pdf"
+    write_multipage_pdf_fixture(large_pdf_path, 5)
+    split_output_root = repo / "references" / "imports" / "api-split-output"
+    split_payload = json.loads(
+        run_script(
+            "materials_convert.py",
+            str(large_pdf_path),
+            "--output-root",
+            str(split_output_root),
+            "--course",
+            "Linear Algebra",
+            "--method",
+            "api",
+            "--api-token",
+            "test-token",
+            "--chunk-size",
+            "2",
+            env={"PYTHONPATH": str(fake_sdk_root)},
+        )
+    )
+    if len(split_payload["converted"]) != 1:
+        raise AssertionError(f"Expected one auto-split conversion, got: {split_payload}")
+    split_info = split_payload["converted"][0].get("split")
+    if not split_info or split_info.get("part_count") != 3 or not split_info.get("merged"):
+        raise AssertionError(f"Expected 3 merged PDF chunks, got: {split_payload['converted'][0]}")
+    split_output = split_output_root / "large-textbook.pdf.md"
+    ensure_exists(split_output)
+    ensure_contains(split_output, "<!-- MERGED from 3 parts: pages 1-2, pages 3-4, pages 5-5 -->")
+    ensure_contains(split_output, "# API Parsed - large-textbook.pdf.part1.pdf")
+    ensure_contains(split_output, "# API Parsed - large-textbook.pdf.part2.pdf")
+    ensure_contains(split_output, "# API Parsed - large-textbook.pdf.part3.pdf")
+    leftover_parts = list(split_output_root.glob("**/*.part*.pdf"))
+    if leftover_parts:
+        raise AssertionError(f"Auto-split should clean temporary PDF chunks, found: {leftover_parts}")
+
+    no_split_output = run_path_script_failure(
+        STUDENT_OS_SCRIPTS / "materials_convert.py",
+        str(large_pdf_path),
+        "--output-root",
+        str(repo / "references" / "imports" / "api-no-split-output"),
+        "--method",
+        "api",
+        "--api-token",
+        "test-token",
+        "--chunk-size",
+        "2",
+        "--no-auto-split",
+        "--overwrite",
+        cwd=ROOT,
+        env={"PYTHONPATH": str(fake_sdk_root)},
+    )
+    no_split_payload = json.loads(no_split_output)
+    if not no_split_payload.get("errors"):
+        raise AssertionError(f"Expected --no-auto-split to record conversion errors, got: {no_split_payload}")
+    if "exceeds --chunk-size" not in no_split_payload["errors"][0].get("error", ""):
+        raise AssertionError(f"Expected chunk-size error message, got: {no_split_payload['errors']}")
+
     repair_only_input = repo / "references" / "imports" / "repair-only-sample.md"
     repair_only_input.write_text(
         "\n".join(
@@ -734,6 +800,7 @@ def exercise_import_workflows(repo: Path) -> None:
     xlsx_path.unlink()
     pptx_path.unlink()
     pdf_path.unlink()
+    large_pdf_path.unlink()
     png_path.unlink()
     binary_path.unlink()
 
