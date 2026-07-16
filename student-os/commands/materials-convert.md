@@ -6,12 +6,18 @@ Use when the user asks to:
 - convert a directory of PDFs, DOCX files, PPTX decks, or spreadsheets
 - generate searchable markdown sidecars beside imported materials
 - keep unsupported binaries discoverable with index notes instead of losing track of them
+- run a conservative post-processing repair pass after conversion
+- repair a batch of already-generated markdown imports without re-running extraction
 
 Recommended API mode:
 - set `MINERU_TOKEN` or pass `--api-token`
 - run `python scripts/materials_convert.py <folder> --method api --api-model vlm`
 - use `--method auto` to prefer MinerU API when a token is present and fall back to local converters otherwise
 - if the materials include scans, images, or legacy `.doc` / `.ppt` / `.xls` files, first check whether a MinerU token is already configured and prompt the user to add one when higher-fidelity parsing is likely to help
+
+Repair mode:
+- add `--repair` to run the conservative markdown repair step immediately after conversion
+- add `--repair-only` to repair existing `.md` imports in place and emit `-repair-summary.md` files beside them
 
 Default route:
 - primary role: `file-operator`

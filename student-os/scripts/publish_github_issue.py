@@ -97,7 +97,7 @@ def emit_result(payload: dict[str, object], *, as_json: bool) -> int:
     if as_json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
-        if payload.get("blocked_reason") == "privacy-warnings":
+        if payload.get("blocked_reason") in {"privacy-warnings", "privacy-blockers"}:
             print("Publishing blocked due to privacy warnings.")
             print(payload.get("next_step", "Review the draft body before retrying."))
             if payload.get("body_path"):
@@ -199,6 +199,12 @@ def main() -> int:
                 "next_step": next_step,
             },
             as_json=args.json,
+        )
+
+    if payload.get("privacy_blockers"):
+        return emit_draft(
+            blocked_reason="privacy-blockers",
+            next_step="Remove the blocking sensitive data from the feedback draft before retrying publication.",
         )
 
     if payload["privacy_warnings"] and not args.allow_privacy_warnings:

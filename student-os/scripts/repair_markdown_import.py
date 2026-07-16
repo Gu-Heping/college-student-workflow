@@ -65,6 +65,8 @@ def main() -> int:
     repaired, summary = repair_text(input_path.read_text(encoding="utf-8"))
     repaired = repaired.replace("repair_status: raw", "repair_status: repaired", 1)
     repaired = repaired.replace("- Repair status: raw", "- Repair status: repaired", 1)
+    repaired = re.sub(r"(?m)^repair_status:\s*$", "repair_status: repaired", repaired, count=1)
+    repaired = re.sub(r"(?m)^- Repair status:\s*$", "- Repair status: repaired", repaired, count=1)
     if args.derived_from:
         derived_line = f"derived_from_import: {yaml_string(str(Path(args.derived_from).resolve()))}"
         repaired = re.sub(r"(?m)^derived_from_import:\s*$", derived_line, repaired, count=1)

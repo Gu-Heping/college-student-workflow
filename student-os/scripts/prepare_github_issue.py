@@ -4,7 +4,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import platform
 import re
+import sys
 from pathlib import Path
 
 from feedback_utils import extract_title, normalize_scalar, parse_frontmatter, resolve_feedback_path
@@ -21,6 +23,14 @@ ENV_FILE_RE = re.compile(r"(?im)(?<![A-Za-z0-9_.-])\.env(?:\.[A-Za-z0-9_.-]+)*(?
 SECRET_KV_RE = re.compile(
     r"(?im)\b(?:token|password|secret|api[_-]?key|access[_-]?key|database_url)\b\s*[:=]\s*(?:\"[^\r\n\"]*\"|'[^\r\n']*'|[^\r\n`]+)"
 )
+JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b")
+PHONE_RE = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
+EMAIL_RE = re.compile(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[A-Za-z]{2,}\b")
+PRIVATE_IP_RE = re.compile(r"\b(?:10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b")
+INTERNAL_HOST_RE = re.compile(r"\b(?:[A-Za-z0-9-]+\.)+(?:local|lan|internal|corp)\b", re.IGNORECASE)
+COURSE_SEMESTER_RE = re.compile(r"\b(?:20\d{2}\s*(?:spring|summer|fall|winter)|freshman|sophomore|junior|senior|semester)\b", re.IGNORECASE)
+FILE_COUNT_RE = re.compile(r"\b\d{2,5}\s+(?:files?|pdfs?|docx|pptx|images?)\b", re.IGNORECASE)
+LOCAL_FILE_HINT_RE = re.compile(r"(?im)(?:^|\s)(?:[A-Za-z]:\\|/)(?:Users|home|var|tmp|opt|srv|mnt)/[^\r\n`]+")
 
 
 def extract_section(body: str, heading: str) -> str:
@@ -56,7 +66,30 @@ def detect_privacy_warnings(text: str) -> list[str]:
     lowered = text.lower()
     if "\\vault" in lowered or "/vault" in lowered or "d:\\vault" in lowered:
         warnings.append("References a private vault path; redact private repository or note locations before posting.")
+    if EMAIL_RE.search(text):
+        warnings.append("Contains email addresses; replace personal addresses before public posting.")
+    if PRIVATE_IP_RE.search(text):
+        warnings.append("Contains private network IP addresses; replace internal infrastructure details before public posting.")
+    if INTERNAL_HOST_RE.search(text):
+        warnings.append("Contains internal hostnames or domains; replace internal network references before public posting.")
+    if FILE_COUNT_RE.search(text):
+        warnings.append("Contains file-count or dataset-size details; consider generalizing counts or ranges for public reports.")
+    if COURSE_SEMESTER_RE.search(text):
+        warnings.append("Contains semester or academic-stage details; consider generalizing study metadata for public reports.")
+    if LOCAL_FILE_HINT_RE.search(text):
+        warnings.append("References local files developers cannot access; inline the relevant snippet or remove the path.")
     return warnings
+
+
+def detect_privacy_blockers(text: str) -> list[str]:
+    blockers: list[str] = []
+    if JWT_RE.search(text):
+        blockers.append("Contains JWT-like tokens; remove credentials before publishing.")
+    if SECRET_KV_RE.search(text):
+        blockers.append("Contains secret-like key/value assignments; remove credentials before publishing.")
+    if PHONE_RE.search(text):
+        blockers.append("Contains phone-number-like personal data; remove personal contact details before publishing.")
+    return blockers
 
 
 def redact_sensitive_text(text: str) -> str:
@@ -66,6 +99,9 @@ def redact_sensitive_text(text: str) -> str:
     redacted = VAULT_PATH_RE.sub("[REDACTED_VAULT_PATH]", redacted)
     redacted = ENV_FILE_RE.sub("[REDACTED_ENV_FILE]", redacted)
     redacted = SECRET_KV_RE.sub("[REDACTED_SECRET_KV]", redacted)
+    redacted = EMAIL_RE.sub("[REDACTED_EMAIL]", redacted)
+    redacted = PRIVATE_IP_RE.sub("[REDACTED_PRIVATE_IP]", redacted)
+    redacted = INTERNAL_HOST_RE.sub("[REDACTED_INTERNAL_HOST]", redacted)
     return redacted
 
 
@@ -124,7 +160,52 @@ def infer_agent_runtime(frontmatter: dict[str, str], body: str) -> str:
     return "unknown"
 
 
-def build_issue_body(feedback_path: Path, frontmatter: dict[str, str], body: str, warnings: list[str]) -> str:
+def infer_os(frontmatter: dict[str, str], body: str) -> str:
+    source_context = normalize_scalar(frontmatter.get("source_context", ""))
+    text = "\n".join([source_context, body]).lower()
+    if "windows" in text:
+        return "Windows"
+    if "macos" in text or "darwin" in text or "os x" in text:
+        return "macOS"
+    if "linux" in text or "/home/" in text:
+        return "Linux"
+    return "unknown"
+
+
+def detect_completeness_warnings(frontmatter: dict[str, str], body: str) -> list[str]:
+    warnings: list[str] = []
+    what_happened = extract_section(body, "What Happened")
+    expected_behavior = extract_section(body, "Expected Behavior")
+    evidence = extract_section(body, "Evidence")
+    likely_cause = extract_section(body, "Likely Cause")
+    suggested_improvement = extract_section(body, "Suggested Improvement")
+    source_context = normalize_scalar(frontmatter.get("source_context", ""))
+
+    if not what_happened.strip() or what_happened.strip() == "-":
+        warnings.append("Missing a concrete problem description; add one sentence describing what broke.")
+    if not expected_behavior.strip() or expected_behavior.strip() == "-":
+        warnings.append("Missing expected behavior; add a clear actual-vs-expected comparison.")
+    if not evidence.strip() or evidence.strip() == "-":
+        warnings.append("Missing evidence or repro data; add logs, snippets, or a minimal failing example.")
+    if not source_context.strip() or source_context.strip().lower() == "unknown":
+        warnings.append("Missing reproduction context; add a self-contained reproduction path developers can follow.")
+    if not likely_cause.strip() or likely_cause.strip() == "-":
+        warnings.append("Likely cause is missing; include a suspected area when available to speed triage.")
+    if not suggested_improvement.strip() or suggested_improvement.strip() == "-":
+        warnings.append("Suggested improvement is missing; add a fix direction or note that none is known.")
+    if "..." in evidence or "..." in what_happened:
+        warnings.append("Contains ellipsis-truncated content; inline complete commands or snippets when they are needed for reproduction.")
+    return warnings
+
+
+def build_issue_body(
+    feedback_path: Path,
+    frontmatter: dict[str, str],
+    body: str,
+    warnings: list[str],
+    blockers: list[str],
+    completeness_warnings: list[str],
+) -> str:
     display_feedback_id = public_feedback_id(frontmatter, feedback_path)
     display_feedback_path = redact_sensitive_text(feedback_path.name)
     what_happened = redact_sensitive_text(extract_section(body, "What Happened") or "- ")
@@ -135,7 +216,8 @@ def build_issue_body(feedback_path: Path, frontmatter: dict[str, str], body: str
     developer_summary = redact_sensitive_text(extract_section(body, "Developer Summary") or "- ")
     source_context = redact_sensitive_text(normalize_scalar(frontmatter.get("source_context", "")) or "unknown")
     severity = normalize_scalar(frontmatter.get("severity", "medium")) or "medium"
-    privacy_lines = warnings or ["No obvious privacy warnings detected."]
+    privacy_lines = blockers + warnings or ["No obvious privacy warnings detected."]
+    completeness_lines = completeness_warnings or ["Minimum issue sections detected for public triage."]
     issue_lines = [
         "## Feedback ID",
         "",
@@ -149,6 +231,11 @@ def build_issue_body(feedback_path: Path, frontmatter: dict[str, str], body: str
         "## Agent Runtime",
         "",
         f"- {infer_agent_runtime(frontmatter, body)}",
+        "",
+        "## Environment",
+        "",
+        f"- OS: {infer_os(frontmatter, body)}",
+        f"- Python: {platform.python_version()}",
         "",
         "## What Happened",
         "",
@@ -180,6 +267,15 @@ def build_issue_body(feedback_path: Path, frontmatter: dict[str, str], body: str
         "",
     ]
     for warning in privacy_lines:
+        issue_lines.append(f"- {warning}")
+    issue_lines.extend(
+        [
+            "",
+            "## Completeness Check",
+            "",
+        ]
+    )
+    for warning in completeness_lines:
         issue_lines.append(f"- {warning}")
     issue_lines.extend(
         [
@@ -224,13 +320,25 @@ def main() -> int:
         ]
     )
     warnings = detect_privacy_warnings(privacy_scan_text)
+    blockers = detect_privacy_blockers(privacy_scan_text)
+    completeness_warnings = detect_completeness_warnings(frontmatter, body)
     payload = {
         "title": build_issue_title(frontmatter, feedback_path, body),
-        "body": build_issue_body(feedback_path.relative_to(repo), frontmatter, body, warnings),
+        "body": build_issue_body(
+            feedback_path.relative_to(repo),
+            frontmatter,
+            body,
+            warnings,
+            blockers,
+            completeness_warnings,
+        ),
         "labels": issue_labels(frontmatter),
         "feedback_id": normalize_scalar(frontmatter.get("feedback_id", "")),
         "source_feedback_path": feedback_path.relative_to(repo).as_posix(),
         "privacy_warnings": warnings,
+        "privacy_blockers": blockers,
+        "completeness_warnings": completeness_warnings,
+        "sanitized": True,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
