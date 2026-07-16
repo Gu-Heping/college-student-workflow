@@ -61,6 +61,8 @@ class ConversionContext:
     method: str
     course: str | None
     overwrite: bool
+    repair: bool
+    repair_only: bool
     api_token: str | None
     api_model: str
     language: str
@@ -96,6 +98,17 @@ def parse_args() -> argparse.Namespace:
         choices=["auto", "local", "api"],
         default="auto",
         help="Conversion strategy. auto prefers the official MinerU API when a token is available, otherwise falls back to local converters.",
+    )
+    repair_group = parser.add_mutually_exclusive_group()
+    repair_group.add_argument(
+        "--repair",
+        action="store_true",
+        help="Run conservative markdown repair after conversion for generated markdown outputs.",
+    )
+    repair_group.add_argument(
+        "--repair-only",
+        action="store_true",
+        help="Only repair existing markdown files instead of converting source documents.",
     )
     parser.add_argument("--api-token", help="Optional MinerU precision API token. Defaults to MINERU_TOKEN or MINERU_API_TOKEN.")
     parser.add_argument(
@@ -141,6 +154,14 @@ def discover_inputs(source: Path, patterns: list[str] | None) -> tuple[Path, lis
         if any(fnmatch.fnmatch(relative, pattern) for pattern in patterns):
             selected.append(candidate)
     return root, sorted(selected)
+
+
+def is_repair_summary(path: Path) -> bool:
+    return path.name.endswith("-repair-summary.md")
+
+
+def is_repairable_markdown(path: Path) -> bool:
+    return path.suffix.lower() == ".md" and not is_repair_summary(path)
 
 
 def build_output_path(source_file: Path, source_root: Path, output_root: Path | None) -> Path:
@@ -198,6 +219,22 @@ def run_script(script_name: str, *args: str) -> dict[str, Any]:
         encoding="utf-8",
     )
     return json.loads(completed.stdout)
+
+
+def run_repair(input_path: Path, output_path: Path, *, derived_from: Path | None) -> dict[str, Any]:
+    args = [
+        "repair_markdown_import.py",
+        str(input_path),
+        "--output",
+        str(output_path),
+        "--summary-path",
+        str(output_path.with_name(f"{output_path.stem}-repair-summary.md")),
+    ]
+    if derived_from is not None:
+        args.extend(["--derived-from", str(derived_from)])
+    payload = run_script(*args)
+    payload["summary_path"] = str(output_path.with_name(f"{output_path.stem}-repair-summary.md"))
+    return payload
 
 
 def apply_course_metadata(output_path: Path, course: str | None) -> None:
@@ -281,6 +318,16 @@ def write_index_note(
     write_markdown(output_path, markdown)
 
 
+def repair_generated_markdown(output_path: Path, *, in_place: bool = False) -> dict[str, Any]:
+    if in_place:
+        return run_repair(output_path, output_path, derived_from=output_path)
+    raw_output_path = output_path.with_name(f"{output_path.stem}.raw{output_path.suffix}")
+    if raw_output_path.exists():
+        raw_output_path.unlink()
+    output_path.replace(raw_output_path)
+    return run_repair(raw_output_path, output_path, derived_from=raw_output_path)
+
+
 def load_mineru_client() -> Any:
     try:
         from mineru import MinerU
@@ -335,13 +382,19 @@ def convert_with_mineru(source_file: Path, output_path: Path, ctx: ConversionCon
             course=ctx.course,
         ),
     )
-    return {
+    payload = {
         "status": "converted",
         "source": str(source_file),
         "output": str(output_path),
         "kind": "mineru-api",
         "import_method": f"mineru-api:{ctx.api_model}",
     }
+    if ctx.repair:
+        repair_payload = repair_generated_markdown(output_path)
+        payload["raw_output"] = str(output_path.with_name(f"{output_path.stem}.raw{output_path.suffix}"))
+        payload["repair_summary"] = repair_payload["summary_path"]
+        payload["repairs"] = repair_payload["repairs"]
+    return payload
 
 
 def convert_with_local_plan(
@@ -366,35 +419,53 @@ def convert_with_local_plan(
     if plan.kind == "docx":
         payload = run_script("docx_to_md.py", str(source_file), "--output", str(output_path))
         apply_course_metadata(Path(payload["output"]), ctx.course)
-        return {
+        result = {
             "status": "converted",
             "source": str(source_file),
             "output": payload["output"],
             "kind": plan.kind,
             "import_method": plan.import_method,
         }
+        if ctx.repair:
+            repair_payload = repair_generated_markdown(Path(payload["output"]))
+            result["raw_output"] = str(Path(payload["output"]).with_name(f"{Path(payload['output']).stem}.raw{Path(payload['output']).suffix}"))
+            result["repair_summary"] = repair_payload["summary_path"]
+            result["repairs"] = repair_payload["repairs"]
+        return result
 
     if plan.kind == "pptx":
         payload = run_script("pptx_to_md.py", str(source_file), "--output", str(output_path))
         apply_course_metadata(Path(payload["output"]), ctx.course)
-        return {
+        result = {
             "status": "converted",
             "source": str(source_file),
             "output": payload["output"],
             "kind": plan.kind,
             "import_method": plan.import_method,
         }
+        if ctx.repair:
+            repair_payload = repair_generated_markdown(Path(payload["output"]))
+            result["raw_output"] = str(Path(payload["output"]).with_name(f"{Path(payload['output']).stem}.raw{Path(payload['output']).suffix}"))
+            result["repair_summary"] = repair_payload["summary_path"]
+            result["repairs"] = repair_payload["repairs"]
+        return result
 
     if plan.kind == "xlsx":
         payload = run_script("xlsx_to_md.py", str(source_file), "--output", str(output_path))
         apply_course_metadata(Path(payload["output"]), ctx.course)
-        return {
+        result = {
             "status": "converted",
             "source": str(source_file),
             "output": payload["output"],
             "kind": plan.kind,
             "import_method": plan.import_method,
         }
+        if ctx.repair:
+            repair_payload = repair_generated_markdown(Path(payload["output"]))
+            result["raw_output"] = str(Path(payload["output"]).with_name(f"{Path(payload['output']).stem}.raw{Path(payload['output']).suffix}"))
+            result["repair_summary"] = repair_payload["summary_path"]
+            result["repairs"] = repair_payload["repairs"]
+        return result
 
     if plan.kind == "image-index":
         write_index_note(
@@ -469,6 +540,33 @@ def convert_one(
     return convert_with_local_plan(source_file, output_path, plan, ctx)
 
 
+def repair_one_markdown(path: Path, *, overwrite: bool) -> dict[str, Any]:
+    if not is_repairable_markdown(path):
+        return {
+            "status": "skipped",
+            "source": str(path),
+            "reason": "not-repairable-markdown",
+        }
+    summary_path = path.with_name(f"{path.stem}-repair-summary.md")
+    if summary_path.exists() and not overwrite:
+        return {
+            "status": "skipped",
+            "source": str(path),
+            "output": str(path),
+            "reason": "repair-summary-exists",
+        }
+    payload = repair_generated_markdown(path, in_place=True)
+    return {
+        "status": "converted",
+        "source": str(path),
+        "output": str(path),
+        "kind": "repair-only",
+        "import_method": "repair-markdown-import",
+        "repair_summary": payload["summary_path"],
+        "repairs": payload["repairs"],
+    }
+
+
 def main() -> int:
     args = parse_args()
     source = Path(args.source).resolve()
@@ -479,6 +577,8 @@ def main() -> int:
         method=args.method,
         course=args.course,
         overwrite=args.overwrite,
+        repair=args.repair,
+        repair_only=args.repair_only,
         api_token=resolve_api_token(args.api_token),
         api_model=args.api_model,
         language=args.language,
@@ -493,6 +593,30 @@ def main() -> int:
     converted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+
+    if ctx.repair_only:
+        for source_file in inputs:
+            try:
+                payload = repair_one_markdown(source_file, overwrite=ctx.overwrite)
+            except (subprocess.CalledProcessError, RuntimeError) as exc:
+                message = (getattr(exc, "stderr", None) or getattr(exc, "stdout", None) or str(exc)).strip()
+                errors.append({"source": str(source_file), "error": message})
+                continue
+            if payload["status"] == "converted":
+                converted.append(payload)
+            else:
+                skipped.append(payload)
+        result = {
+            "source": str(source),
+            "source_root": str(source_root),
+            "requested_method": args.method,
+            "applied_method": "repair-only",
+            "converted": converted,
+            "skipped": skipped,
+            "errors": errors,
+        }
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if not errors else 1
 
     for source_file in inputs:
         try:

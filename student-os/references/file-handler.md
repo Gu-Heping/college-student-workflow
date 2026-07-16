@@ -6,6 +6,7 @@ Use this reference when the request starts from a PDF, DOCX, XLSX, or PPTX file 
 
 - Convert external files into repository-friendly markdown artifacts.
 - Support mixed materials folders without forcing users to import one file at a time.
+- Let imported markdown flow through an automatic conservative repair step when the user asks for cleanup.
 - Keep imported artifacts traceable back to their source files.
 - Prefer conservative transformations that preserve meaning over aggressive rewriting.
 - Hand the imported result back to the main study/review/planning workflows.

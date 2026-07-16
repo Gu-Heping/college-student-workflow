@@ -523,6 +523,17 @@ def exercise_import_workflows(repo: Path) -> None:
             "Linear Algebra",
         )
     )
+    materials_repair_payload = json.loads(
+        run_script(
+            "materials_convert.py",
+            str(docx_path),
+            "--course",
+            "Linear Algebra",
+            "--output-root",
+            str(repo / "references" / "imports" / "repair-output"),
+            "--repair",
+        )
+    )
 
     repair_input.write_text(
         "\n".join(
@@ -610,6 +621,15 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_contains(fixture_root / "homework-photo.png.md", "OCR is not bundled in the local workflow yet.")
     ensure_exists(fixture_root / "fpga-lab.bit.md")
     ensure_contains(fixture_root / "fpga-lab.bit.md", "Binary or tool-specific source detected.")
+    if len(materials_repair_payload["converted"]) != 1:
+        raise AssertionError(f"Expected one repaired material output, got: {materials_repair_payload}")
+    repair_output_root = repo / "references" / "imports" / "repair-output"
+    ensure_exists(repair_output_root / "linear-algebra-outline.docx.md")
+    ensure_exists(repair_output_root / "linear-algebra-outline.docx.raw.md")
+    ensure_exists(repair_output_root / "linear-algebra-outline.docx-repair-summary.md")
+    ensure_contains(repair_output_root / "linear-algebra-outline.docx.md", "repair_status: repaired")
+    ensure_contains(repair_output_root / "linear-algebra-outline.docx-repair-summary.md", "# Repair Summary")
+    ensure_contains(repair_output_root / "linear-algebra-outline.docx-repair-summary.md", "Output:")
 
     fake_sdk_root = repo / "references" / "imports" / "fake-sdk"
     fake_sdk_root.mkdir(parents=True, exist_ok=True)
@@ -645,6 +665,70 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_contains(api_output_root / "linear-algebra-handout.pdf.md", "- pages: 1-1")
     ensure_exists(api_output_root / "fpga-lab.bit.md")
     ensure_contains(api_output_root / "fpga-lab.bit.md", "Binary or tool-specific source detected.")
+    api_repair_payload = json.loads(
+        run_script(
+            "materials_convert.py",
+            str(docx_path),
+            "--output-root",
+            str(repo / "references" / "imports" / "api-repair-output"),
+            "--course",
+            "Linear Algebra",
+            "--method",
+            "api",
+            "--api-token",
+            "test-token",
+            "--repair",
+            env={"PYTHONPATH": str(fake_sdk_root)},
+        )
+    )
+    if len(api_repair_payload["converted"]) != 1:
+        raise AssertionError(f"Expected one API repaired output, got: {api_repair_payload}")
+    api_repair_root = repo / "references" / "imports" / "api-repair-output"
+    ensure_exists(api_repair_root / "linear-algebra-outline.docx.md")
+    ensure_exists(api_repair_root / "linear-algebra-outline.docx.raw.md")
+    ensure_exists(api_repair_root / "linear-algebra-outline.docx-repair-summary.md")
+    ensure_contains(api_repair_root / "linear-algebra-outline.docx.md", "repair_status: repaired")
+
+    repair_only_input = repo / "references" / "imports" / "repair-only-sample.md"
+    repair_only_input.write_text(
+        "\n".join(
+            [
+                "---",
+                "type: imported-reference",
+                "course:",
+                "status: active",
+                "created:",
+                "updated:",
+                "tags: [import, reference]",
+                'source_file: "sample.pdf"',
+                "import_method: manual-test",
+                "repair_status:",
+                "derived_from_import:",
+                "---",
+                "",
+                "#Broken heading",
+                "",
+                "Page 1",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    repair_only_payload = json.loads(
+        run_script(
+            "materials_convert.py",
+            str(repair_only_input),
+            "--repair-only",
+        )
+    )
+    if len(repair_only_payload["converted"]) != 1:
+        raise AssertionError(f"Expected one repair-only output, got: {repair_only_payload}")
+    ensure_contains(repair_only_input, "# Broken heading")
+    ensure_contains(repair_only_input, "repair_status: repaired")
+    ensure_exists(repo / "references" / "imports" / "repair-only-sample-repair-summary.md")
+    ensure_contains(repo / "references" / "imports" / "repair-only-sample-repair-summary.md", "Removed isolated page labels.")
 
     docx_path.unlink()
     xlsx_path.unlink()
@@ -851,7 +935,7 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
             "--expected-behavior",
             "- Public reports should redact private Windows paths and vault references.",
             "--evidence",
-            "- D:\\vault\\private-course\\notes.md\n- C:\\Users\\Alice\\My Vault\\notes.md\n- /Users/alice/My Vault/notes.md\n- .env.local: DATABASE_URL=postgres://secret@example\n- password: \"correct horse battery staple\"\n- sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST\n- github_pat_1234567890ABCDEFGHIJKLMNOP",
+            "- D:\\vault\\private-course\\notes.md\n- C:\\Users\\Alice\\My Vault\\notes.md\n- /Users/alice/My Vault/notes.md\n- .env.local: DATABASE_URL=postgres://secret@example\n- password: \"correct horse battery staple\"\n- sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST\n- github_pat_1234567890ABCDEFGHIJKLMNOP\n- eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature\n- +1 555-123-4567",
         )
     )
     issue_payload = json.loads(
@@ -867,6 +951,8 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         raise AssertionError("prepare_github_issue.py should derive labels from feedback kind and severity")
     if "## Feedback ID" not in issue_payload["body"] or "## Privacy Check" not in issue_payload["body"]:
         raise AssertionError("prepare_github_issue.py should emit the expected issue body sections")
+    if "## Completeness Check" not in issue_payload["body"] or "## Environment" not in issue_payload["body"]:
+        raise AssertionError("prepare_github_issue.py should emit completeness and environment sections")
     for leaked_text in [
         r"D:\vault\private-course\notes.md",
         r"C:\Users\Alice\My Vault\notes.md",
@@ -877,6 +963,8 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         "version-secret.txt",
         "DATABASE_URL=postgres://secret@example",
         "correct horse battery staple",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature",
+        "+1 555-123-4567",
         "d-vault-private-course",
         "my-vault-notes",
     ]:
@@ -886,6 +974,8 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         "[REDACTED_WINDOWS_PATH]",
         "[REDACTED_UNIX_PATH]",
         "[REDACTED_TOKEN]",
+        "[REDACTED_JWT]",
+        "[REDACTED_PHONE]",
         "[REDACTED_ENV_FILE]",
     ]:
         if redacted_marker not in issue_payload["body"]:
@@ -894,8 +984,18 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     for expected_warning in ["Windows absolute paths", "Unix-style absolute paths", ".env", "token-like strings", "private vault path"]:
         if expected_warning not in joined_warnings:
             raise AssertionError(f"Expected privacy warning containing {expected_warning!r}, got: {joined_warnings}")
+    joined_blockers = "\n".join(issue_payload["privacy_blockers"])
+    for expected_blocker in ["secret-like key/value", "JWT-like tokens", "phone-number-like"]:
+        if expected_blocker not in joined_blockers:
+            raise AssertionError(f"Expected privacy blocker containing {expected_blocker!r}, got: {joined_blockers}")
+    if not issue_payload["sanitized"]:
+        raise AssertionError("prepare_github_issue.py should mark sanitized drafts")
+    if not isinstance(issue_payload["completeness_warnings"], list):
+        raise AssertionError("prepare_github_issue.py should return completeness warnings as a list")
     if "fb-public-" not in issue_payload["title"] or "fb-public-" not in issue_payload["body"]:
         raise AssertionError("prepare_github_issue.py should use a neutral public feedback identifier")
+    if "- Python: unknown" not in issue_payload["body"]:
+        raise AssertionError("prepare_github_issue.py should leave Python version as unknown unless the feedback explicitly captured it")
 
     privacy_blocked_payload = json.loads(
         run_path_script(
@@ -911,10 +1011,12 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     )
     if privacy_blocked_payload["published"]:
         raise AssertionError("publish_github_issue.py should not publish feedback with privacy warnings by default")
-    if privacy_blocked_payload["blocked_reason"] != "privacy-warnings":
-        raise AssertionError("publish_github_issue.py should report privacy-warnings as the blocking reason by default")
-    if "--allow-privacy-warnings" not in privacy_blocked_payload["next_step"]:
-        raise AssertionError("publish_github_issue.py should explain how to override privacy blocking after explicit confirmation")
+    if privacy_blocked_payload["blocked_reason"] != "privacy-blockers":
+        raise AssertionError("publish_github_issue.py should report privacy-blockers when blocking sensitive data is present")
+    if "--allow-privacy-warnings" in privacy_blocked_payload["next_step"]:
+        raise AssertionError("publish_github_issue.py should not suggest overriding blocking sensitive data")
+    if "gh_command" in privacy_blocked_payload:
+        raise AssertionError("publish_github_issue.py should not emit a runnable gh command for blocker-only drafts")
     privacy_blocked_stdout = run_script(
         "publish_github_issue.py",
         str(repo),
@@ -923,7 +1025,7 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         "Gu-Heping/college-student-workflow",
     )
     if "Publishing blocked due to privacy warnings." not in privacy_blocked_stdout:
-        raise AssertionError("Non-JSON privacy blocking output should explain that publishing was blocked")
+        raise AssertionError("Non-JSON blocking output should still explain that publishing was blocked")
     if "gh issue create" in privacy_blocked_stdout:
         raise AssertionError("Non-JSON privacy blocking output should not print a ready-to-run publish command")
 

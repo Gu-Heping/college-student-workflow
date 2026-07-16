@@ -16,8 +16,9 @@ This workflow extends the repository-native feedback loop into a developer-visib
 Expected flow:
 1. Capture or locate the feedback item in `feedback/`
 2. Prepare a structured issue draft
-3. Run a privacy check
-4. If privacy warnings exist, stop at draft output unless the user explicitly confirms public posting
+3. Run a privacy check and completeness check
+4. If blocking sensitive data exists, stop at draft output and require cleanup before any public posting
+5. If only privacy warnings exist, stop at draft output unless the user explicitly confirms public posting
 5. Ask for confirmation before public posting
 6. Publish to GitHub only after explicit approval
 6. Store the returned issue metadata back into the feedback entry
@@ -28,6 +29,7 @@ Expected flow:
 - Never include private vault content, secrets, tokens, `.env` data, or raw course material without explicit user approval.
 - Treat local file paths, private repository paths, and personal note excerpts as sensitive by default.
 - When in doubt, redact first and mention the redaction in the issue body.
+- Treat JWTs, secret-like key/value assignments, and phone-number-like personal data as blocking findings that must be removed before publication.
 - If privacy warnings are present, default to draft-only output and require an explicit override such as `--allow-privacy-warnings` before publishing.
 
 ## Issue format

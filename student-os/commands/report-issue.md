@@ -14,7 +14,10 @@ Default route:
 Expected outputs:
 - located or newly captured feedback path
 - issue draft title/body/labels
+- blocking privacy findings, if any
 - privacy warnings
+- completeness warnings
 - draft-only result when privacy warnings are present unless the user explicitly confirms public posting
+- mandatory cleanup before posting when blocking sensitive data is detected
 - explicit confirmation before public posting
 - stored GitHub issue metadata after publish
