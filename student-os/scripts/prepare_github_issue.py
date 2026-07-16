@@ -92,10 +92,10 @@ def build_issue_title(frontmatter: dict[str, str], feedback_path: Path, body: st
 def infer_installed_version(frontmatter: dict[str, str], body: str) -> str:
     fix_version = normalize_scalar(frontmatter.get("fix_version", ""))
     if fix_version:
-        return fix_version
+        return redact_sensitive_text(fix_version)
     source_context = normalize_scalar(frontmatter.get("source_context", ""))
     match = re.search(r"(installed(?: version)?|version)[: ]+([^\s,;]+)", source_context + "\n" + body, flags=re.IGNORECASE)
-    return match.group(2) if match else "unknown"
+    return redact_sensitive_text(match.group(2)) if match else "unknown"
 
 
 def infer_agent_runtime(frontmatter: dict[str, str], body: str) -> str:
@@ -110,6 +110,8 @@ def infer_agent_runtime(frontmatter: dict[str, str], body: str) -> str:
 
 def build_issue_body(feedback_path: Path, frontmatter: dict[str, str], body: str, warnings: list[str]) -> str:
     feedback_id = normalize_scalar(frontmatter.get("feedback_id", ""))
+    display_feedback_id = redact_sensitive_text(feedback_id or feedback_path.stem)
+    display_feedback_path = redact_sensitive_text(feedback_path.as_posix())
     what_happened = redact_sensitive_text(extract_section(body, "What Happened") or "- ")
     expected_behavior = redact_sensitive_text(extract_section(body, "Expected Behavior") or "- ")
     evidence = redact_sensitive_text(extract_section(body, "Evidence") or "- ")
@@ -121,8 +123,8 @@ def build_issue_body(feedback_path: Path, frontmatter: dict[str, str], body: str
     issue_lines = [
         "## Feedback ID",
         "",
-        f"- `{feedback_id or feedback_path.stem}`",
-        f"- Source Feedback: `{feedback_path.as_posix()}`",
+        f"- `{display_feedback_id}`",
+        f"- Source Feedback: `{display_feedback_path}`",
         "",
         "## Installed Version",
         "",

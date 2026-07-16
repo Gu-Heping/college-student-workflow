@@ -714,13 +714,13 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
             "log_feedback.py",
             str(repo),
             "--title",
-            "GitHub issue prep privacy check",
+            r"GitHub issue prep privacy check sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST D:\vault\private-course\notes.md",
             "--feedback-kind",
             "install",
             "--severity",
             "high",
             "--source-context",
-            "Codex on Windows with installed version: 0.7.0",
+            r"Codex on Windows with installed version: D:\vault\private-course\version-secret.txt",
             "--related-artifacts",
             r"D:\vault\private-course\notes.md,.env,/Users/alice/private-notes.md",
             "--related-roles",
@@ -751,6 +751,7 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         "/Users/alice/private-notes.md",
         "sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST",
         "github_pat_1234567890ABCDEFGHIJKLMNOP",
+        "version-secret.txt",
     ]:
         if leaked_text in issue_payload["body"]:
             raise AssertionError(f"prepare_github_issue.py should redact sensitive text from public issue bodies: {leaked_text}")
