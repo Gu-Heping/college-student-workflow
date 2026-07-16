@@ -44,6 +44,9 @@
 
 ## 快速安装
 
+如果你会命令行，可以直接看下面的安装命令。  
+如果你不会命令行，建议先看下一节“直接把这些话发给 agent”。
+
 先把这个仓库 clone 到本地，然后在仓库根目录运行安装命令。
 
 Windows：
@@ -74,6 +77,79 @@ python scripts/install_student_os.py --agent all --json
 - 默认会尽量用 symlink，失败时再回退到 copy
 
 安装后会生成一个安装清单 `.student-os-install.json`，后续自更新会用到它。
+
+## 不会命令行？直接把这些话发给 agent
+
+如果你平时主要是在 `Codex`、`Claude Code`、`OpenCode` 里工作，很多事情不一定要自己敲命令。  
+你可以直接复制下面这些话发给 agent，让它先检查、再执行、最后汇报结果。
+
+安装：
+
+```text
+请从 GitHub 仓库 Gu-Heping/college-student-workflow 安装 student-os skill。先只读检查 README 和安装脚本，确认只会安装到当前 agent 的 skills 目录、不修改我的学习 vault，然后运行对应平台的安装脚本。安装完成后告诉我安装位置、manifest 路径和如何更新。
+```
+
+接管学习 vault：
+
+```text
+请把这个文件夹作为我的学习 vault 使用 student-os 管理。先检查目录结构和 Git 状态，不要修改任何文件；然后告诉我它是否适合接入 student-os，以及建议的下一步。
+```
+
+Git 安全检查：
+
+```text
+请检查当前学习 vault 的 Git 状态，把可以提交的学习资料改动、应该暂缓的临时文件/大文件/冲突文件分开列出来，不要自动提交。
+```
+
+新建课程：
+
+```text
+请用 student-os 给“模拟电子技术”新建课程空间，包含课堂笔记、作业、复习、实验报告目录。修改前先检查 Git 状态，完成后给我变更摘要和 commit 建议。
+```
+
+整理资料：
+
+```text
+请帮我整理这个课程文件夹，把明显的课件、作业、复习资料、实验报告分类；不要删除原文件，所有移动/改名都先给计划，确认后再执行。
+```
+
+生成周计划：
+
+```text
+请根据我的学习 vault 生成本周学习计划，优先考虑临近 deadline、考试复习、未完成作业和最近导入的资料。
+```
+
+导入文件：
+
+```text
+请把这个 PDF/DOCX/PPTX/XLSX 导入到对应课程资料中，生成可读的 Markdown 摘要。保留原文件，不要覆盖已有笔记。
+```
+
+总结变化：
+
+```text
+请总结这个学习 vault 最近 7 天的变化，并给出推荐 commit 分组、commit message 和需要暂缓提交的文件。
+```
+
+反馈问题：
+
+```text
+student-os 这次处理有问题，请把这个问题记录为 feedback，并准备一个 GitHub Issue 草稿。发布前先检查隐私信息，不要直接公开我的本地路径、课本内容、token 或个人资料。
+```
+
+更新：
+
+```text
+请检查 student-os 是否有更新。如果有，先告诉我当前版本、最新版本、更新内容和风险；确认后再更新。不要修改我的学习 vault。
+```
+
+安全提醒：
+
+- 不要让 agent 盲目执行陌生仓库脚本
+- 安装前应先让 agent 只读检查 README 和安装脚本
+- 安装 / 更新 `student-os` 不应该修改你的学习 vault
+- 真实 vault 不建议公开上传
+- GitHub Issue 发布前必须检查隐私信息
 
 ## 日常怎么用
 
@@ -144,6 +220,8 @@ python student-os/scripts/summarize_feedback.py /path/to/repo --title "Weekly fe
 python student-os/scripts/prepare_github_issue.py /path/to/repo feedback/triaged/example.md
 python student-os/scripts/publish_github_issue.py /path/to/repo feedback/triaged/example.md --json
 ```
+
+如果存在隐私告警，发布前应先停在 draft，检查草稿后再决定是否继续。
 
 隐私提醒很重要：
 
@@ -218,6 +296,20 @@ feedback/
 - [`student-os/scripts/`](./student-os/scripts/)：脚本入口
 - [`student-os/templates/`](./student-os/templates/)：模板
 - [`CHANGELOG.md`](./CHANGELOG.md)：版本变化
+
+仓库结构大致如下：
+
+```text
+student-os/
+  SKILL.md
+  references/
+  scripts/
+  templates/
+examples/
+scripts/
+CHANGELOG.md
+README.md
+```
 
 当前已经覆盖的重点能力包括：
 
