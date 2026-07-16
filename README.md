@@ -91,6 +91,33 @@ python scripts/install_student_os.py --agent opencode --scope both --force
 python scripts/install_student_os.py --agent all --json
 ```
 
+Each successful install now writes `student-os/.student-os-install.json` into the installed skill directory. The manifest records the install source, ref, commit, install mode, target path, and tracked file snapshot so later self-updates can validate and refresh the skill safely.
+
+## Self-update
+
+Installed copies of `student-os` can now be checked and updated without touching the user's managed vault.
+
+Common natural-language intents:
+
+- `update student-os`
+- `更新 student-os`
+- `upgrade the skill`
+
+Script usage:
+
+```bash
+python ~/.codex/skills/student-os/scripts/update_student_os.py --check
+python ~/.codex/skills/student-os/scripts/update_student_os.py --apply --target ~/.codex/skills/student-os
+```
+
+Notes:
+
+- `--check` compares the installed commit with the latest commit from the configured source repo.
+- `--apply` only updates the installed skill files, not the user's knowledge repository.
+- copy installs create a backup before replacement and print a restore command.
+- installs with local edits require `--force` before overwrite.
+- project-scoped installs under `.codex/skills/student-os` can be discovered automatically when you run the updater from that project.
+
 ## Why this repo exists
 
 Most student note systems are either:

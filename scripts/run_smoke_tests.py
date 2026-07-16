@@ -14,6 +14,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ROOT_SCRIPTS = ROOT / "scripts"
 STUDENT_OS_SCRIPTS = ROOT / "student-os" / "scripts"
 EXAMPLES_ROOT = ROOT / "examples"
 
@@ -47,6 +48,43 @@ def run_script(name: str, *args: str, cwd: Path = ROOT) -> str:
     return result.stdout.strip()
 
 
+def run_root_script(name: str, *args: str, cwd: Path = ROOT, env: dict[str, str] | None = None) -> str:
+    script_path = ROOT_SCRIPTS / name
+    result = subprocess.run(
+        [sys.executable, "-B", str(script_path), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=cwd,
+        env={
+            **os.environ,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONIOENCODING": "utf-8",
+            **(env or {}),
+        },
+    )
+    return result.stdout.strip()
+
+
+def run_path_script(script_path: Path, *args: str, cwd: Path, env: dict[str, str] | None = None) -> str:
+    result = subprocess.run(
+        [sys.executable, "-B", str(script_path), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=cwd,
+        env={
+            **os.environ,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONIOENCODING": "utf-8",
+            **(env or {}),
+        },
+    )
+    return result.stdout.strip()
+
+
 def run_script_failure(name: str, *args: str, cwd: Path = ROOT) -> str:
     script_path = STUDENT_OS_SCRIPTS / name
     result = subprocess.run(
@@ -60,6 +98,47 @@ def run_script_failure(name: str, *args: str, cwd: Path = ROOT) -> str:
     )
     if result.returncode == 0:
         raise AssertionError(f"Expected {name} to fail for args {args!r}")
+    return (result.stderr or result.stdout).strip()
+
+
+def run_root_script_failure(name: str, *args: str, cwd: Path = ROOT, env: dict[str, str] | None = None) -> str:
+    script_path = ROOT_SCRIPTS / name
+    result = subprocess.run(
+        [sys.executable, "-B", str(script_path), *args],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=cwd,
+        env={
+            **os.environ,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONIOENCODING": "utf-8",
+            **(env or {}),
+        },
+    )
+    if result.returncode == 0:
+        raise AssertionError(f"Expected {name} to fail for args {args!r}")
+    return (result.stderr or result.stdout).strip()
+
+
+def run_path_script_failure(script_path: Path, *args: str, cwd: Path, env: dict[str, str] | None = None) -> str:
+    result = subprocess.run(
+        [sys.executable, "-B", str(script_path), *args],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=cwd,
+        env={
+            **os.environ,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONIOENCODING": "utf-8",
+            **(env or {}),
+        },
+    )
+    if result.returncode == 0:
+        raise AssertionError(f"Expected {script_path.name} to fail for args {args!r}")
     return (result.stderr or result.stdout).strip()
 
 
@@ -78,6 +157,27 @@ def copy_repo(src: Path, dest: Path) -> None:
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(src, dest)
+
+
+def load_root_script_module(name: str, module_name: str) -> object:
+    script_path = ROOT_SCRIPTS / name
+    spec = importlib.util.spec_from_file_location(module_name, script_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load module spec for {script_path}")
+    module = importlib.util.module_from_spec(spec)
+    original_flag = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    previous_module = sys.modules.get(module_name)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if previous_module is None:
+            sys.modules.pop(module_name, None)
+        else:
+            sys.modules[module_name] = previous_module
+        sys.dont_write_bytecode = original_flag
+    return module
 
 
 def load_import_dependencies() -> tuple[object, object, object, object]:
@@ -1043,6 +1143,364 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError("group_git_changes.py should preserve original path casing when classifying virtualenv artifacts from CLI paths")
 
 
+def init_git_repo(repo: Path) -> None:
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "-C", str(repo), "init", "-b", "main"], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Smoke Test"], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "smoke@example.com"], check=True, capture_output=True, text=True)
+
+
+def commit_all(repo: Path, message: str) -> str:
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", message], check=True, capture_output=True, text=True)
+    result = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    return result.stdout.strip()
+
+
+def seed_fake_student_os_source(repo: Path, *, version_label: str) -> str:
+    skill_root = repo / "student-os"
+    scripts_root = skill_root / "scripts"
+    templates_root = skill_root / "templates"
+    references_root = skill_root / "references"
+    scripts_root.mkdir(parents=True, exist_ok=True)
+    templates_root.mkdir(parents=True, exist_ok=True)
+    references_root.mkdir(parents=True, exist_ok=True)
+    (skill_root / "SKILL.md").write_text(
+        "---\n"
+        "name: student-os\n"
+        "description: fixture skill\n"
+        "---\n\n"
+        f"# Student OS Fixture {version_label}\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (scripts_root / "fixture_script.py").write_text(
+        "def main():\n"
+        f"    return '{version_label}'\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (templates_root / "fixture.md").write_text(
+        f"# Fixture Template {version_label}\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (references_root / "fixture.md").write_text(
+        f"# Fixture Reference {version_label}\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    shutil.copy2(STUDENT_OS_SCRIPTS / "update_student_os.py", scripts_root / "update_student_os.py")
+    shutil.copy2(STUDENT_OS_SCRIPTS / "update_student_os_impl.py", scripts_root / "update_student_os_impl.py")
+    return commit_all(repo, f"fixture: {version_label}")
+
+
+def build_copy_install_fixture(base_dir: Path, source_repo: Path, installed_commit: str) -> Path:
+    install_module = load_root_script_module("install_student_os.py", "student_os_install_smoke")
+    source_skill = source_repo / "student-os"
+    target = base_dir / "installed-student-os"
+    shutil.copytree(source_skill, target)
+    overrides_dir = target / ".student-os-local-overrides"
+    overrides_dir.mkdir(parents=True, exist_ok=True)
+    (overrides_dir / "notes.md").write_text("# Local override\n", encoding="utf-8", newline="\n")
+    (target / ".student-os-install.local.json").write_text('{"theme":"custom"}\n', encoding="utf-8", newline="\n")
+    manifest = install_module.build_install_manifest(
+        destination=target,
+        agent="codex",
+        scope="user",
+        install_method="copied",
+        used_symlink=False,
+        source_repo=str(source_repo.resolve()),
+        source_ref="main",
+        installed_commit=installed_commit,
+        linked_source_path="",
+    )
+    install_module.write_manifest(target, manifest)
+    return target
+
+
+def assert_no_pycache(root: Path) -> None:
+    pycache_paths = sorted(str(path) for path in root.rglob("__pycache__"))
+    if pycache_paths:
+        raise AssertionError(f"Validation should not leave __pycache__ artifacts behind: {pycache_paths}")
+
+
+def verify_install_manifest_generation(tmp_root: Path) -> None:
+    install_module = load_root_script_module("install_student_os.py", "student_os_install_manifest_smoke")
+    codex_home = tmp_root / "codex-home"
+    payload = json.loads(
+        run_root_script(
+            "install_student_os.py",
+            "--agent",
+            "codex",
+            "--scope",
+            "user",
+            "--mode",
+            "copy",
+            "--json",
+            env={"CODEX_HOME": str(codex_home)},
+        )
+    )
+    result = payload["results"][0]
+    destination = Path(result["destination"])
+    manifest_path = destination / ".student-os-install.json"
+    if not manifest_path.exists():
+        raise AssertionError("install_student_os.py should write an install manifest into the installed skill")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for key in [
+        "skill_name",
+        "source_repo",
+        "source_ref",
+        "installed_commit",
+        "installed_at",
+        "install_method",
+        "agent",
+        "scope",
+        "target_path",
+        "used_symlink",
+        "tracked_files",
+    ]:
+        if key not in manifest:
+            raise AssertionError(f"install manifest should include {key}")
+    if manifest["skill_name"] != "student-os":
+        raise AssertionError("install manifest should record the skill name")
+    if manifest["install_method"] != "copied":
+        raise AssertionError("copy installs should record copied as the install method")
+    if manifest["source_repo"] != install_module.discover_source_repo():
+        raise AssertionError("install manifests should record the actual source repo by default")
+
+
+def verify_legacy_link_install_detection(tmp_root: Path) -> None:
+    install_module = load_root_script_module("install_student_os.py", "student_os_install_link_smoke")
+    legacy_destination = tmp_root / "legacy-linked-student-os"
+    try:
+        legacy_destination.symlink_to((ROOT / "student-os").resolve(), target_is_directory=True)
+    except OSError:
+        return
+    if not install_module.same_link_install(legacy_destination):
+        raise AssertionError("install_student_os.py should recognize legacy whole-directory symlink installs")
+    child_link_install = tmp_root / "child-linked-student-os"
+    child_link_install.mkdir(parents=True, exist_ok=True)
+    (child_link_install / "SKILL.md").symlink_to((ROOT / "student-os" / "SKILL.md").resolve())
+    if not install_module.same_link_install(child_link_install):
+        raise AssertionError("install_student_os.py should still recognize linked installs that symlink top-level children")
+    created_entries = install_module.sync_linked_entries(child_link_install, ROOT / "student-os")
+    if "references" not in created_entries:
+        raise AssertionError("install_student_os.py should recreate missing top-level symlink entries for linked installs")
+    if not (child_link_install / "references").is_symlink():
+        raise AssertionError("install_student_os.py should materialize recreated linked entries as symlinks")
+
+
+def verify_update_source_override_and_project_copy_detection(tmp_root: Path) -> None:
+    install_module = load_root_script_module("install_student_os.py", "student_os_install_override_smoke")
+    update_module = load_root_script_module("update_student_os.py", "student_os_update_override_smoke")
+
+    override_repo = tmp_root / "override-source"
+    init_git_repo(override_repo)
+    override_commit = seed_fake_student_os_source(override_repo, version_label="override")
+
+    target = tmp_root / "override-install"
+    shutil.copytree(override_repo / "student-os", target)
+    manifest = install_module.build_install_manifest(
+        destination=target,
+        agent="codex",
+        scope="user",
+        install_method="copied",
+        used_symlink=False,
+        source_repo="https://github.com/Gu-Heping/college-student-workflow.git",
+        source_ref="main",
+        installed_commit=override_commit,
+        linked_source_path="",
+    )
+    install_module.write_manifest(target, manifest)
+    info = update_module.build_install_info(target, str(override_repo.resolve()), "main")
+    if info.source_repo != str(override_repo.resolve()):
+        raise AssertionError("Explicit --repo equivalents should override manifest source_repo values")
+    if info.source_ref != "main":
+        raise AssertionError("Explicit --ref equivalents should override manifest source_ref values")
+
+    vault_repo = tmp_root / "vault-repo"
+    init_git_repo(vault_repo)
+    (vault_repo / "README.md").write_text("# Vault\n", encoding="utf-8", newline="\n")
+    commit_all(vault_repo, "init vault")
+    project_install = vault_repo / ".codex" / "skills" / "student-os"
+    project_install.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(override_repo / "student-os", project_install)
+    project_manifest = install_module.build_install_manifest(
+        destination=project_install,
+        agent="codex",
+        scope="project",
+        install_method="copied",
+        used_symlink=False,
+        source_repo=str(override_repo.resolve()),
+        source_ref="main",
+        installed_commit=override_commit,
+        linked_source_path="",
+    )
+    install_module.write_manifest(project_install, project_manifest)
+    project_info = update_module.build_install_info(project_install, None, None)
+    if project_info.install_kind != "copy":
+        raise AssertionError("Copied project installs inside a git repository should still be treated as copy installs")
+
+    env_backup = {name: os.environ.get(name) for name in ["HOME", "USERPROFILE", "CODEX_HOME"]}
+    previous_cwd = Path.cwd()
+    try:
+        isolated_home = tmp_root / "isolated-home"
+        os.environ["HOME"] = str(isolated_home)
+        os.environ["USERPROFILE"] = str(isolated_home)
+        os.environ["CODEX_HOME"] = str(isolated_home / ".codex")
+        os.chdir(vault_repo)
+        sys.modules.pop("update_student_os_impl", None)
+        project_discovery_module = load_root_script_module("update_student_os.py", "student_os_update_discovery_smoke")
+        discovered_target = project_discovery_module.discover_target(None)
+    finally:
+        os.chdir(previous_cwd)
+        for name, value in env_backup.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+    if discovered_target != project_install:
+        raise AssertionError("update_student_os.py should discover project-scoped installs by default")
+
+    legacy_project_install = vault_repo / ".claude" / "skills" / "student-os"
+    legacy_project_install.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(override_repo / "student-os", legacy_project_install)
+    legacy_project_info = update_module.build_install_info(legacy_project_install, None, None)
+    if legacy_project_info.install_kind != "copy":
+        raise AssertionError("Manifestless copied installs inside a parent repository should default to copy mode")
+
+    missing_manifest_failure = run_root_script_failure(
+        "update_student_os.py",
+        "--apply",
+        "--target",
+        str(legacy_project_install),
+        "--repo",
+        str(override_repo.resolve()),
+        "--ref",
+        "main",
+    )
+    if "--force" not in missing_manifest_failure:
+        raise AssertionError("Manifestless copied installs should require --force before replacement")
+
+
+def verify_self_update_workflow(tmp_root: Path) -> None:
+    source_repo = tmp_root / "student-os-source"
+    init_git_repo(source_repo)
+    commit_v1 = seed_fake_student_os_source(source_repo, version_label="v1")
+    install_target = build_copy_install_fixture(tmp_root, source_repo, commit_v1)
+
+    seed_fake_student_os_source(source_repo, version_label="v2")
+    (source_repo / "student-os" / "templates" / "fixture.md").write_text(
+        "# Fixture Template v2 updated\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    commit_v2 = commit_all(source_repo, "fixture: v2 template tweak")
+
+    check_payload = json.loads(
+        run_root_script(
+            "update_student_os.py",
+            "--check",
+            "--target",
+            str(install_target),
+            "--repo",
+            str(source_repo.resolve()),
+            "--ref",
+            "main",
+            "--json",
+        )
+    )
+    if not check_payload["update_available"]:
+        raise AssertionError("update_student_os.py --check should report updates when the remote commit is newer")
+    if check_payload["current_commit"] != commit_v1:
+        raise AssertionError("update_student_os.py --check should report the installed commit from the manifest")
+    if check_payload["latest_commit"] != commit_v2:
+        raise AssertionError("update_student_os.py --check should resolve the latest remote commit")
+
+    apply_payload = json.loads(
+        run_root_script(
+            "update_student_os.py",
+            "--apply",
+            "--target",
+            str(install_target),
+            "--repo",
+            str(source_repo.resolve()),
+            "--ref",
+            "main",
+            "--json",
+        )
+    )
+    if not apply_payload["updated"]:
+        raise AssertionError("copy-mode self-update should report an applied update")
+    if not apply_payload["backup_path"]:
+        raise AssertionError("copy-mode self-update should create and report a backup path")
+    if "--restore-backup" not in apply_payload["rollback_command"]:
+        raise AssertionError("copy-mode self-update should print a restore command for rollback")
+    if ".student-os-local-overrides" not in apply_payload["preserved_override_paths"]:
+        raise AssertionError("copy-mode self-update should preserve the documented override directory")
+    if ".student-os-install.local.json" not in apply_payload["preserved_override_paths"]:
+        raise AssertionError("copy-mode self-update should preserve the documented local override file")
+    ensure_contains(install_target / "SKILL.md", "Fixture v2")
+    ensure_contains(install_target / ".student-os-local-overrides" / "notes.md", "Local override")
+    ensure_contains(install_target / ".student-os-install.local.json", '"theme":"custom"')
+    manifest = json.loads((install_target / ".student-os-install.json").read_text(encoding="utf-8"))
+    if manifest["installed_commit"] != commit_v2:
+        raise AssertionError("copy-mode self-update should refresh the install manifest commit")
+    if manifest["source_repo"] != str(source_repo.resolve()):
+        raise AssertionError("copy-mode self-update should preserve the configured source repo in the manifest")
+    installed_updater = install_target / "scripts" / "update_student_os.py"
+    ensure_exists(installed_updater)
+    installed_check_payload = json.loads(
+        run_path_script(
+            installed_updater,
+            "--check",
+            "--target",
+            str(install_target),
+            "--repo",
+            str(source_repo.resolve()),
+            "--ref",
+            "main",
+            "--json",
+            cwd=install_target,
+        )
+    )
+    if Path(installed_check_payload["target_path"]) != install_target:
+        raise AssertionError("Installed updater entrypoint should work from the installed skill directory")
+    assert_no_pycache(install_target)
+    assert_no_pycache(source_repo)
+
+    (install_target / "SKILL.md").write_text(
+        (install_target / "SKILL.md").read_text(encoding="utf-8") + "\nLocal drift\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (source_repo / "student-os" / "SKILL.md").write_text(
+        (source_repo / "student-os" / "SKILL.md").read_text(encoding="utf-8") + "\nFixture v3\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    commit_all(source_repo, "fixture: v3")
+    failure = run_root_script_failure(
+        "update_student_os.py",
+        "--apply",
+        "--target",
+        str(install_target),
+        "--repo",
+        str(source_repo.resolve()),
+        "--ref",
+        "main",
+    )
+    if "--force" not in failure:
+        raise AssertionError("self-update should refuse overwriting local installed-skill drift without --force")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run smoke tests for student-os scaffolding workflows.")
     parser.add_argument(
@@ -1070,6 +1528,10 @@ def main() -> int:
         verify_inspect_repo(inspect_repo_fixture)
         verify_git_grouping(grouping_repo, today)
         verify_chinese_slug_support(tmp_root / "unicode-course-demo", today)
+        verify_install_manifest_generation(tmp_root / "install-manifest-demo")
+        verify_legacy_link_install_detection(tmp_root / "legacy-link-install-demo")
+        verify_update_source_override_and_project_copy_detection(tmp_root / "update-override-demo")
+        verify_self_update_workflow(tmp_root / "self-update-demo")
 
         if args.refresh_examples:
             EXAMPLES_ROOT.mkdir(parents=True, exist_ok=True)
@@ -1089,6 +1551,10 @@ def main() -> int:
     print("OK multi-semester-demo")
     print("OK legacy-layout-demo")
     print("OK unicode-course-demo")
+    print("OK install-manifest-demo")
+    print("OK legacy-link-install-demo")
+    print("OK update-override-demo")
+    print("OK self-update-demo")
     if args.refresh_examples:
         print(f"REFRESHED {EXAMPLES_ROOT}")
     return 0
