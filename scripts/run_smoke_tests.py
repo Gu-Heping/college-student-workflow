@@ -1031,13 +1031,27 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     if stdin_safe.stderr.strip():
         raise AssertionError("prepare_github_issue.py --stdin should stay quiet for safe drafts")
 
+    stdin_warning_held = run_script_with_stdin(
+        "prepare_github_issue.py",
+        "Saw a failure while reading C:\\Users\\Alice\\notes.md during import.\n",
+        "--stdin",
+        check=False,
+    )
+    if stdin_warning_held.returncode == 0:
+        raise AssertionError("prepare_github_issue.py --stdin should hold back warning-bearing drafts without --allow-privacy-warnings")
+    if stdin_warning_held.stdout.strip():
+        raise AssertionError("prepare_github_issue.py --stdin should not emit stdout when warnings are held back")
+    if "WARN:" not in stdin_warning_held.stderr or "Windows absolute paths" not in stdin_warning_held.stderr:
+        raise AssertionError("prepare_github_issue.py --stdin should emit WARN lines for privacy warnings")
+
     stdin_warning = run_script_with_stdin(
         "prepare_github_issue.py",
         "Saw a failure while reading C:\\Users\\Alice\\notes.md during import.\n",
         "--stdin",
+        "--allow-privacy-warnings",
     )
     if "[REDACTED_WINDOWS_PATH]" not in stdin_warning.stdout:
-        raise AssertionError("prepare_github_issue.py --stdin should redact Windows paths in stdout")
+        raise AssertionError("prepare_github_issue.py --stdin --allow-privacy-warnings should redact Windows paths in stdout")
     if "C:\\Users\\Alice\\notes.md" in stdin_warning.stdout:
         raise AssertionError("prepare_github_issue.py --stdin should not leave absolute Windows paths in stdout")
     if "WARN:" not in stdin_warning.stderr or "Windows absolute paths" not in stdin_warning.stderr:
@@ -1076,11 +1090,42 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         "--stdin",
         "--stdin-format",
         "json",
+        "--allow-privacy-warnings",
     )
     if "[REDACTED_EMAIL]" not in stdin_json.stdout or "[REDACTED_UNIX_PATH]" not in stdin_json.stdout:
         raise AssertionError("prepare_github_issue.py --stdin-format json should sanitize the body field")
     if "alice@example.com" in stdin_json.stdout or "/Users/alice/My Vault/notes.md" in stdin_json.stdout:
         raise AssertionError("prepare_github_issue.py --stdin-format json should not leak original sensitive body text")
+
+    stdin_json_title_check = run_script_with_stdin(
+        "prepare_github_issue.py",
+        json.dumps({"title": "password: hunter2 leaked", "body": "Harmless body describing a workflow bug.\n"}),
+        "--stdin",
+        "--stdin-format",
+        "json",
+        "--check-only",
+        check=False,
+    )
+    if stdin_json_title_check.returncode == 0:
+        raise AssertionError("prepare_github_issue.py --stdin-format json --check-only should scan the title field for blockers")
+    if "BLOCK:" not in stdin_json_title_check.stderr:
+        raise AssertionError("prepare_github_issue.py --stdin-format json --check-only should report title blockers on stderr")
+
+    stdin_json_title = run_script_with_stdin(
+        "prepare_github_issue.py",
+        json.dumps({"title": "Bug hit while reading C:\\Users\\Bob\\notes.md", "body": "Body without sensitive data.\n"}),
+        "--stdin",
+        "--stdin-format",
+        "json",
+        "--allow-privacy-warnings",
+    )
+    title_payload = json.loads(stdin_json_title.stdout)
+    if "[REDACTED_WINDOWS_PATH]" not in title_payload["title"]:
+        raise AssertionError("prepare_github_issue.py --stdin-format json should sanitize the title field")
+    if "C:\\Users\\Bob\\notes.md" in stdin_json_title.stdout:
+        raise AssertionError("prepare_github_issue.py --stdin-format json should not leak the original title path")
+    if title_payload["body"].strip() != "Body without sensitive data.":
+        raise AssertionError("prepare_github_issue.py --stdin-format json should preserve the sanitized body alongside the title")
 
     privacy_blocked_payload = json.loads(
         run_path_script(

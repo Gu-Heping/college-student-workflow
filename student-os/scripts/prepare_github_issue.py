@@ -108,31 +108,29 @@ def redact_sensitive_text(text: str) -> str:
     return redacted
 
 
-def sanitize_stdin(text: str) -> tuple[str, list[str], list[str]]:
+def extract_stdin_payload(raw: str, stdin_format: str) -> tuple[str, str | None]:
     """
-    Standalone sanitize for any text input.
-    Returns (sanitized_text, blockers, warnings).
-    If blockers is non-empty, callers should abort public publishing.
+    Parse stdin into ``(body, title)``.
+
+    ``title`` is ``None`` when the input carries no title-bearing metadata. For
+    JSON payloads any ``title`` field is returned so callers can scan and
+    sanitize it instead of publishing an unscanned title.
     """
-    blockers = detect_privacy_blockers(text)
-    warnings = detect_privacy_warnings(text)
-    return redact_sensitive_text(text), blockers, warnings
-
-
-def extract_stdin_text(raw: str, stdin_format: str) -> str:
     if stdin_format == "text":
-        return raw
+        return raw, None
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise SystemExit(f"Invalid JSON for --stdin-format json: {exc}") from exc
     if isinstance(payload, str):
-        return payload
+        return payload, None
     if isinstance(payload, dict):
+        title = payload.get("title")
+        title = title if isinstance(title, str) else None
         if "body" in payload and isinstance(payload["body"], str):
-            return payload["body"]
+            return payload["body"], title
         if "text" in payload and isinstance(payload["text"], str):
-            return payload["text"]
+            return payload["text"], title
         raise SystemExit('JSON stdin must include a string "body" or "text" field.')
     raise SystemExit("JSON stdin must be a string or an object with a body/text field.")
 
@@ -148,8 +146,12 @@ def format_privacy_messages(blockers: list[str], warnings: list[str]) -> str:
 
 def run_stdin_mode(args: argparse.Namespace) -> int:
     raw = sys.stdin.read()
-    text = extract_stdin_text(raw, args.stdin_format)
-    sanitized, blockers, warnings = sanitize_stdin(text)
+    body, title = extract_stdin_payload(raw, args.stdin_format)
+    # Scan title-bearing metadata alongside the body so a sensitive title cannot
+    # slip through a "safe" check when the body alone is harmless.
+    scan_text = body if title is None else f"{title}\n{body}"
+    blockers = detect_privacy_blockers(scan_text)
+    warnings = detect_privacy_warnings(scan_text)
     messages = format_privacy_messages(blockers, warnings)
     if messages:
         print(messages, file=sys.stderr)
@@ -161,8 +163,28 @@ def run_stdin_mode(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    sys.stdout.write(sanitized)
-    if sanitized and not sanitized.endswith("\n"):
+    if warnings and not args.allow_privacy_warnings:
+        print(
+            "Holding draft: privacy warnings detected. Review the findings above and "
+            "re-run with --allow-privacy-warnings to emit the sanitized draft.",
+            file=sys.stderr,
+        )
+        return 1
+    sanitized_body = redact_sensitive_text(body)
+    if title is not None:
+        # Emit a fully sanitized JSON payload so no title-bearing field is left
+        # unscanned for downstream `gh issue create` usage.
+        output = json.dumps(
+            {"title": redact_sensitive_text(title), "body": sanitized_body},
+            ensure_ascii=False,
+            indent=2,
+        )
+        sys.stdout.write(output)
+        if not output.endswith("\n"):
+            sys.stdout.write("\n")
+        return 0
+    sys.stdout.write(sanitized_body)
+    if sanitized_body and not sanitized_body.endswith("\n"):
         sys.stdout.write("\n")
     return 0
 
@@ -393,10 +415,18 @@ def main() -> int:
         default="text",
         help="Input format for --stdin. json accepts gh-style {\"body\": \"...\"} payloads.",
     )
+    parser.add_argument(
+        "--allow-privacy-warnings",
+        action="store_true",
+        help="With --stdin, emit the sanitized draft even when privacy warnings are present. "
+        "Without this flag warning-bearing drafts are held back (non-zero exit, no stdout).",
+    )
     args = parser.parse_args()
 
     if args.check_only and not args.stdin:
         raise SystemExit("--check-only requires --stdin")
+    if args.allow_privacy_warnings and not args.stdin:
+        raise SystemExit("--allow-privacy-warnings requires --stdin")
     if args.stdin:
         return run_stdin_mode(args)
     if not args.repo or not args.feedback:

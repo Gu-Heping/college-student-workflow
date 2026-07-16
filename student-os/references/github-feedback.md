@@ -87,15 +87,18 @@ Useful scripts:
 Standalone sanitize pipe (for drafts that do not go through a local feedback entry):
 
 ```bash
-python scripts/prepare_github_issue.py --stdin < draft.md | gh issue create -F -
+python scripts/prepare_github_issue.py --stdin --allow-privacy-warnings < draft.md \
+  | gh issue create --repo Gu-Heping/college-student-workflow -F -
 python scripts/prepare_github_issue.py --stdin --check-only < draft.md
 python scripts/prepare_github_issue.py --stdin --stdin-format json < payload.json
 ```
 
 - `--stdin` reads arbitrary issue text, prints privacy `BLOCK:` / `WARN:` lines to stderr, and writes sanitized text to stdout
 - blockers abort the pipe with a non-zero exit code so unsafe drafts are not published
+- warnings also hold the draft back (non-zero exit, no stdout); pass `--allow-privacy-warnings` only after explicit user confirmation to emit the sanitized draft
 - `--check-only` reports findings without rewriting the draft
-- `--stdin-format json` accepts `gh`-style JSON payloads that include a `body` field
+- `--stdin-format json` accepts `gh`-style JSON payloads that include `body` (and optional `title`) fields; both are scanned and the sanitized result is emitted as a JSON object when a title is present
+- always pin `--repo Gu-Heping/college-student-workflow` on `gh issue create` so drafts land on the student-os tracker, not the student's current/private repo
 
 Default behavior:
 - Prepare first
