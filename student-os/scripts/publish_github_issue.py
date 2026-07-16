@@ -93,6 +93,19 @@ def existing_issue_link(frontmatter: dict[str, str]) -> tuple[str, str]:
     return issue_url, issue_number
 
 
+def emit_result(payload: dict[str, object], *, as_json: bool) -> int:
+    if as_json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        if "gh_command" in payload:
+            print(payload["gh_command"])
+        elif "issue_url" in payload:
+            print(payload["issue_url"])
+        else:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
 def available_repo_labels(github_repo: str) -> set[str]:
     if not gh_available() or not gh_authenticated():
         return set()
@@ -119,6 +132,11 @@ def main() -> int:
     parser.add_argument("feedback", help="Feedback path, relative to repo or absolute")
     parser.add_argument("--github-repo", default="Gu-Heping/college-student-workflow", help="GitHub repo slug for issue creation")
     parser.add_argument("--json", action="store_true", help="Print machine-readable output")
+    parser.add_argument(
+        "--allow-privacy-warnings",
+        action="store_true",
+        help="Allow direct publishing even when prepare_github_issue.py reports privacy warnings.",
+    )
     args = parser.parse_args()
 
     repo = Path(args.repo).resolve()
@@ -128,9 +146,16 @@ def main() -> int:
         raise SystemExit(f"Feedback entry is missing frontmatter: {feedback_path}")
     existing_url, existing_number = existing_issue_link(frontmatter)
     if existing_url or existing_number:
-        raise SystemExit(
-            "Feedback entry is already linked to a GitHub issue. "
-            f"Existing link: {existing_url or existing_number}"
+        return emit_result(
+            {
+                "published": False,
+                "blocked_reason": "already-linked",
+                "existing_issue_url": existing_url,
+                "existing_issue_number": existing_number,
+                "source_feedback_path": str(feedback_path.relative_to(repo)).replace("\\", "/"),
+                "next_step": "Reuse the linked issue or clear the GitHub issue metadata before retrying.",
+            },
+            as_json=args.json,
         )
     payload = prepare_payload(repo, args.feedback)
     requested_labels = [str(label) for label in payload["labels"]]
@@ -151,25 +176,37 @@ def main() -> int:
     for label in labels:
         command.extend(["--label", str(label)])
 
-    if not gh_available() or not gh_authenticated():
+    def emit_draft(*, blocked_reason: str, next_step: str) -> int:
         temp_body = repo / "feedback" / "summaries" / draft_body_filename(payload)
         temp_body.parent.mkdir(parents=True, exist_ok=True)
         temp_body.write_text(str(payload["body"]), encoding="utf-8", newline="\n")
         ready_command = quote_for_shell(replace_body_file_argument(command, str(temp_body)))
-        result = {
-            "published": False,
-            "feedback_id": payload["feedback_id"],
-            "source_feedback_path": payload["source_feedback_path"],
-            "gh_command": ready_command,
-            "body_path": str(temp_body.relative_to(repo)).replace("\\", "/"),
-            "privacy_warnings": payload["privacy_warnings"],
-            "omitted_labels": omitted_labels,
-        }
-        if args.json:
-            print(json.dumps(result, ensure_ascii=False, indent=2))
-        else:
-            print(ready_command)
-        return 0
+        return emit_result(
+            {
+                "published": False,
+                "blocked_reason": blocked_reason,
+                "feedback_id": payload["feedback_id"],
+                "source_feedback_path": payload["source_feedback_path"],
+                "gh_command": ready_command,
+                "body_path": str(temp_body.relative_to(repo)).replace("\\", "/"),
+                "privacy_warnings": payload["privacy_warnings"],
+                "omitted_labels": omitted_labels,
+                "next_step": next_step,
+            },
+            as_json=args.json,
+        )
+
+    if payload["privacy_warnings"] and not args.allow_privacy_warnings:
+        return emit_draft(
+            blocked_reason="privacy-warnings",
+            next_step="Review the redactions and rerun with --allow-privacy-warnings only after explicit user confirmation.",
+        )
+
+    if not gh_available() or not gh_authenticated():
+        return emit_draft(
+            blocked_reason="gh-unavailable",
+            next_step="Authenticate gh or run the shell-safe fallback command after reviewing the draft body.",
+        )
 
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
         handle.write(str(payload["body"]))
@@ -205,11 +242,7 @@ def main() -> int:
         "privacy_warnings": payload["privacy_warnings"],
         "omitted_labels": omitted_labels,
     }
-    if args.json:
-        print(json.dumps(output, ensure_ascii=False, indent=2))
-    else:
-        print(issue_url)
-    return 0
+    return emit_result(output, as_json=args.json)
 
 
 if __name__ == "__main__":

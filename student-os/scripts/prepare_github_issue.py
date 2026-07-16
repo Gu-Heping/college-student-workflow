@@ -18,6 +18,9 @@ TOKEN_RE = re.compile(
 )
 VAULT_PATH_RE = re.compile(r"(?i)(?:[A-Za-z]:\\|/)[^\s`]*(?:vault)[^\s`]*")
 ENV_FILE_RE = re.compile(r"(?im)(?<![A-Za-z0-9_.-])\.env(?:\.[A-Za-z0-9_.-]+)*(?::[^\r\n]*)?")
+SECRET_KV_RE = re.compile(
+    r"(?im)\b(?:token|password|secret|api[_-]?key|access[_-]?key|database_url)\b\s*[:=]\s*[^\s\r\n`]+"
+)
 
 
 def extract_section(body: str, heading: str) -> str:
@@ -48,6 +51,8 @@ def detect_privacy_warnings(text: str) -> list[str]:
         warnings.append("Mentions .env or environment files; verify no secrets or private configuration are included.")
     if TOKEN_RE.search(text):
         warnings.append("Contains token-like strings; remove secrets before posting publicly.")
+    if SECRET_KV_RE.search(text):
+        warnings.append("Contains secret-like key/value pairs; remove credentials before posting publicly.")
     lowered = text.lower()
     if "\\vault" in lowered or "/vault" in lowered or "d:\\vault" in lowered:
         warnings.append("References a private vault path; redact private repository or note locations before posting.")
@@ -60,6 +65,7 @@ def redact_sensitive_text(text: str) -> str:
     redacted = TOKEN_RE.sub("[REDACTED_TOKEN]", redacted)
     redacted = VAULT_PATH_RE.sub("[REDACTED_VAULT_PATH]", redacted)
     redacted = ENV_FILE_RE.sub("[REDACTED_ENV_FILE]", redacted)
+    redacted = SECRET_KV_RE.sub("[REDACTED_SECRET_KV]", redacted)
     return redacted
 
 
@@ -126,6 +132,7 @@ def build_issue_body(feedback_path: Path, frontmatter: dict[str, str], body: str
     evidence = redact_sensitive_text(extract_section(body, "Evidence") or "- ")
     likely_cause = redact_sensitive_text(extract_section(body, "Likely Cause") or "- ")
     suggested_improvement = redact_sensitive_text(extract_section(body, "Suggested Improvement") or "- ")
+    developer_summary = redact_sensitive_text(extract_section(body, "Developer Summary") or "- ")
     source_context = redact_sensitive_text(normalize_scalar(frontmatter.get("source_context", "")) or "unknown")
     severity = normalize_scalar(frontmatter.get("severity", "medium")) or "medium"
     privacy_lines = warnings or ["No obvious privacy warnings detected."]
@@ -180,6 +187,10 @@ def build_issue_body(feedback_path: Path, frontmatter: dict[str, str], body: str
             "## Suggested Improvement",
             "",
             suggested_improvement,
+            "",
+            "## Developer Summary",
+            "",
+            developer_summary,
             "",
             "## Likely Cause",
             "",

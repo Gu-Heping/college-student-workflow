@@ -17,8 +17,9 @@ Expected flow:
 1. Capture or locate the feedback item in `feedback/`
 2. Prepare a structured issue draft
 3. Run a privacy check
-4. Ask for confirmation before public posting
-5. Publish to GitHub only after explicit approval
+4. If privacy warnings exist, stop at draft output unless the user explicitly confirms public posting
+5. Ask for confirmation before public posting
+6. Publish to GitHub only after explicit approval
 6. Store the returned issue metadata back into the feedback entry
 
 ## Privacy-first rules
@@ -27,6 +28,7 @@ Expected flow:
 - Never include private vault content, secrets, tokens, `.env` data, or raw course material without explicit user approval.
 - Treat local file paths, private repository paths, and personal note excerpts as sensitive by default.
 - When in doubt, redact first and mention the redaction in the issue body.
+- If privacy warnings are present, default to draft-only output and require an explicit override such as `--allow-privacy-warnings` before publishing.
 
 ## Issue format
 
@@ -37,6 +39,10 @@ Default labels:
 - `feedback`
 - `feedback:<feedback_kind>`
 - `severity:<severity>`
+
+Label fallback:
+- Prefer existing repository labels only.
+- If the target repository does not already contain `feedback`, `feedback:*`, or `severity:*`, publish without those labels rather than failing the issue creation flow.
 
 Default issue body sections:
 - Feedback ID
@@ -73,6 +79,8 @@ Once the issue is published:
 Useful scripts:
 - `scripts/prepare_github_issue.py` for issue draft generation
 - `scripts/publish_github_issue.py` for optional `gh issue create` publishing
+  - default behavior: refuse direct publish when privacy warnings exist
+  - use `--allow-privacy-warnings` only after explicit user confirmation
 
 Default behavior:
 - Prepare first

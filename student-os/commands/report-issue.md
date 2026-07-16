@@ -15,5 +15,6 @@ Expected outputs:
 - located or newly captured feedback path
 - issue draft title/body/labels
 - privacy warnings
+- draft-only result when privacy warnings are present unless the user explicitly confirms public posting
 - explicit confirmation before public posting
 - stored GitHub issue metadata after publish
