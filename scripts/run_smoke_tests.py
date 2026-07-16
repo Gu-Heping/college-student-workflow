@@ -714,7 +714,7 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
             "log_feedback.py",
             str(repo),
             "--title",
-            r"GitHub issue prep privacy check sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST D:\vault\private-course\notes.md C:\Users\Alice\My Vault\notes.md",
+            r"Privacy check D:\vault\notes.md sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST",
             "--feedback-kind",
             "install",
             "--severity",
@@ -730,7 +730,7 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
             "--expected-behavior",
             "- Public reports should redact private Windows paths and vault references.",
             "--evidence",
-            "- D:\\vault\\private-course\\notes.md\n- C:\\Users\\Alice\\My Vault\\notes.md\n- /Users/alice/My Vault/notes.md\n- .env.local: DATABASE_URL=postgres://secret@example\n- sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST\n- github_pat_1234567890ABCDEFGHIJKLMNOP",
+            "- D:\\vault\\private-course\\notes.md\n- C:\\Users\\Alice\\My Vault\\notes.md\n- /Users/alice/My Vault/notes.md\n- .env.local: DATABASE_URL=postgres://secret@example\n- password: \"correct horse battery staple\"\n- sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST\n- github_pat_1234567890ABCDEFGHIJKLMNOP",
         )
     )
     issue_payload = json.loads(
@@ -755,6 +755,7 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         "github_pat_1234567890ABCDEFGHIJKLMNOP",
         "version-secret.txt",
         "DATABASE_URL=postgres://secret@example",
+        "correct horse battery staple",
         "d-vault-private-course",
         "my-vault-notes",
     ]:
@@ -775,15 +776,50 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     if "fb-public-" not in issue_payload["title"] or "fb-public-" not in issue_payload["body"]:
         raise AssertionError("prepare_github_issue.py should use a neutral public feedback identifier")
 
-    publish_failure = run_script_failure(
+    privacy_blocked_payload = json.loads(
+        run_path_script(
+            STUDENT_OS_SCRIPTS / "publish_github_issue.py",
+            str(repo),
+            str(github_issue_feedback),
+            "--github-repo",
+            "Gu-Heping/college-student-workflow",
+            "--json",
+            cwd=repo,
+            env={"PATH": ""},
+        )
+    )
+    if privacy_blocked_payload["published"]:
+        raise AssertionError("publish_github_issue.py should not publish feedback with privacy warnings by default")
+    if privacy_blocked_payload["blocked_reason"] != "privacy-warnings":
+        raise AssertionError("publish_github_issue.py should report privacy-warnings as the blocking reason by default")
+    if "--allow-privacy-warnings" not in privacy_blocked_payload["next_step"]:
+        raise AssertionError("publish_github_issue.py should explain how to override privacy blocking after explicit confirmation")
+    privacy_blocked_stdout = run_script(
         "publish_github_issue.py",
         str(repo),
-        str(resolved_path),
+        str(github_issue_feedback),
         "--github-repo",
         "Gu-Heping/college-student-workflow",
     )
-    if "already linked to a GitHub issue" not in publish_failure:
+    if "Publishing blocked due to privacy warnings." not in privacy_blocked_stdout:
+        raise AssertionError("Non-JSON privacy blocking output should explain that publishing was blocked")
+    if "gh issue create" in privacy_blocked_stdout:
+        raise AssertionError("Non-JSON privacy blocking output should not print a ready-to-run publish command")
+
+    publish_failure = json.loads(
+        run_script(
+            "publish_github_issue.py",
+            str(repo),
+            str(resolved_path),
+            "--github-repo",
+            "Gu-Heping/college-student-workflow",
+            "--json",
+        )
+    )
+    if publish_failure["blocked_reason"] != "already-linked":
         raise AssertionError("publish_github_issue.py should refuse duplicate publication for already-linked feedback")
+    if publish_failure["existing_issue_number"] != "42":
+        raise AssertionError("publish_github_issue.py should surface the existing linked issue metadata")
 
     manual_feedback = repo / "feedback" / "triaged" / "manual-path-feedback.md"
     manual_feedback.write_text(
@@ -858,6 +894,8 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     )
     if publish_payload["published"]:
         raise AssertionError("publish_github_issue.py fallback path should not publish when gh is unavailable")
+    if publish_payload["blocked_reason"] != "gh-unavailable":
+        raise AssertionError("publish_github_issue.py should distinguish gh-unavailable fallback from privacy blocking")
     body_path = repo / publish_payload["body_path"]
     ensure_exists(body_path)
     try:
@@ -949,6 +987,8 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     )
     if single_quote_payload["published"]:
         raise AssertionError("Single-quoted empty GitHub issue fields should not force a publish path")
+    if single_quote_payload["blocked_reason"] != "gh-unavailable":
+        raise AssertionError("Single-quoted empty GitHub metadata should still allow draft preparation")
 
 
 def build_single_semester(repo: Path, today: date) -> None:
