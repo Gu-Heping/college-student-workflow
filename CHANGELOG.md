@@ -6,6 +6,7 @@
 
 ### Added
 
+- 为 `student-os` 新增 GitHub feedback 发布链路，支持从本地反馈条目生成隐私检查后的 issue draft，并可选通过 `gh issue create` 发布。
 - 为 `student-os` 新增自更新工作流：安装 manifest、`update_student_os.py`、更新命令入口与更新 reference，支持检查已安装版本、验证更新并提供回滚指引。
 - 为 `student-os` 的反馈闭环补充生命周期脚本：`triage_feedback.py`、`resolve_feedback.py`，支持从原始反馈到已解决条目的标准流转。
 - 为反馈条目新增稳定 `feedback_id`、开发者摘要、修复版本和 changelog 提示位，便于长期跟踪和开发回流。
@@ -17,6 +18,7 @@
 
 - 扩展安装器，使每次成功安装都写入 `.student-os-install.json`，并为后续安全更新保留安装来源、提交版本与文件快照。
 - 将自更新实现内聚到 `student-os/scripts/update_student_os.py`，使已安装 skill 自身即可执行检查、更新与回滚，而仓库根目录脚本保留为兼容包装层。
+- 扩展 feedback schema 与模板，增加 `github_issue_*` 元数据，便于把本地反馈和开发者 issue 持续关联起来。
 - 扩展 `README.md` 与 `SKILL.md`，明确 `update student-os` / `更新 student-os` 属于 skill maintenance，不会触碰用户知识库。
 - 扩展 `feedback-ops` reference、`feedback` command、`feedback-operator` companion 和 `SKILL.md`，使反馈工作流覆盖记录、triage、resolve 和开发者交接四个阶段。
 - 扩展 smoke test，将反馈生命周期纳入示例仓库与回归验证。

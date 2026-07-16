@@ -111,6 +111,10 @@ def should_skip_snapshot(path: Path, root: Path) -> bool:
     rel = path.relative_to(root)
     if rel.name == MANIFEST_FILENAME:
         return True
+    if rel.name.endswith(".pyc") and "__pycache__" in rel.parts:
+        return True
+    if "__pycache__" in rel.parts:
+        return True
     if rel.parts and rel.parts[0] in LOCAL_OVERRIDE_NAMES:
         return True
     return False
@@ -465,18 +469,6 @@ def replace_copy_install(
     shutil.copytree(source_skill_root, staging_dir)
     preserved = copy_override_items(info.target, staging_dir)
     existing_manifest = dict(info.manifest)
-    manifest = build_install_manifest(
-        destination=staging_dir,
-        agent=str(existing_manifest.get("agent") or "unknown"),
-        scope=str(existing_manifest.get("scope") or "user"),
-        install_method="copied",
-        used_symlink=False,
-        source_repo=repo,
-        source_ref=ref,
-        installed_commit=commit,
-        linked_source_path="",
-    )
-    write_manifest(staging_dir, manifest)
     replaced_files = list_relative_files(staging_dir)
     previous_dir = info.target.parent / f".{info.target.name}.previous"
     if previous_dir.exists():
@@ -490,6 +482,18 @@ def replace_copy_install(
         previous_dir.rename(info.target)
         raise
     shutil.rmtree(previous_dir)
+    manifest = build_install_manifest(
+        destination=info.target,
+        agent=str(existing_manifest.get("agent") or "unknown"),
+        scope=str(existing_manifest.get("scope") or "user"),
+        install_method="copied",
+        used_symlink=False,
+        source_repo=repo,
+        source_ref=ref,
+        installed_commit=commit,
+        linked_source_path="",
+    )
+    write_manifest(info.target, manifest)
     return {
         "updated": True,
         "install_kind": "copy",

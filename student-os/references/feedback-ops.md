@@ -16,6 +16,7 @@ Use the feedback flow when the user explicitly asks to:
 - triage a feedback item
 - resolve a feedback item
 - save a problem for the developer
+- report a feedback item to GitHub
 - summarize recent student-os issues
 - mark a previously recorded feedback item as resolved
 
@@ -83,8 +84,9 @@ Use these scripts when the repository owner wants a tighter lifecycle:
 Recommended progression:
 1. Capture the issue in `feedback/raw/`
 2. Triage it once the problem and owner are clear
-3. Resolve it only after the workflow, docs, template, or script change exists
-4. Reflect the shipped outcome in `CHANGELOG.md`
+3. Prepare or publish a GitHub issue when the user wants a developer-visible report
+4. Resolve it only after the workflow, docs, template, or script change exists
+5. Reflect the shipped outcome in `CHANGELOG.md`
 
 ## Changelog relationship
 

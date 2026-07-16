@@ -591,6 +591,12 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
             "- Confirmed the issue belongs to planning ingestion rather than task creation.",
         )
     )
+    triaged_text = triaged_path.read_text(encoding="utf-8")
+    triaged_text = triaged_text.replace('github_issue_url: ""', 'github_issue_url: "https://github.com/Gu-Heping/college-student-workflow/issues/42"')
+    triaged_text = triaged_text.replace('github_issue_number: ""', 'github_issue_number: "42"')
+    triaged_text = triaged_text.replace('github_issue_status: ""', 'github_issue_status: "open"')
+    triaged_text = triaged_text.replace('reported_to_github_at: ""', 'reported_to_github_at: "2026-07-16"')
+    triaged_path.write_text(triaged_text, encoding="utf-8", newline="\n")
     resolved_path = Path(
         run_script(
             "resolve_feedback.py",
@@ -657,6 +663,10 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
 
     ensure_exists(resolved_path)
     ensure_contains(resolved_path, "feedback_id:")
+    ensure_contains(resolved_path, 'github_issue_url: "https://github.com/Gu-Heping/college-student-workflow/issues/42"')
+    ensure_contains(resolved_path, 'github_issue_number: "42"')
+    ensure_contains(resolved_path, 'github_issue_status: "open"')
+    ensure_contains(resolved_path, 'reported_to_github_at: "2026-07-16"')
     ensure_contains(resolved_path, "## Triage Notes")
     ensure_contains(resolved_path, "## Resolution Summary")
     ensure_contains(second_triaged_path, f'feedback_id: "{expected_feedback_id}"')
@@ -666,6 +676,279 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     ensure_contains(summary_path, expected_feedback_id)
     if "must stay under" not in failure_output:
         raise AssertionError(f"Expected path-guard failure, got: {failure_output}")
+
+    archive_feedback = Path(
+        run_script(
+            "log_feedback.py",
+            str(repo),
+            "--title",
+            "Archive should not fake GitHub status",
+            "--feedback-kind",
+            "docs",
+            "--severity",
+            "low",
+            "--developer-summary",
+            "- Archive status should preserve any known GitHub issue state.",
+        )
+    )
+    archived_text = archive_feedback.read_text(encoding="utf-8")
+    archived_text = archived_text.replace('github_issue_url: ""', 'github_issue_url: "https://github.com/Gu-Heping/college-student-workflow/issues/77"')
+    archived_text = archived_text.replace('github_issue_number: ""', 'github_issue_number: "77"')
+    archived_text = archived_text.replace('github_issue_status: ""', 'github_issue_status: "open"')
+    archive_feedback.write_text(archived_text, encoding="utf-8", newline="\n")
+    archived_path = Path(
+        run_script(
+            "resolve_feedback.py",
+            str(repo),
+            str(archive_feedback),
+            "--status",
+            "archived",
+            "--resolution-summary",
+            "- Archived locally without changing the public issue state.",
+        )
+    )
+    ensure_contains(archived_path, 'github_issue_status: "open"')
+
+    github_issue_feedback = Path(
+        run_script(
+            "log_feedback.py",
+            str(repo),
+            "--title",
+            r"GitHub issue prep privacy check sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST D:\vault\private-course\notes.md C:\Users\Alice\My Vault\notes.md",
+            "--feedback-kind",
+            "install",
+            "--severity",
+            "high",
+            "--source-context",
+            r"Codex on Windows with installed version: D:\vault\private-course\version-secret.txt and /Users/alice/My Vault/notes.md",
+            "--related-artifacts",
+            r"D:\vault\private-course\notes.md,.env,/Users/alice/private-notes.md",
+            "--related-roles",
+            "feedback-operator,codex",
+            "--what-happened",
+            "- The installer exposed a private path from D:\\vault\\private-course\\notes.md, C:\\Users\\Alice\\My Vault\\notes.md and /Users/alice/private-notes.md.",
+            "--expected-behavior",
+            "- Public reports should redact private Windows paths and vault references.",
+            "--evidence",
+            "- D:\\vault\\private-course\\notes.md\n- C:\\Users\\Alice\\My Vault\\notes.md\n- /Users/alice/My Vault/notes.md\n- .env.local: DATABASE_URL=postgres://secret@example\n- sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST\n- github_pat_1234567890ABCDEFGHIJKLMNOP",
+        )
+    )
+    issue_payload = json.loads(
+        run_script(
+            "prepare_github_issue.py",
+            str(repo),
+            str(github_issue_feedback),
+        )
+    )
+    if issue_payload["feedback_id"] == "":
+        raise AssertionError("prepare_github_issue.py should include feedback_id in its JSON output")
+    if issue_payload["labels"] != ["feedback", "feedback:install", "severity:high"]:
+        raise AssertionError("prepare_github_issue.py should derive labels from feedback kind and severity")
+    if "## Feedback ID" not in issue_payload["body"] or "## Privacy Check" not in issue_payload["body"]:
+        raise AssertionError("prepare_github_issue.py should emit the expected issue body sections")
+    for leaked_text in [
+        r"D:\vault\private-course\notes.md",
+        r"C:\Users\Alice\My Vault\notes.md",
+        "/Users/alice/private-notes.md",
+        "/Users/alice/My Vault/notes.md",
+        "sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST",
+        "github_pat_1234567890ABCDEFGHIJKLMNOP",
+        "version-secret.txt",
+        "DATABASE_URL=postgres://secret@example",
+        "d-vault-private-course",
+        "my-vault-notes",
+    ]:
+        if leaked_text in issue_payload["body"]:
+            raise AssertionError(f"prepare_github_issue.py should redact sensitive text from public issue bodies: {leaked_text}")
+    for redacted_marker in [
+        "[REDACTED_WINDOWS_PATH]",
+        "[REDACTED_UNIX_PATH]",
+        "[REDACTED_TOKEN]",
+        "[REDACTED_ENV_FILE]",
+    ]:
+        if redacted_marker not in issue_payload["body"]:
+            raise AssertionError(f"prepare_github_issue.py should include redaction marker {redacted_marker}")
+    joined_warnings = "\n".join(issue_payload["privacy_warnings"])
+    for expected_warning in ["Windows absolute paths", "Unix-style absolute paths", ".env", "token-like strings", "private vault path"]:
+        if expected_warning not in joined_warnings:
+            raise AssertionError(f"Expected privacy warning containing {expected_warning!r}, got: {joined_warnings}")
+    if "fb-public-" not in issue_payload["title"] or "fb-public-" not in issue_payload["body"]:
+        raise AssertionError("prepare_github_issue.py should use a neutral public feedback identifier")
+
+    publish_failure = run_script_failure(
+        "publish_github_issue.py",
+        str(repo),
+        str(resolved_path),
+        "--github-repo",
+        "Gu-Heping/college-student-workflow",
+    )
+    if "already linked to a GitHub issue" not in publish_failure:
+        raise AssertionError("publish_github_issue.py should refuse duplicate publication for already-linked feedback")
+
+    manual_feedback = repo / "feedback" / "triaged" / "manual-path-feedback.md"
+    manual_feedback.write_text(
+        "\n".join(
+            [
+                "---",
+                'type: "feedback"',
+                'status: "triaged"',
+                f'created: "{feedback_day.isoformat()}"',
+                f'updated: "{feedback_day.isoformat()}"',
+                'tags: ["feedback"]',
+                'feedback_id: "../../notes/leak"',
+                'feedback_kind: "other"',
+                'severity: "medium"',
+                'reproducibility: "sometimes"',
+                'source_context: "manual import"',
+                'related_course: ""',
+                'related_artifacts: ""',
+                'related_roles: "feedback-operator"',
+                'github_issue_url: ""',
+                'github_issue_number: ""',
+                'github_issue_status: ""',
+                'reported_to_github_at: ""',
+                "---",
+                "",
+                "# Feedback - Manual path $(danger) `tick` test",
+                "",
+                "## What Happened",
+                "",
+                "- Fallback issue body generation should stay inside feedback/summaries.",
+                "",
+                "## Expected Behavior",
+                "",
+                "- Draft issue body should use a safe filename.",
+                "",
+                "## Why This Was Unsatisfying",
+                "",
+                "- Path traversal in feedback_id should not escape the summaries directory.",
+                "",
+                "## Likely Cause",
+                "",
+                "- The fallback body path trusted frontmatter directly.",
+                "",
+                "## Suggested Improvement",
+                "",
+                "- Normalize feedback IDs before using them in filenames.",
+                "",
+                "## Evidence",
+                "",
+                "- Manual path traversal test.",
+                "",
+                "## Follow-up",
+                "",
+                "- Confirm the generated draft body lives under feedback/summaries.",
+                "",
+            ]
+        ) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    publish_payload = json.loads(
+        run_path_script(
+            STUDENT_OS_SCRIPTS / "publish_github_issue.py",
+            str(repo),
+            str(manual_feedback),
+            "--github-repo",
+            "Gu-Heping/college-student-workflow",
+            "--json",
+            cwd=repo,
+            env={"PATH": ""},
+        )
+    )
+    if publish_payload["published"]:
+        raise AssertionError("publish_github_issue.py fallback path should not publish when gh is unavailable")
+    body_path = repo / publish_payload["body_path"]
+    ensure_exists(body_path)
+    try:
+        body_path.relative_to(repo / "feedback" / "summaries")
+    except ValueError as exc:
+        raise AssertionError("Fallback GitHub issue body should stay inside feedback/summaries") from exc
+    if body_path.name != "manual-path-feedback-github-issue-body.md":
+        raise AssertionError("Fallback body file should use a unique source-based name when feedback_id is unsafe or empty")
+    gh_command = publish_payload["gh_command"]
+    if "../../notes/leak" in gh_command:
+        raise AssertionError("Fallback gh command should not expose the raw feedback_id once a neutral public ID is used")
+    if "fb-public-" not in gh_command:
+        raise AssertionError("Fallback gh command should use the neutral public feedback identifier in issue titles")
+    if "--label" in gh_command:
+        raise AssertionError("Fallback gh command should omit labels when the repo label set cannot be verified")
+    if publish_payload["omitted_labels"] != ["feedback", "feedback:other", "severity:medium"]:
+        raise AssertionError("publish_github_issue.py should report labels omitted from fallback publication guidance")
+
+    single_quote_feedback = repo / "feedback" / "triaged" / "single-quote-empty-issue-fields.md"
+    single_quote_feedback.write_text(
+        "\n".join(
+            [
+                "---",
+                "type: 'feedback'",
+                "status: 'triaged'",
+                f"created: '{feedback_day.isoformat()}'",
+                f"updated: '{feedback_day.isoformat()}'",
+                "tags: ['feedback']",
+                "feedback_id: 'single-quote-empty'",
+                "feedback_kind: 'docs'",
+                "severity: 'low'",
+                "reproducibility: 'sometimes'",
+                "source_context: 'single quote empty metadata'",
+                "related_course: ''",
+                "related_artifacts: ''",
+                "related_roles: 'feedback-operator'",
+                "github_issue_url: ''",
+                "github_issue_number: ''",
+                "github_issue_status: ''",
+                "reported_to_github_at: ''",
+                "---",
+                "",
+                "# Feedback - Single quote empty fields",
+                "",
+                "## What Happened",
+                "",
+                "- Empty quoted GitHub fields should not block first-time publish preparation.",
+                "",
+                "## Expected Behavior",
+                "",
+                "- The publish helper should treat '' as empty metadata.",
+                "",
+                "## Why This Was Unsatisfying",
+                "",
+                "- Migrated feedback can otherwise be misclassified as already linked.",
+                "",
+                "## Likely Cause",
+                "",
+                "- Duplicate detection only stripped double quotes.",
+                "",
+                "## Suggested Improvement",
+                "",
+                "- Normalize scalar issue metadata before duplicate checks.",
+                "",
+                "## Evidence",
+                "",
+                "- Manual migrated feedback fixture.",
+                "",
+                "## Follow-up",
+                "",
+                "- Confirm fallback preparation succeeds without gh.",
+                "",
+            ]
+        ) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    single_quote_payload = json.loads(
+        run_path_script(
+            STUDENT_OS_SCRIPTS / "publish_github_issue.py",
+            str(repo),
+            str(single_quote_feedback),
+            "--github-repo",
+            "Gu-Heping/college-student-workflow",
+            "--json",
+            cwd=repo,
+            env={"PATH": ""},
+        )
+    )
+    if single_quote_payload["published"]:
+        raise AssertionError("Single-quoted empty GitHub issue fields should not force a publish path")
 
 
 def build_single_semester(repo: Path, today: date) -> None:
@@ -1295,6 +1578,27 @@ def verify_legacy_link_install_detection(tmp_root: Path) -> None:
         raise AssertionError("install_student_os.py should recreate missing top-level symlink entries for linked installs")
     if not (child_link_install / "references").is_symlink():
         raise AssertionError("install_student_os.py should materialize recreated linked entries as symlinks")
+    source_manifest = ROOT / "student-os" / ".student-os-install.json"
+    if source_manifest.exists():
+        source_manifest.unlink()
+    legacy_root = tmp_root / "legacy-link-root"
+    legacy_root.mkdir(parents=True, exist_ok=True)
+    legacy_install = legacy_root / "student-os"
+    try:
+        legacy_install.symlink_to((ROOT / "student-os").resolve(), target_is_directory=True)
+    except OSError:
+        return
+    result = install_module.install_one(
+        install_module.InstallTarget(agent="codex", scope="user", root=legacy_root),
+        "auto",
+        False,
+        source_repo="https://example.com/fork.git",
+        source_ref="main",
+    )
+    if result["manifest"] != "":
+        raise AssertionError("Legacy whole-directory symlink installs should not write manifests into the source checkout")
+    if source_manifest.exists():
+        raise AssertionError("Legacy whole-directory symlink installs should not create a manifest in the source repo")
 
 
 def verify_update_source_override_and_project_copy_detection(tmp_root: Path) -> None:
@@ -1455,6 +1759,8 @@ def verify_self_update_workflow(tmp_root: Path) -> None:
         raise AssertionError("copy-mode self-update should refresh the install manifest commit")
     if manifest["source_repo"] != str(source_repo.resolve()):
         raise AssertionError("copy-mode self-update should preserve the configured source repo in the manifest")
+    if Path(manifest["target_path"]) != install_target.resolve():
+        raise AssertionError("copy-mode self-update should record the final install target in the refreshed manifest")
     installed_updater = install_target / "scripts" / "update_student_os.py"
     ensure_exists(installed_updater)
     installed_check_payload = json.loads(
@@ -1473,6 +1779,8 @@ def verify_self_update_workflow(tmp_root: Path) -> None:
     )
     if Path(installed_check_payload["target_path"]) != install_target:
         raise AssertionError("Installed updater entrypoint should work from the installed skill directory")
+    if "local_changes" in installed_check_payload and installed_check_payload["local_changes"]:
+        raise AssertionError("Installed updater should not report its own __pycache__ artifacts as local changes")
     assert_no_pycache(install_target)
     assert_no_pycache(source_repo)
 
