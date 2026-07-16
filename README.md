@@ -1,184 +1,183 @@
 # College Student Workflow
 
-`college-student-workflow` is a repository for building a git-first student knowledge base workflow that can be operated by modern coding agents.
+这是一个面向大学生学习资料库、Obsidian vault、Markdown 笔记库的 agent workflow 仓库。  
+它的核心 skill 是 [`student-os`](./student-os/)，可以让 `Codex`、`Claude Code`、`OpenCode` 这类 agent 在动手改文件前先检查仓库和 `Git` 状态，再整理资料、生成目录、汇总改动、给出提交建议。  
+这样做的目的，是减少误改、误删、乱提交、把无关文件混进 commit 这类风险。  
+现在它已经支持安装、日常使用、仓库内反馈、发布到 GitHub Issue，以及安装后的自更新。  
+最近的变化可以看 [CHANGELOG.md](./CHANGELOG.md)。
 
-The first artifact in this repo is [`student-os`](./student-os/), a cross-agent skill designed for `Codex`, `Claude Code`, `OpenCode`, and similar tools. Its job is to help an agent treat a note vault as a markdown-first working repository for course work, homework, reviews, projects, planning, and repository hygiene.
+## 这是什么
 
-Recent notable changes are tracked in [CHANGELOG.md](./CHANGELOG.md).
+`college-student-workflow` 是一个围绕 `student-os` 搭建的仓库。你可以把它理解成：
 
-## Inspiration
+- 给学习资料库用的 agent `skill`
+- 给 Markdown-first 学习仓库用的工作规范
+- 给 AI 使用者准备的一套“先检查、再落盘、最后用 Git 留痕”的安全工作流
 
-This repository is still its own workflow system, but some ecosystem ideas are worth calling out explicitly:
+它不是单纯的笔记模板，也不是只给程序员用的工具箱。它更像一个“让 agent 在你的学习文件夹里干活时更稳一点”的操作层。
 
-- [mfisher87/planning-with-files](https://github.com/mfisher87/planning-with-files) helped reinforce the value of file-native planning artifacts that remain readable without a database.
-- [ComposioHQ/awesome-claude-skills](https://github.com/ComposioHQ/awesome-claude-skills) helped frame the idea that reusable agent skills should stay discoverable, composable, and documented as standalone units.
+## 适合谁
 
-These references informed direction and packaging rather than being copied into `student-os`.
+适合这些人：
 
-## Multi-Semester Support
+- 平时用 Obsidian、Markdown、文件夹管理课程资料的人
+- 想让 AI 帮自己整理课程、作业、复习资料，但又担心改乱文件的人
+- 希望把学习资料纳入 `Git` 管理，能看改动、能回滚、能分提交的人
+- 想把“安装 skill -> 日常使用 -> 反馈问题 -> GitHub Issue -> 后续更新”串成闭环的人
 
-`student-os` can support both single-semester and multi-semester repositories.
+如果你只是随手记几条临时笔记、完全不想接触文件夹结构或 `Git`，这个仓库可能会偏重。
 
-- Simple repositories can keep using `courses/<course>/`
-- Semester-aware repositories can use `courses/<semester>/<course>/`
-- Shared semester overviews live under `semesters/<semester>/`
-- `.student-os/repo-profile.md` starts with `semesters.enabled: false` and flips to `true` when you scaffold semester-tagged courses
-- Course and semester slugs can preserve readable Unicode names, including Chinese and combining-mark scripts such as `courses/2026-春/模电/` or `courses/2026-वसंत/हिन्दी/`
+## 它能做什么
 
-Example:
+`student-os` 目前能覆盖这些事情：
 
-```bash
-python student-os/scripts/scaffold_course.py /path/to/repo "Analog Electronics" --semester "2026 Spring"
-python student-os/scripts/rebuild_indexes.py /path/to/repo
-```
+- 初始化或检查一个学习资料库
+- 识别课程、作业、复习、任务、项目、dashboard 等目录
+- 给课程建主页、笔记区、作业区、复习区
+- 帮你整理本周资料变化，给出 `commit` 建议
+- 导入和整理 PDF、DOCX、XLSX、PPTX 等资料
+- 把使用中的问题记录到 `feedback/`
+- 把反馈整理成 GitHub Issue 草稿，并在发布前做隐私检查
+- 对已安装的 `student-os` 做安全更新，不碰你的真实 vault 内容
 
-## Feedback Loop
+一句话说：它的目标不是替你“自动写完一切”，而是让 agent 在你的知识库里工作得更可控、更可追踪。
 
-`student-os` now supports a repository-native feedback loop for structured workflow improvement.
+## 快速安装
 
-- Feedback entries live under `feedback/`
-- New feedback defaults to `feedback/raw/`
-- Triaged feedback lives in `feedback/triaged/`
-- Resolved feedback lives in `feedback/resolved/`
-- Rollups live in `feedback/summaries/`
-- Each feedback item keeps a stable `feedback_id` from capture through resolution
-- Developer-facing handoff summaries can be generated without binding the repo to GitHub Issues
+先把这个仓库 clone 到本地，然后在仓库根目录运行安装命令。
 
-You can capture feedback through the skill itself or by using the helper scripts directly:
-
-```bash
-python student-os/scripts/log_feedback.py /path/to/repo --title "PDF import lost diagram context"
-python student-os/scripts/triage_feedback.py /path/to/repo feedback/raw/2026-07-03-pdf-import-lost-diagram-context.md
-python student-os/scripts/resolve_feedback.py /path/to/repo feedback/triaged/2026-07-03-pdf-import-lost-diagram-context.md --resolution-summary "Adjusted image placeholder retention in repaired markdown."
-python student-os/scripts/summarize_feedback.py /path/to/repo --title "Weekly feedback review"
-python student-os/scripts/summarize_feedback.py /path/to/repo --title "Developer handoff" --audience developer
-```
-
-When a feedback item turns into a shipped improvement, summarize the user-visible outcome in [CHANGELOG.md](./CHANGELOG.md) instead of copying the full feedback entry.
-
-## One-command install
-
-`student-os` now ships with a cross-agent installer.
-
-On Windows:
+Windows：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-On macOS or Linux:
+macOS / Linux：
 
 ```bash
 bash ./install.sh
 ```
 
-By default this installs the skill for these user-level locations:
-
-- Codex: `$CODEX_HOME/skills/student-os` or `~/.codex/skills/student-os`
-- Claude Code: `~/.claude/skills/student-os`
-
-OpenCode can consume the same skill from `~/.claude/skills`, so the default install avoids creating a duplicate `student-os` entry under both Claude and OpenCode.
-
-The installer targets the native discovery path for each tool. User-scoped installs try a symlink first, then fall back to a copy if symlinks are unavailable. Project-scoped installs default to copy so the installed skill stays portable with the repository.
-
-Useful variants:
+如果你想手动指定安装方式，也可以直接调用安装脚本：
 
 ```bash
 python scripts/install_student_os.py --agent codex
 python scripts/install_student_os.py --agent claude --scope project
 python scripts/install_student_os.py --agent opencode
-python scripts/install_student_os.py --agent opencode --scope both --force
 python scripts/install_student_os.py --agent all --json
 ```
 
-Each successful install now writes `student-os/.student-os-install.json` into the installed skill directory. The manifest records the install source, ref, commit, install mode, target path, and tracked file snapshot so later self-updates can validate and refresh the skill safely.
+说明：
 
-## Self-update
+- `--agent` 用来指定装给谁，例如 `codex`、`claude`、`opencode`
+- `--scope user` 是装到用户目录，`--scope project` 是装到当前项目里
+- 默认会尽量用 symlink，失败时再回退到 copy
 
-Installed copies of `student-os` can now be checked and updated without touching the user's managed vault.
+安装后会生成一个安装清单 `.student-os-install.json`，后续自更新会用到它。
 
-Common natural-language intents:
+## 日常怎么用
 
-- `update student-os`
-- `更新 student-os`
-- `upgrade the skill`
+最常见的用法，不是先记脚本，而是直接对 agent 说自然语言。
 
-Script usage:
+例如：
+
+- “把这个文件夹作为我的学习 vault，先检查 Git 状态”
+- “帮我给模电课程建一个复习目录”
+- “总结这周学习资料有哪些变化，并给我 commit 建议”
+- “把这个问题反馈给开发者”
+- “更新 student-os”
+
+如果你想直接跑脚本，常见入口有这些：
+
+先检查一个已有资料库：
+
+```bash
+python student-os/scripts/inspect_repo.py /path/to/repo
+```
+
+新建一个标准资料库：
+
+```bash
+python student-os/scripts/scaffold_repo.py /path/to/repo
+```
+
+给课程建目录：
+
+```bash
+python student-os/scripts/scaffold_course.py /path/to/repo "Analog Electronics"
+```
+
+重建索引：
+
+```bash
+python student-os/scripts/rebuild_indexes.py /path/to/repo
+```
+
+汇总最近变化：
+
+```bash
+python student-os/scripts/summarize_activity.py /path/to/repo --days 7
+```
+
+如果你要处理 PDF、DOCX、XLSX、PPTX，先安装依赖：
+
+```bash
+pip install -r requirements.txt
+```
+
+## 发现问题怎么反馈
+
+现在这套流程已经不只是“本地记个反馈”，而是支持：
+
+1. 把问题记录到仓库里的 `feedback/`
+2. 做分类、triage、汇总
+3. 生成 GitHub Issue 草稿
+4. 发布前做隐私检查
+5. 发布到 GitHub 后把 issue 信息回写到本地 feedback 条目
+
+常见命令：
+
+```bash
+python student-os/scripts/log_feedback.py /path/to/repo --title "PDF 导入后图示丢失"
+python student-os/scripts/triage_feedback.py /path/to/repo feedback/raw/2026-07-16-pdf.md
+python student-os/scripts/summarize_feedback.py /path/to/repo --title "Weekly feedback review"
+python student-os/scripts/prepare_github_issue.py /path/to/repo feedback/triaged/example.md
+python student-os/scripts/publish_github_issue.py /path/to/repo feedback/triaged/example.md --json
+```
+
+隐私提醒很重要：
+
+- 真实学习 vault 不建议公开上传
+- 课本内容、简历、个人资料、大文件、`.env` 不应随便提交
+- 发 GitHub Issue 前，一定要先看草稿和隐私提示
+- 如果脚本检测到隐私风险，默认应该先停在 draft，而不是直接发布
+
+## 如何更新 student-os
+
+`student-os` 支持安装后的安全更新，而且更新目标只是 skill 本身，不会改你的学习 vault 内容。
+
+先检查：
 
 ```bash
 python ~/.codex/skills/student-os/scripts/update_student_os.py --check
+```
+
+再应用更新：
+
+```bash
 python ~/.codex/skills/student-os/scripts/update_student_os.py --apply --target ~/.codex/skills/student-os
 ```
 
-Notes:
+说明：
 
-- `--check` compares the installed commit with the latest commit from the configured source repo.
-- `--apply` only updates the installed skill files, not the user's knowledge repository.
-- copy installs create a backup before replacement and print a restore command.
-- installs with local edits require `--force` before overwrite.
-- project-scoped installs under `.codex/skills/student-os` can be discovered automatically when you run the updater from that project.
+- `--check` 会比较当前安装版本和远端最新版本
+- `--apply` 会更新 skill 文件
+- copy 安装会先做备份，并给出 rollback 命令
+- 如果本地安装有手改内容，通常需要显式 `--force`
 
-## Why this repo exists
+## 推荐的知识库结构
 
-Most student note systems are either:
-
-- good at storing notes, but weak at structured execution
-- good at task tracking, but disconnected from learning materials
-- good at AI assistance, but poor at long-term version control
-
-This repository is meant to close that gap. The goal is to make a student knowledge base:
-
-- easy for humans to read and maintain
-- easy for agents to inspect and update
-- safe to manage with Git
-- broad enough to support real student workflows instead of only note-taking
-
-## What `student-os` does
-
-`student-os` is a repository operating skill, not just a note template pack.
-
-It helps an agent:
-
-- initialize or standardize a student knowledge repository
-- manage course notes, homework, reviews, and reports
-- track tasks, deadlines, and weekly planning
-- organize project work and milestone notes
-- rebuild indexes and summarize recent activity
-- inspect git status and separate task-specific changes from unrelated dirty work
-- prepare branch suggestions, commit messages, and review-friendly change summaries
-
-## Design goals
-
-The current design follows a few core principles:
-
-- Markdown first: core knowledge should stay readable without proprietary tooling
-- Git friendly: changes should be reviewable, grouped, and safe to commit
-- Agent friendly: rules, templates, and scripts should help an agent act consistently
-- Legacy tolerant: existing vaults should be mappable instead of force-renamed
-- Reproducible: generated indexes and state should be easy to rebuild
-
-## Repository layout
-
-```text
-student-os/
-  SKILL.md
-  agents/
-  references/
-  scripts/
-  templates/
-```
-
-## Inside `student-os`
-
-- [student-os/SKILL.md](./student-os/SKILL.md): main skill entry point, operating rules, and output contract
-- [student-os/agents/openai.yaml](./student-os/agents/openai.yaml): UI-facing metadata for environments that support skill discovery
-- [student-os/references](./student-os/references): workflow guides for repository governance, academic work, planning, projects, and knowledge operations
-- [student-os/scripts](./student-os/scripts): helper scripts for scaffolding, inspection, index rebuilding, and activity summaries
-- [student-os/templates](./student-os/templates): reusable markdown templates for courses, homework, tasks, projects, reviews, and repo profile setup
-
-## Standard knowledge base contract
-
-`student-os` defaults to this markdown-first structure for a managed repository:
+推荐的基础结构如下：
 
 ```text
 courses/
@@ -188,134 +187,98 @@ reviews/
 references/
 dashboards/
 .student-os/
+feedback/
 ```
 
-Inside `.student-os/`, the skill expects:
+其中：
 
-- `repo-profile.md`: repository rules and path mappings
-- `index/`: generated markdown indexes
-- `state/`: regenerable machine-readable state
+- `courses/` 放课程主页、课堂笔记、作业、复习资料
+- `projects/` 放课程项目、竞赛项目、个人项目
+- `tasks/` 放 deadline、每周计划、待办
+- `reviews/` 放期中期末复习产物
+- `references/` 放外部资料、导入材料、课本摘要
+- `dashboards/` 放总览、周报、进度页
+- `.student-os/` 放 repo profile、索引、状态缓存
+- `feedback/` 放使用过程中的问题反馈与汇总
 
-If a repository already uses a different structure, the skill is designed to map it instead of forcing a rename.
+如果你是多学期管理，也可以用：
 
-## Quick start
+- `courses/<semester>/<course>/`
+- `semesters/<semester>/`
 
-Install the file-ingestion helper dependencies before using the PDF, DOCX, XLSX, or PPTX scripts:
+`student-os` 不强制你把旧 vault 全部改名，它更倾向于“识别和映射”，而不是“一刀切重构”。
 
-```bash
-pip install -r requirements.txt
-```
+## 给开发者看的说明
 
-If you want the skill to be discoverable by your agents before working in a repository, run the installer above first.
+如果你是来改这个仓库本身的，可以重点看这些位置：
 
-### 1. Inspect an existing vault
+- [`student-os/`](./student-os/)：核心 skill
+- [`student-os/SKILL.md`](./student-os/SKILL.md)：主入口和行为合同
+- [`student-os/references/`](./student-os/references/)：各工作流说明
+- [`student-os/scripts/`](./student-os/scripts/)：脚本入口
+- [`student-os/templates/`](./student-os/templates/)：模板
+- [`CHANGELOG.md`](./CHANGELOG.md)：版本变化
 
-```bash
-python student-os/scripts/inspect_repo.py /path/to/repo
-```
+当前已经覆盖的重点能力包括：
 
-Use this first when you want to understand whether a target directory is already a git repo, how many markdown files it has, and whether conflict files or dirty files exist.
+- Git-first 的资料库治理
+- 多学期课程结构
+- 文件导入处理
+- feedback -> GitHub Issue 发布闭环
+- 安装清单和 skill 自更新
 
-### 2. Scaffold a new student repository
+有几条实现原则建议继续保持：
 
-```bash
-python student-os/scripts/scaffold_repo.py /path/to/repo
-```
+- Markdown first
+- Git friendly
+- agent friendly
+- 旧资料库尽量映射接入，而不是强制迁移
+- 可再生索引和状态尽量脚本化
 
-This creates the default directory contract, a starter `.gitignore`, and `.student-os/repo-profile.md`.
+## 测试
 
-### 3. Rebuild indexes
-
-```bash
-python student-os/scripts/rebuild_indexes.py /path/to/repo
-```
-
-This regenerates course, project, task, and recent-activity indexes.
-
-### 4. Summarize recent activity
-
-```bash
-python student-os/scripts/summarize_activity.py /path/to/repo --days 7
-```
-
-This prints a short markdown-oriented activity summary for recent repository work.
-
-## Examples and smoke tests
-
-This repository now includes generated example student knowledge bases and a repeatable smoke-test runner.
-
-- `examples/single-semester-demo/` shows the default `courses/<course>/` layout.
-- `examples/single-semester-demo/` also exercises the feedback lifecycle from raw capture to resolved summary.
-- `examples/single-semester-demo/` now includes imported DOCX, XLSX, PPTX, and PDF-derived markdown artifacts.
-- `examples/multi-semester-demo/` shows semester-aware course scaffolding and semester overviews.
-- `examples/legacy-layout-demo/` keeps a legacy-style course folder without a generated course home so fallback discovery stays covered.
-
-Run the smoke tests:
+最直接的回归测试方式：
 
 ```bash
 python scripts/run_smoke_tests.py
 ```
 
-Refresh the checked-in examples from the real scripts:
+如果你要先检查关键脚本能不能编译：
+
+```bash
+python -m py_compile scripts/install_student_os.py
+python -m py_compile scripts/run_smoke_tests.py
+python -m py_compile student-os/scripts/update_student_os.py
+```
+
+如果你想刷新示例仓库：
 
 ```bash
 python scripts/run_smoke_tests.py --refresh-examples
 ```
 
-The smoke suite now covers:
+仓库里保留了这些重要入口，请不要在 README 里丢掉：
 
-- repository scaffolding and indexing
-- feedback capture, triage, resolve, and developer summaries
-- richer weekly planning and weekly dashboard generation
-- DOCX import into course references
-- XLSX import into dashboard-style summaries
-- PPTX import into slide summaries
-- PDF probe, generic import, MinerU-style repair flow, and direct markdown repair rules
-
-## Example use cases
-
-Typical agent requests this skill is meant to support:
-
-- "Turn this note directory into a student knowledge base repo"
-- "Add a new course and create its note, homework, and review folders"
-- "Create this week's homework page and link it to a deadline task"
-- "Summarize what changed this week and prepare a commit message"
-- "Check which current changes are safe to commit and which ones should be ignored"
-- "Map my existing Obsidian vault into the standard contract without renaming everything"
-
-`group_git_changes.py` now separates normal student-workflow edits from default hold-back candidates such as sync-conflict files, temporary logs, caches, and obvious binary media or archive artifacts, so mixed dirty worktrees are easier to review safely.
-
-## Current status
-
-This repository currently contains the initial version of the `student-os` skill and its supporting scripts, references, and templates.
-
-What already exists:
-
-- one top-level cross-agent skill
-- five workflow reference areas
-- starter templates for common student artifacts
-- helper scripts for repository setup and reporting
-- a repository-native feedback lifecycle with triage, resolution, and developer-handoff summaries
-- a planning workbench that builds weekly plans and weekly dashboards from deadlines, inbox items, review targets, exams, and import triage
-- repeatable import regression coverage with generated DOCX, XLSX, PPTX, and PDF examples
-
-What is still likely to evolve:
-
-- richer migration support for legacy vaults
-- more structured Git workflow helpers
-- stronger automation around dashboards, summaries, and review generation
-- broader end-to-end regression coverage for imports and multi-role collaboration
-- more edge-case coverage for large or messy imported source files
+- [`student-os/`](./student-os/)
+- [`CHANGELOG.md`](./CHANGELOG.md)
+- [`scripts/install_student_os.py`](./scripts/install_student_os.py)
+- [`scripts/run_smoke_tests.py`](./scripts/run_smoke_tests.py)
 
 ## Roadmap
 
-Planned directions for the next iterations:
+接下来比较值得继续推进的方向：
 
-1. Add more robust legacy-vault detection and mapping rules.
-2. Expand templates for labs, weekly plans, and course dashboards.
-3. Expand Git grouping into richer hold-back and review guidance for mixed dirty worktrees.
-4. Expand the example repositories and smoke tests into broader end-to-end regression coverage, especially for multi-role collaboration, planning edge cases, and harder import edge cases.
+1. 更强的旧 vault 识别和迁移建议
+2. 更细的 Git change grouping 与 hold-back 规则
+3. 更强的课程 / 作业 / 复习自动串联
+4. 更稳的导入处理回归测试
+5. 更完整的多 agent 协作体验
+6. 更细的反馈闭环与 GitHub Issue / CHANGELOG 联动
 
-## Notes
+## 补充说明
 
-This repository is intentionally focused on text-first, version-controlled workflows. Binary-heavy assets can still exist in downstream repositories, but they are not the primary design target of the initial `student-os` workflow.
+这个仓库默认是“文本优先、版本控制优先”的路线。
+
+- 二进制大文件可以存在，但不是第一设计目标
+- 真实学习资料库往往包含隐私，不建议直接公开
+- 真正重要的不是“让 agent 自动做更多”，而是“让它做事前后都能被你看懂、检查、回滚”
