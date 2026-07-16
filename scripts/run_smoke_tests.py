@@ -714,23 +714,23 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
             "log_feedback.py",
             str(repo),
             "--title",
-            r"GitHub issue prep privacy check sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST D:\vault\private-course\notes.md",
+            r"GitHub issue prep privacy check sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST D:\vault\private-course\notes.md C:\Users\Alice\My Vault\notes.md",
             "--feedback-kind",
             "install",
             "--severity",
             "high",
             "--source-context",
-            r"Codex on Windows with installed version: D:\vault\private-course\version-secret.txt",
+            r"Codex on Windows with installed version: D:\vault\private-course\version-secret.txt and /Users/alice/My Vault/notes.md",
             "--related-artifacts",
             r"D:\vault\private-course\notes.md,.env,/Users/alice/private-notes.md",
             "--related-roles",
             "feedback-operator,codex",
             "--what-happened",
-            "- The installer exposed a private path from D:\\vault\\private-course\\notes.md and /Users/alice/private-notes.md.",
+            "- The installer exposed a private path from D:\\vault\\private-course\\notes.md, C:\\Users\\Alice\\My Vault\\notes.md and /Users/alice/private-notes.md.",
             "--expected-behavior",
             "- Public reports should redact private Windows paths and vault references.",
             "--evidence",
-            "- D:\\vault\\private-course\\notes.md\n- /Users/alice/private-notes.md\n- .env\n- sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST\n- github_pat_1234567890ABCDEFGHIJKLMNOP",
+            "- D:\\vault\\private-course\\notes.md\n- C:\\Users\\Alice\\My Vault\\notes.md\n- /Users/alice/My Vault/notes.md\n- .env.local: DATABASE_URL=postgres://secret@example\n- sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST\n- github_pat_1234567890ABCDEFGHIJKLMNOP",
         )
     )
     issue_payload = json.loads(
@@ -748,10 +748,15 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         raise AssertionError("prepare_github_issue.py should emit the expected issue body sections")
     for leaked_text in [
         r"D:\vault\private-course\notes.md",
+        r"C:\Users\Alice\My Vault\notes.md",
         "/Users/alice/private-notes.md",
+        "/Users/alice/My Vault/notes.md",
         "sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST",
         "github_pat_1234567890ABCDEFGHIJKLMNOP",
         "version-secret.txt",
+        "DATABASE_URL=postgres://secret@example",
+        "d-vault-private-course",
+        "my-vault-notes",
     ]:
         if leaked_text in issue_payload["body"]:
             raise AssertionError(f"prepare_github_issue.py should redact sensitive text from public issue bodies: {leaked_text}")
@@ -767,6 +772,8 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     for expected_warning in ["Windows absolute paths", "Unix-style absolute paths", ".env", "token-like strings", "private vault path"]:
         if expected_warning not in joined_warnings:
             raise AssertionError(f"Expected privacy warning containing {expected_warning!r}, got: {joined_warnings}")
+    if "fb-public-" not in issue_payload["title"] or "fb-public-" not in issue_payload["body"]:
+        raise AssertionError("prepare_github_issue.py should use a neutral public feedback identifier")
 
     publish_failure = run_script_failure(
         "publish_github_issue.py",
@@ -860,12 +867,88 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     if body_path.name != "manual-path-feedback-github-issue-body.md":
         raise AssertionError("Fallback body file should use a unique source-based name when feedback_id is unsafe or empty")
     gh_command = publish_payload["gh_command"]
-    if "'../../notes/leak: Manual path $(danger) `tick` test'" not in gh_command:
-        raise AssertionError("Fallback gh command should shell-quote feedback-controlled titles safely")
+    if "../../notes/leak" in gh_command:
+        raise AssertionError("Fallback gh command should not expose the raw feedback_id once a neutral public ID is used")
+    if "fb-public-" not in gh_command:
+        raise AssertionError("Fallback gh command should use the neutral public feedback identifier in issue titles")
     if "--label" in gh_command:
         raise AssertionError("Fallback gh command should omit labels when the repo label set cannot be verified")
     if publish_payload["omitted_labels"] != ["feedback", "feedback:other", "severity:medium"]:
         raise AssertionError("publish_github_issue.py should report labels omitted from fallback publication guidance")
+
+    single_quote_feedback = repo / "feedback" / "triaged" / "single-quote-empty-issue-fields.md"
+    single_quote_feedback.write_text(
+        "\n".join(
+            [
+                "---",
+                "type: 'feedback'",
+                "status: 'triaged'",
+                f"created: '{feedback_day.isoformat()}'",
+                f"updated: '{feedback_day.isoformat()}'",
+                "tags: ['feedback']",
+                "feedback_id: 'single-quote-empty'",
+                "feedback_kind: 'docs'",
+                "severity: 'low'",
+                "reproducibility: 'sometimes'",
+                "source_context: 'single quote empty metadata'",
+                "related_course: ''",
+                "related_artifacts: ''",
+                "related_roles: 'feedback-operator'",
+                "github_issue_url: ''",
+                "github_issue_number: ''",
+                "github_issue_status: ''",
+                "reported_to_github_at: ''",
+                "---",
+                "",
+                "# Feedback - Single quote empty fields",
+                "",
+                "## What Happened",
+                "",
+                "- Empty quoted GitHub fields should not block first-time publish preparation.",
+                "",
+                "## Expected Behavior",
+                "",
+                "- The publish helper should treat '' as empty metadata.",
+                "",
+                "## Why This Was Unsatisfying",
+                "",
+                "- Migrated feedback can otherwise be misclassified as already linked.",
+                "",
+                "## Likely Cause",
+                "",
+                "- Duplicate detection only stripped double quotes.",
+                "",
+                "## Suggested Improvement",
+                "",
+                "- Normalize scalar issue metadata before duplicate checks.",
+                "",
+                "## Evidence",
+                "",
+                "- Manual migrated feedback fixture.",
+                "",
+                "## Follow-up",
+                "",
+                "- Confirm fallback preparation succeeds without gh.",
+                "",
+            ]
+        ) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    single_quote_payload = json.loads(
+        run_path_script(
+            STUDENT_OS_SCRIPTS / "publish_github_issue.py",
+            str(repo),
+            str(single_quote_feedback),
+            "--github-repo",
+            "Gu-Heping/college-student-workflow",
+            "--json",
+            cwd=repo,
+            env={"PATH": ""},
+        )
+    )
+    if single_quote_payload["published"]:
+        raise AssertionError("Single-quoted empty GitHub issue fields should not force a publish path")
 
 
 def build_single_semester(repo: Path, today: date) -> None:

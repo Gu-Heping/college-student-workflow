@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -10,12 +11,13 @@ from feedback_utils import extract_title, normalize_scalar, parse_frontmatter, r
 
 
 DEFAULT_LABEL = "feedback"
-WINDOWS_PATH_RE = re.compile(r"[A-Za-z]:\\[^\s`]+")
-UNIX_PATH_RE = re.compile(r"(?:(?<=\s)|^)/(?:Users|home|var|tmp|opt|srv|mnt)/[^\s`]+")
+WINDOWS_PATH_RE = re.compile(r"[A-Za-z]:\\[^\r\n`]+")
+UNIX_PATH_RE = re.compile(r"(?:(?<=\s)|^)/(?:Users|home|var|tmp|opt|srv|mnt)/[^\r\n`]+")
 TOKEN_RE = re.compile(
     r"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9][A-Za-z0-9\-]{19,}|AIza[0-9A-Za-z\-_]{20,})"
 )
 VAULT_PATH_RE = re.compile(r"(?i)(?:[A-Za-z]:\\|/)[^\s`]*(?:vault)[^\s`]*")
+ENV_FILE_RE = re.compile(r"(?im)(?<![A-Za-z0-9_.-])\.env(?:\.[A-Za-z0-9_.-]+)*(?::[^\r\n]*)?")
 
 
 def extract_section(body: str, heading: str) -> str:
@@ -42,7 +44,7 @@ def detect_privacy_warnings(text: str) -> list[str]:
         warnings.append("Contains Windows absolute paths; redact user-specific local paths before public posting.")
     if UNIX_PATH_RE.search(text):
         warnings.append("Contains Unix-style absolute paths; redact user-specific local paths before public posting.")
-    if ".env" in text:
+    if ".env" in text.lower():
         warnings.append("Mentions .env or environment files; verify no secrets or private configuration are included.")
     if TOKEN_RE.search(text):
         warnings.append("Contains token-like strings; remove secrets before posting publicly.")
@@ -57,8 +59,16 @@ def redact_sensitive_text(text: str) -> str:
     redacted = UNIX_PATH_RE.sub("[REDACTED_UNIX_PATH]", redacted)
     redacted = TOKEN_RE.sub("[REDACTED_TOKEN]", redacted)
     redacted = VAULT_PATH_RE.sub("[REDACTED_VAULT_PATH]", redacted)
-    redacted = re.sub(r"(?i)(?<![A-Za-z0-9_.-])\.env(?![A-Za-z0-9_.-])", "[REDACTED_ENV_FILE]", redacted)
+    redacted = ENV_FILE_RE.sub("[REDACTED_ENV_FILE]", redacted)
     return redacted
+
+
+def public_feedback_id(frontmatter: dict[str, str], feedback_path: Path) -> str:
+    created = normalize_scalar(frontmatter.get("created", "")) or "unknown"
+    compact = re.sub(r"[^0-9]", "", created)[:8] or "unknown"
+    source = normalize_scalar(frontmatter.get("feedback_id", "")) or feedback_path.as_posix()
+    digest = hashlib.sha1(source.encode("utf-8")).hexdigest()[:8]
+    return f"fb-public-{compact}-{digest}"
 
 
 def likely_area(frontmatter: dict[str, str]) -> str:
@@ -84,7 +94,7 @@ def issue_labels(frontmatter: dict[str, str]) -> list[str]:
 
 
 def build_issue_title(frontmatter: dict[str, str], feedback_path: Path, body: str) -> str:
-    title = redact_sensitive_text(normalize_scalar(frontmatter.get("feedback_id", "")) or feedback_path.stem)
+    title = public_feedback_id(frontmatter, feedback_path)
     body_title = redact_sensitive_text(extract_title(body) or feedback_path.stem.replace("-", " "))
     return f"{title}: {body_title}"
 
@@ -109,9 +119,8 @@ def infer_agent_runtime(frontmatter: dict[str, str], body: str) -> str:
 
 
 def build_issue_body(feedback_path: Path, frontmatter: dict[str, str], body: str, warnings: list[str]) -> str:
-    feedback_id = normalize_scalar(frontmatter.get("feedback_id", ""))
-    display_feedback_id = redact_sensitive_text(feedback_id or feedback_path.stem)
-    display_feedback_path = redact_sensitive_text(feedback_path.as_posix())
+    display_feedback_id = public_feedback_id(frontmatter, feedback_path)
+    display_feedback_path = redact_sensitive_text(feedback_path.name)
     what_happened = redact_sensitive_text(extract_section(body, "What Happened") or "- ")
     expected_behavior = redact_sensitive_text(extract_section(body, "Expected Behavior") or "- ")
     evidence = redact_sensitive_text(extract_section(body, "Evidence") or "- ")

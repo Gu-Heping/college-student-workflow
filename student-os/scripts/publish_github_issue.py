@@ -12,7 +12,7 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
-from feedback_utils import parse_frontmatter, quoted_yaml_string, resolve_feedback_path, write_feedback
+from feedback_utils import normalize_scalar, parse_frontmatter, quoted_yaml_string, resolve_feedback_path, write_feedback
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
@@ -88,8 +88,8 @@ def store_issue_metadata(repo: Path, feedback_path: Path, *, issue_url: str, iss
 
 
 def existing_issue_link(frontmatter: dict[str, str]) -> tuple[str, str]:
-    issue_url = str(frontmatter.get("github_issue_url", "")).strip().strip('"')
-    issue_number = str(frontmatter.get("github_issue_number", "")).strip().strip('"')
+    issue_url = normalize_scalar(str(frontmatter.get("github_issue_url", "")))
+    issue_number = normalize_scalar(str(frontmatter.get("github_issue_number", "")))
     return issue_url, issue_number
 
 
