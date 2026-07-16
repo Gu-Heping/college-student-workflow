@@ -39,6 +39,7 @@ Use these scripts when helpful:
 - `scripts/triage_feedback.py` for classifying and moving feedback into the triaged queue.
 - `scripts/resolve_feedback.py` for recording the shipped fix and closing the loop.
 - `scripts/summarize_feedback.py` for feedback summaries, open issues, and recent resolutions.
+- `scripts/update_student_os.py` for installed-skill update checks, safe apply, and rollback guidance.
 - `scripts/build_week_plan.py` for weekly plans, near-term deadlines, and exam countdown material.
 - `scripts/build_review_indexes.py` for homework and review indexes.
 - `scripts/group_git_changes.py` for student-task change grouping and commit prefix suggestions.

@@ -16,6 +16,7 @@
 ### Changed
 
 - 扩展安装器，使每次成功安装都写入 `.student-os-install.json`，并为后续安全更新保留安装来源、提交版本与文件快照。
+- 将自更新实现内聚到 `student-os/scripts/update_student_os.py`，使已安装 skill 自身即可执行检查、更新与回滚，而仓库根目录脚本保留为兼容包装层。
 - 扩展 `README.md` 与 `SKILL.md`，明确 `update student-os` / `更新 student-os` 属于 skill maintenance，不会触碰用户知识库。
 - 扩展 `feedback-ops` reference、`feedback` command、`feedback-operator` companion 和 `SKILL.md`，使反馈工作流覆盖记录、triage、resolve 和开发者交接四个阶段。
 - 扩展 smoke test，将反馈生命周期纳入示例仓库与回归验证。
@@ -31,6 +32,7 @@
 ### Fixed
 
 - 修复安装流程缺少可追踪安装元数据的问题，避免后续自更新无法判断安装来源、覆盖风险与回滚路径。
+- 修复自更新对 legacy symlink 安装、project-scoped copy 安装、manifest 缺失安装和 fork/local source 安装的兼容与安全边界，避免误触用户 vault 仓库或静默切回上游源。
 - 修复大文件检查对损坏符号链接的 `stat()` 崩溃问题，并补齐“已暂存但工作区已缩小/删除”的 oversized 文件识别，避免 `inspect_repo.py` 与 `group_git_changes.py` 漏报 index 中的大体积产物。
 - 修复 `group_git_changes.py` CLI 输出仍将中文路径做 ASCII 转义的问题，改为直接输出 UTF-8 可读 JSON，并由 smoke test 锁定原始 stdout 行为。
 - 修复 `run_smoke_tests.py --refresh-examples` 会把 `inspect_repo.py` 的 hygiene fixture 污染进 `examples/multi-semester-demo` 的问题，改为在隔离副本中验证仓库检查输出。

@@ -89,6 +89,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print machine-readable output.",
     )
+    parser.add_argument(
+        "--source-repo",
+        default=None,
+        help="Override the recorded update source repository for the installed manifest.",
+    )
+    parser.add_argument(
+        "--source-ref",
+        default=None,
+        help="Override the recorded update source ref for the installed manifest.",
+    )
     return parser.parse_args()
 
 
@@ -173,6 +183,13 @@ def discover_source_ref() -> str:
     return ref
 
 
+def discover_source_repo() -> str:
+    remote = git_output("config", "--get", "remote.origin.url")
+    if remote:
+        return remote
+    return str(REPO_ROOT.resolve())
+
+
 def discover_source_commit() -> str:
     return git_output("rev-parse", "HEAD")
 
@@ -214,7 +231,7 @@ def build_install_manifest(
     scope: str,
     install_method: str,
     used_symlink: bool,
-    source_repo: str = DEFAULT_SOURCE_REPO,
+    source_repo: str | None = None,
     source_ref: str | None = None,
     installed_commit: str | None = None,
     linked_source_path: str = "",
@@ -222,7 +239,7 @@ def build_install_manifest(
     return {
         "manifest_version": 1,
         "skill_name": SKILL_NAME,
-        "source_repo": source_repo,
+        "source_repo": source_repo or discover_source_repo(),
         "source_ref": source_ref or discover_source_ref(),
         "installed_commit": installed_commit or discover_source_commit(),
         "installed_at": utc_now_iso(),
@@ -244,6 +261,8 @@ def write_manifest(destination: Path, manifest: dict[str, object]) -> Path:
 
 
 def same_link_install(destination: Path) -> bool:
+    if destination.is_symlink() and destination.resolve() == SOURCE_SKILL_DIR.resolve():
+        return True
     skill_link = destination / "SKILL.md"
     return destination.exists() and skill_link.is_symlink() and skill_link.resolve() == (SOURCE_SKILL_DIR / "SKILL.md").resolve()
 
@@ -274,7 +293,14 @@ def preferred_methods(target: InstallTarget, mode: str) -> list[str]:
     return ["link", "copy"]
 
 
-def install_one(target: InstallTarget, mode: str, force: bool) -> dict[str, str]:
+def install_one(
+    target: InstallTarget,
+    mode: str,
+    force: bool,
+    *,
+    source_repo: str | None,
+    source_ref: str | None,
+) -> dict[str, str]:
     target.root.mkdir(parents=True, exist_ok=True)
     destination = target.root / SKILL_NAME
 
@@ -286,6 +312,8 @@ def install_one(target: InstallTarget, mode: str, force: bool) -> dict[str, str]
                 scope=target.scope,
                 install_method="linked",
                 used_symlink=True,
+                source_repo=source_repo,
+                source_ref=source_ref,
                 linked_source_path=str(SOURCE_SKILL_DIR.resolve()),
             )
             manifest_path = write_manifest(destination, manifest)
@@ -314,6 +342,8 @@ def install_one(target: InstallTarget, mode: str, force: bool) -> dict[str, str]
                 scope=target.scope,
                 install_method=installed_as,
                 used_symlink=installed_as == "linked",
+                source_repo=source_repo,
+                source_ref=source_ref,
                 linked_source_path=str(SOURCE_SKILL_DIR.resolve()) if installed_as == "linked" else "",
             )
             manifest_path = write_manifest(destination, manifest)
@@ -340,19 +370,30 @@ def install_one(target: InstallTarget, mode: str, force: bool) -> dict[str, str]
 def main() -> int:
     args = parse_args()
     ensure_skill_source()
+    source_repo = args.source_repo or discover_source_repo()
+    source_ref = args.source_ref or discover_source_ref()
 
     agents = expand_agents(args.agent or ["all"])
     project_root = Path(args.project_root).resolve()
     targets = dedupe_targets(build_targets(agents, args.scope, project_root))
-    results = [install_one(target, args.mode, args.force) for target in targets]
+    results = [
+        install_one(
+            target,
+            args.mode,
+            args.force,
+            source_repo=source_repo,
+            source_ref=source_ref,
+        )
+        for target in targets
+    ]
 
     if args.json:
         print(
             json.dumps(
                 {
                     "source": str(SOURCE_SKILL_DIR),
-                    "source_repo": DEFAULT_SOURCE_REPO,
-                    "source_ref": discover_source_ref(),
+                    "source_repo": source_repo,
+                    "source_ref": source_ref,
                     "source_commit": discover_source_commit(),
                     "results": results,
                 },

@@ -38,11 +38,17 @@ This workflow is skill maintenance only.
 
 ## Command path
 
-Use the repository updater:
+Use the installed skill updater:
 
 ```bash
-python scripts/update_student_os.py --check
-python scripts/update_student_os.py --apply --target /path/to/installed/student-os
+python /path/to/installed/student-os/scripts/update_student_os.py --check
+python /path/to/installed/student-os/scripts/update_student_os.py --apply --target /path/to/installed/student-os
+```
+
+When developing from the source checkout, the repository-level wrapper remains available:
+
+```bash
+python scripts/update_student_os.py --check --target /path/to/installed/student-os
 ```
 
 Useful options:
@@ -69,5 +75,5 @@ When the update workflow runs, the final response should include:
 
 Default rollback guidance depends on install type:
 
-- copy install: restore from the generated backup using `scripts/update_student_os.py --restore-backup ...`
+- copy install: restore from the generated backup using the installed updater, for example `/path/to/installed/student-os/scripts/update_student_os.py --restore-backup ...`
 - git or symlink install: checkout the previously reported commit in the source repository if the user explicitly wants to roll back

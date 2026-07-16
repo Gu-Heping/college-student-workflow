@@ -106,8 +106,8 @@ Common natural-language intents:
 Script usage:
 
 ```bash
-python scripts/update_student_os.py --check
-python scripts/update_student_os.py --apply --target ~/.codex/skills/student-os
+python ~/.codex/skills/student-os/scripts/update_student_os.py --check
+python ~/.codex/skills/student-os/scripts/update_student_os.py --apply --target ~/.codex/skills/student-os
 ```
 
 Notes:
@@ -116,6 +116,7 @@ Notes:
 - `--apply` only updates the installed skill files, not the user's knowledge repository.
 - copy installs create a backup before replacement and print a restore command.
 - installs with local edits require `--force` before overwrite.
+- project-scoped installs under `.codex/skills/student-os` can be discovered automatically when you run the updater from that project.
 
 ## Why this repo exists
 

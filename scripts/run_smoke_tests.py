@@ -67,6 +67,24 @@ def run_root_script(name: str, *args: str, cwd: Path = ROOT, env: dict[str, str]
     return result.stdout.strip()
 
 
+def run_path_script(script_path: Path, *args: str, cwd: Path, env: dict[str, str] | None = None) -> str:
+    result = subprocess.run(
+        [sys.executable, "-B", str(script_path), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=cwd,
+        env={
+            **os.environ,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONIOENCODING": "utf-8",
+            **(env or {}),
+        },
+    )
+    return result.stdout.strip()
+
+
 def run_script_failure(name: str, *args: str, cwd: Path = ROOT) -> str:
     script_path = STUDENT_OS_SCRIPTS / name
     result = subprocess.run(
@@ -101,6 +119,26 @@ def run_root_script_failure(name: str, *args: str, cwd: Path = ROOT, env: dict[s
     )
     if result.returncode == 0:
         raise AssertionError(f"Expected {name} to fail for args {args!r}")
+    return (result.stderr or result.stdout).strip()
+
+
+def run_path_script_failure(script_path: Path, *args: str, cwd: Path, env: dict[str, str] | None = None) -> str:
+    result = subprocess.run(
+        [sys.executable, "-B", str(script_path), *args],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=cwd,
+        env={
+            **os.environ,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONIOENCODING": "utf-8",
+            **(env or {}),
+        },
+    )
+    if result.returncode == 0:
+        raise AssertionError(f"Expected {script_path.name} to fail for args {args!r}")
     return (result.stderr or result.stdout).strip()
 
 
@@ -1158,6 +1196,8 @@ def seed_fake_student_os_source(repo: Path, *, version_label: str) -> str:
         encoding="utf-8",
         newline="\n",
     )
+    shutil.copy2(STUDENT_OS_SCRIPTS / "update_student_os.py", scripts_root / "update_student_os.py")
+    shutil.copy2(STUDENT_OS_SCRIPTS / "update_student_os_impl.py", scripts_root / "update_student_os_impl.py")
     return commit_all(repo, f"fixture: {version_label}")
 
 
@@ -1192,6 +1232,7 @@ def assert_no_pycache(root: Path) -> None:
 
 
 def verify_install_manifest_generation(tmp_root: Path) -> None:
+    install_module = load_root_script_module("install_student_os.py", "student_os_install_manifest_smoke")
     codex_home = tmp_root / "codex-home"
     payload = json.loads(
         run_root_script(
@@ -1231,6 +1272,19 @@ def verify_install_manifest_generation(tmp_root: Path) -> None:
         raise AssertionError("install manifest should record the skill name")
     if manifest["install_method"] != "copied":
         raise AssertionError("copy installs should record copied as the install method")
+    if manifest["source_repo"] != install_module.discover_source_repo():
+        raise AssertionError("install manifests should record the actual source repo by default")
+
+
+def verify_legacy_link_install_detection(tmp_root: Path) -> None:
+    install_module = load_root_script_module("install_student_os.py", "student_os_install_link_smoke")
+    legacy_destination = tmp_root / "legacy-linked-student-os"
+    try:
+        legacy_destination.symlink_to((ROOT / "student-os").resolve(), target_is_directory=True)
+    except OSError:
+        return
+    if not install_module.same_link_install(legacy_destination):
+        raise AssertionError("install_student_os.py should recognize legacy whole-directory symlink installs")
 
 
 def verify_update_source_override_and_project_copy_detection(tmp_root: Path) -> None:
@@ -1283,6 +1337,47 @@ def verify_update_source_override_and_project_copy_detection(tmp_root: Path) -> 
     project_info = update_module.build_install_info(project_install, None, None)
     if project_info.install_kind != "copy":
         raise AssertionError("Copied project installs inside a git repository should still be treated as copy installs")
+
+    env_backup = {name: os.environ.get(name) for name in ["HOME", "USERPROFILE", "CODEX_HOME"]}
+    previous_cwd = Path.cwd()
+    try:
+        isolated_home = tmp_root / "isolated-home"
+        os.environ["HOME"] = str(isolated_home)
+        os.environ["USERPROFILE"] = str(isolated_home)
+        os.environ["CODEX_HOME"] = str(isolated_home / ".codex")
+        os.chdir(vault_repo)
+        sys.modules.pop("update_student_os_impl", None)
+        project_discovery_module = load_root_script_module("update_student_os.py", "student_os_update_discovery_smoke")
+        discovered_target = project_discovery_module.discover_target(None)
+    finally:
+        os.chdir(previous_cwd)
+        for name, value in env_backup.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+    if discovered_target != project_install:
+        raise AssertionError("update_student_os.py should discover project-scoped installs by default")
+
+    legacy_project_install = vault_repo / ".claude" / "skills" / "student-os"
+    legacy_project_install.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(override_repo / "student-os", legacy_project_install)
+    legacy_project_info = update_module.build_install_info(legacy_project_install, None, None)
+    if legacy_project_info.install_kind != "copy":
+        raise AssertionError("Manifestless copied installs inside a parent repository should default to copy mode")
+
+    missing_manifest_failure = run_root_script_failure(
+        "update_student_os.py",
+        "--apply",
+        "--target",
+        str(legacy_project_install),
+        "--repo",
+        str(override_repo.resolve()),
+        "--ref",
+        "main",
+    )
+    if "--force" not in missing_manifest_failure:
+        raise AssertionError("Manifestless copied installs should require --force before replacement")
 
 
 def verify_self_update_workflow(tmp_root: Path) -> None:
@@ -1350,6 +1445,24 @@ def verify_self_update_workflow(tmp_root: Path) -> None:
         raise AssertionError("copy-mode self-update should refresh the install manifest commit")
     if manifest["source_repo"] != str(source_repo.resolve()):
         raise AssertionError("copy-mode self-update should preserve the configured source repo in the manifest")
+    installed_updater = install_target / "scripts" / "update_student_os.py"
+    ensure_exists(installed_updater)
+    installed_check_payload = json.loads(
+        run_path_script(
+            installed_updater,
+            "--check",
+            "--target",
+            str(install_target),
+            "--repo",
+            str(source_repo.resolve()),
+            "--ref",
+            "main",
+            "--json",
+            cwd=install_target,
+        )
+    )
+    if Path(installed_check_payload["target_path"]) != install_target:
+        raise AssertionError("Installed updater entrypoint should work from the installed skill directory")
     assert_no_pycache(install_target)
     assert_no_pycache(source_repo)
 
@@ -1406,6 +1519,7 @@ def main() -> int:
         verify_git_grouping(grouping_repo, today)
         verify_chinese_slug_support(tmp_root / "unicode-course-demo", today)
         verify_install_manifest_generation(tmp_root / "install-manifest-demo")
+        verify_legacy_link_install_detection(tmp_root / "legacy-link-install-demo")
         verify_update_source_override_and_project_copy_detection(tmp_root / "update-override-demo")
         verify_self_update_workflow(tmp_root / "self-update-demo")
 
@@ -1428,6 +1542,7 @@ def main() -> int:
     print("OK legacy-layout-demo")
     print("OK unicode-course-demo")
     print("OK install-manifest-demo")
+    print("OK legacy-link-install-demo")
     print("OK update-override-demo")
     print("OK self-update-demo")
     if args.refresh_examples:
