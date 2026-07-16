@@ -478,7 +478,12 @@ def write_fake_mineru_sdk(root: Path) -> Path:
                 "            f'- language: {language}',",
                 "            f'- pages: {pages}',",
                 "        ]",
-                "        return ExtractResult(markdown='\\n'.join(body))",
+                "        images = []",
+                "        if '.part' in path.name:",
+                "            body.append('')",
+                "            body.append('![figure](images/image1.png)')",
+                "            images.append(Image(name='image1.png', data=b'\\x89PNG'))",
+                "        return ExtractResult(markdown='\\n'.join(body), images=images)",
             ]
         )
         + "\n",
@@ -732,6 +737,13 @@ def exercise_import_workflows(repo: Path) -> None:
     leftover_parts = list(split_output_root.glob("**/*.part*.pdf"))
     if leftover_parts:
         raise AssertionError(f"Auto-split should clean temporary PDF chunks, found: {leftover_parts}")
+    # Each chunk emits an image named image1.png; they must not overwrite each other.
+    split_image_dir = split_output_root / "images"
+    for part_index in (1, 2, 3):
+        ensure_exists(split_image_dir / f"part{part_index}-image1.png")
+        ensure_contains(split_output, f"images/part{part_index}-image1.png")
+    if (split_image_dir / "image1.png").exists():
+        raise AssertionError("Auto-split should not leave unprefixed chunk images that collide across parts")
 
     no_split_output = run_path_script_failure(
         STUDENT_OS_SCRIPTS / "materials_convert.py",
@@ -754,6 +766,129 @@ def exercise_import_workflows(repo: Path) -> None:
         raise AssertionError(f"Expected --no-auto-split to record conversion errors, got: {no_split_payload}")
     if "exceeds --chunk-size" not in no_split_payload["errors"][0].get("error", ""):
         raise AssertionError(f"Expected chunk-size error message, got: {no_split_payload['errors']}")
+
+    # A --chunk-size above MinerU's 200-page limit must still split PDFs over 200 pages.
+    over_limit_pdf = fixture_root / "over-limit.pdf"
+    write_multipage_pdf_fixture(over_limit_pdf, 201)
+    cap_payload = json.loads(
+        run_script(
+            "materials_convert.py",
+            str(over_limit_pdf),
+            "--output-root",
+            str(repo / "references" / "imports" / "api-cap-output"),
+            "--method",
+            "api",
+            "--api-token",
+            "test-token",
+            "--chunk-size",
+            "500",
+            env={"PYTHONPATH": str(fake_sdk_root)},
+        )
+    )
+    cap_split = cap_payload["converted"][0].get("split")
+    if not cap_split or cap_split.get("part_count") != 2 or cap_split.get("chunk_size") != 200:
+        raise AssertionError(f"Expected --chunk-size to be capped at 200 pages, got: {cap_payload['converted'][0]}")
+    over_limit_pdf.unlink()
+
+    # A PDF within the page limit but over the byte cap must still be split by size.
+    size_split_payload = json.loads(
+        run_script(
+            "materials_convert.py",
+            str(large_pdf_path),
+            "--output-root",
+            str(repo / "references" / "imports" / "api-size-split-output"),
+            "--method",
+            "api",
+            "--api-token",
+            "test-token",
+            "--chunk-size",
+            "50",
+            env={"PYTHONPATH": str(fake_sdk_root), "STUDENT_OS_MINERU_MAX_FILE_BYTES": "1"},
+        )
+    )
+    size_split = size_split_payload["converted"][0].get("split")
+    if not size_split or size_split.get("part_count") != 5:
+        raise AssertionError(f"Expected size-driven split into single-page chunks, got: {size_split_payload['converted'][0]}")
+
+    # A malformed PDF must be reported per-file (JSON stdout), not abort the batch.
+    bad_pdf = fixture_root / "corrupt.pdf"
+    bad_pdf.write_bytes(b"%PDF-1.4 not really a pdf")
+    bad_result = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "materials_convert.py"),
+            str(bad_pdf),
+            "--output-root",
+            str(repo / "references" / "imports" / "api-bad-pdf-output"),
+            "--method",
+            "api",
+            "--api-token",
+            "test-token",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8", "PYTHONPATH": str(fake_sdk_root)},
+    )
+    if bad_result.returncode == 0:
+        raise AssertionError("Expected malformed PDF to produce a non-zero exit code")
+    bad_payload = json.loads(bad_result.stdout)
+    if not bad_payload.get("errors") or "page-count probe" not in bad_payload["errors"][0].get("error", ""):
+        raise AssertionError(f"Expected malformed PDF to be captured in errors, got: {bad_payload}")
+    bad_pdf.unlink()
+
+    # --no-merge must not clobber existing chunk sidecars without --overwrite, and
+    # --repair must run on each chunk sidecar.
+    no_merge_root = repo / "references" / "imports" / "api-no-merge-output"
+    no_merge_payload = json.loads(
+        run_script(
+            "materials_convert.py",
+            str(large_pdf_path),
+            "--output-root",
+            str(no_merge_root),
+            "--method",
+            "api",
+            "--api-token",
+            "test-token",
+            "--chunk-size",
+            "2",
+            "--no-merge",
+            "--repair",
+            env={"PYTHONPATH": str(fake_sdk_root)},
+        )
+    )
+    no_merge_converted = no_merge_payload["converted"][0]
+    if not no_merge_converted.get("part_repairs") or len(no_merge_converted["part_repairs"]) != 3:
+        raise AssertionError(f"Expected --no-merge --repair to repair each chunk, got: {no_merge_converted}")
+    for part_index in (1, 2, 3):
+        ensure_exists(no_merge_root / f"large-textbook.pdf.part{part_index}.md")
+        ensure_exists(no_merge_root / f"large-textbook.pdf.part{part_index}-repair-summary.md")
+
+    sentinel_part = no_merge_root / "large-textbook.pdf.part1.md"
+    sentinel_part.write_text("SENTINEL EDIT\n", encoding="utf-8")
+    rerun_payload = json.loads(
+        run_script(
+            "materials_convert.py",
+            str(large_pdf_path),
+            "--output-root",
+            str(no_merge_root),
+            "--method",
+            "api",
+            "--api-token",
+            "test-token",
+            "--chunk-size",
+            "2",
+            "--no-merge",
+            env={"PYTHONPATH": str(fake_sdk_root)},
+        )
+    )
+    if not rerun_payload["skipped"] or rerun_payload["skipped"][0].get("reason") != "output-exists":
+        raise AssertionError(f"Expected --no-merge rerun to skip existing chunk sidecars, got: {rerun_payload}")
+    if sentinel_part.read_text(encoding="utf-8") != "SENTINEL EDIT\n":
+        raise AssertionError("--no-merge rerun without --overwrite must not clobber existing chunk sidecars")
 
     repair_only_input = repo / "references" / "imports" / "repair-only-sample.md"
     repair_only_input.write_text(

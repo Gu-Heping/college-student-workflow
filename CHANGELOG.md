@@ -6,7 +6,7 @@
 
 ### Added
 
-- 为 `materials_convert.py` 的 MinerU API 路径增加大 PDF 自动拆分：超过 `--chunk-size`（默认 200 页）时分片转换并默认合并为一个 markdown sidecar。
+- 为 `materials_convert.py` 的 MinerU API 路径增加大 PDF 自动拆分：超过 `--chunk-size`（默认 200 页）时分片转换并默认合并为一个 markdown sidecar；`--chunk-size` 会被裁剪到 MinerU 200 页上限，超过体积上限的 PDF 也会按体积拆分，分片图片按 part 前缀去重，`--no-merge` 会检查已存在分片避免覆盖并对每个分片执行 `--repair`，损坏 PDF 的探测失败会计入 errors 而非中断整个批次。
 - 为 `student-os` 新增 GitHub feedback 发布链路，支持从本地反馈条目生成隐私检查后的 issue draft，并可选通过 `gh issue create` 发布。
 - 为 `student-os` 新增自更新工作流：安装 manifest、`update_student_os.py`、更新命令入口与更新 reference，支持检查已安装版本、验证更新并提供回滚指引。
 - 为 `student-os` 的反馈闭环补充生命周期脚本：`triage_feedback.py`、`resolve_feedback.py`，支持从原始反馈到已解决条目的标准流转。

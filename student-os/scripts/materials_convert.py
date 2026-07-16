@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import math
 import os
 import subprocess
 import sys
@@ -79,7 +80,23 @@ class ConversionContext:
 
 DEFAULT_PDF_CHUNK_SIZE = 200
 MINERU_MAX_PAGES = 200
-MINERU_MAX_FILE_BYTES = 200 * 1024 * 1024
+
+
+def _resolve_max_file_bytes() -> int:
+    # Allow tests (and advanced users) to lower MinerU's 200MB size cap so the
+    # size-driven split path can be exercised without huge fixtures.
+    override = os.environ.get("STUDENT_OS_MINERU_MAX_FILE_BYTES")
+    if override:
+        try:
+            value = int(override)
+        except ValueError:
+            value = 0
+        if value > 0:
+            return value
+    return 200 * 1024 * 1024
+
+
+MINERU_MAX_FILE_BYTES = _resolve_max_file_bytes()
 
 
 def yaml_string(value: str) -> str:
@@ -380,13 +397,48 @@ def get_mineru_client(ctx: ConversionContext) -> Any:
     return ctx.mineru_client
 
 
-def save_mineru_images(output_path: Path, images: list[Any]) -> None:
+def save_mineru_images(output_path: Path, images: list[Any], *, prefix: str | None = None) -> dict[str, str]:
+    """
+    Persist MinerU images beside ``output_path`` under an ``images`` directory.
+
+    When ``prefix`` is provided (used for split PDF chunks), each image is stored
+    under a unique ``<prefix>-<name>`` filename and the returned mapping can be
+    used to rewrite markdown references so later chunks do not overwrite earlier
+    chunk images that happen to share a name such as ``image1.png``.
+    """
     if not images:
-        return
+        return {}
     image_dir = output_path.parent / "images"
     image_dir.mkdir(parents=True, exist_ok=True)
+    renamed: dict[str, str] = {}
     for image in images:
-        (image_dir / image.name).write_bytes(image.data)
+        target_name = f"{prefix}-{image.name}" if prefix else image.name
+        (image_dir / target_name).write_bytes(image.data)
+        if target_name != image.name:
+            renamed[image.name] = target_name
+    return renamed
+
+
+def rewrite_image_references(markdown: str, renamed: dict[str, str]) -> str:
+    for original_name, new_name in renamed.items():
+        markdown = markdown.replace(original_name, new_name)
+    return markdown
+
+
+def effective_chunk_pages(page_count: int, file_size: int, chunk_size: int) -> int:
+    """
+    Compute the per-chunk page count for MinerU auto-split.
+
+    Caps the request at MinerU's hard page limit and, when the file is over the
+    byte cap, shrinks chunks page-proportionally so each part has a chance of
+    landing under the size limit.
+    """
+    pages = min(chunk_size, MINERU_MAX_PAGES)
+    if file_size > MINERU_MAX_FILE_BYTES and page_count > 1:
+        parts_needed = math.ceil(file_size / MINERU_MAX_FILE_BYTES)
+        size_pages = max(1, page_count // parts_needed)
+        pages = min(pages, size_pages)
+    return max(1, pages)
 
 
 def load_pdf_tools() -> tuple[Any, Any]:
@@ -457,16 +509,42 @@ def extract_mineru_markdown(source_file: Path, ctx: ConversionContext, *, pages:
     return result
 
 
-def convert_with_mineru_chunked(source_file: Path, output_path: Path, ctx: ConversionContext, page_count: int) -> dict[str, Any]:
+def part_output_path(output_path: Path, part_index: int) -> Path:
+    return output_path.with_name(f"{output_path.stem}.part{part_index}{output_path.suffix}")
+
+
+def convert_with_mineru_chunked(
+    source_file: Path,
+    output_path: Path,
+    ctx: ConversionContext,
+    page_count: int,
+    chunk_pages: int,
+    file_size: int,
+) -> dict[str, Any]:
     if not ctx.auto_split:
         raise RuntimeError(
-            f"PDF has {page_count} pages which exceeds --chunk-size {ctx.chunk_size}. "
+            f"PDF has {page_count} pages which exceeds --chunk-size {ctx.chunk_size} "
+            f"(effective {chunk_pages} pages/chunk). "
             "Re-run without --no-auto-split, lower --chunk-size, or pass --pages."
         )
-    if source_file.stat().st_size > MINERU_MAX_FILE_BYTES and page_count <= ctx.chunk_size:
+    if file_size > MINERU_MAX_FILE_BYTES and page_count <= 1:
         raise RuntimeError(
-            f"PDF exceeds MinerU's {MINERU_MAX_FILE_BYTES // (1024 * 1024)}MB size limit and cannot be split by page count alone."
+            f"PDF exceeds MinerU's {MINERU_MAX_FILE_BYTES // (1024 * 1024)}MB size limit "
+            "and has too few pages to split by page count."
         )
+
+    # Guard against clobbering existing per-chunk sidecars before we do any work.
+    if not ctx.merge and not ctx.overwrite:
+        expected_parts = math.ceil(page_count / chunk_pages)
+        for index in range(1, expected_parts + 1):
+            candidate = part_output_path(output_path, index)
+            if candidate.exists():
+                return {
+                    "status": "skipped",
+                    "source": str(source_file),
+                    "output": str(candidate),
+                    "reason": "output-exists",
+                }
 
     work_dir = output_path.parent / f".{output_path.stem}.split-tmp"
     if work_dir.exists():
@@ -476,23 +554,26 @@ def convert_with_mineru_chunked(source_file: Path, output_path: Path, ctx: Conve
     else:
         work_dir.mkdir(parents=True, exist_ok=True)
 
-    chunks = split_pdf(source_file, ctx.chunk_size, work_dir)
+    chunks = split_pdf(source_file, chunk_pages, work_dir)
     part_results: list[dict[str, Any]] = []
     part_outputs: list[str] = []
+    part_repairs: list[dict[str, Any]] = []
     try:
         for chunk in chunks:
             result = extract_mineru_markdown(chunk["path"], ctx, pages=None)
-            save_mineru_images(output_path, list(getattr(result, "images", []) or []))
-            part_markdown = str(result.markdown)
+            renamed = save_mineru_images(
+                output_path,
+                list(getattr(result, "images", []) or []),
+                prefix=f"part{chunk['part_index']}",
+            )
+            part_markdown = rewrite_image_references(str(result.markdown), renamed)
             part_payload = {
                 **chunk,
                 "markdown": part_markdown,
             }
             part_results.append(part_payload)
             if not ctx.merge:
-                part_output = output_path.with_name(
-                    f"{output_path.stem}.part{chunk['part_index']}{output_path.suffix}"
-                )
+                part_output = part_output_path(output_path, chunk["part_index"])
                 write_markdown(
                     part_output,
                     wrap_mineru_markdown(
@@ -506,6 +587,17 @@ def convert_with_mineru_chunked(source_file: Path, output_path: Path, ctx: Conve
                     ),
                 )
                 part_outputs.append(str(part_output))
+                if ctx.repair:
+                    repair_payload = repair_generated_markdown(part_output)
+                    part_repairs.append(
+                        {
+                            "part_index": chunk["part_index"],
+                            "output": str(part_output),
+                            "raw_output": str(part_output.with_name(f"{part_output.stem}.raw{part_output.suffix}")),
+                            "repair_summary": repair_payload["summary_path"],
+                            "repairs": repair_payload["repairs"],
+                        }
+                    )
         if ctx.merge:
             merged_body = merge_md_files(part_results)
             write_markdown(
@@ -540,7 +632,8 @@ def convert_with_mineru_chunked(source_file: Path, output_path: Path, ctx: Conve
         "split": {
             "enabled": True,
             "page_count": page_count,
-            "chunk_size": ctx.chunk_size,
+            "chunk_size": chunk_pages,
+            "requested_chunk_size": ctx.chunk_size,
             "part_count": len(part_results),
             "merged": ctx.merge,
             "parts": [
@@ -560,14 +653,24 @@ def convert_with_mineru_chunked(source_file: Path, output_path: Path, ctx: Conve
         payload["raw_output"] = str(output_path.with_name(f"{output_path.stem}.raw{output_path.suffix}"))
         payload["repair_summary"] = repair_payload["summary_path"]
         payload["repairs"] = repair_payload["repairs"]
+    if part_repairs:
+        payload["part_repairs"] = part_repairs
     return payload
 
 
 def convert_with_mineru(source_file: Path, output_path: Path, ctx: ConversionContext) -> dict[str, Any]:
     if source_file.suffix.lower() in PDF_SUFFIXES and not ctx.pages:
-        page_count = get_pdf_page_count(source_file)
-        if page_count > ctx.chunk_size:
-            return convert_with_mineru_chunked(source_file, output_path, ctx, page_count)
+        try:
+            page_count = get_pdf_page_count(source_file)
+        except SystemExit:
+            raise
+        except Exception as exc:  # malformed/encrypted PDF probe should not abort the batch
+            raise RuntimeError(f"Failed to read PDF for page-count probe: {exc}") from exc
+        file_size = source_file.stat().st_size
+        chunk_pages = effective_chunk_pages(page_count, file_size, ctx.chunk_size)
+        needs_split = page_count > chunk_pages or file_size > MINERU_MAX_FILE_BYTES
+        if needs_split:
+            return convert_with_mineru_chunked(source_file, output_path, ctx, page_count, chunk_pages, file_size)
 
     result = extract_mineru_markdown(source_file, ctx, pages=ctx.pages)
     save_mineru_images(output_path, list(getattr(result, "images", []) or []))
