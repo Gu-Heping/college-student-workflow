@@ -1285,6 +1285,16 @@ def verify_legacy_link_install_detection(tmp_root: Path) -> None:
         return
     if not install_module.same_link_install(legacy_destination):
         raise AssertionError("install_student_os.py should recognize legacy whole-directory symlink installs")
+    child_link_install = tmp_root / "child-linked-student-os"
+    child_link_install.mkdir(parents=True, exist_ok=True)
+    (child_link_install / "SKILL.md").symlink_to((ROOT / "student-os" / "SKILL.md").resolve())
+    if not install_module.same_link_install(child_link_install):
+        raise AssertionError("install_student_os.py should still recognize linked installs that symlink top-level children")
+    created_entries = install_module.sync_linked_entries(child_link_install, ROOT / "student-os")
+    if "references" not in created_entries:
+        raise AssertionError("install_student_os.py should recreate missing top-level symlink entries for linked installs")
+    if not (child_link_install / "references").is_symlink():
+        raise AssertionError("install_student_os.py should materialize recreated linked entries as symlinks")
 
 
 def verify_update_source_override_and_project_copy_detection(tmp_root: Path) -> None:

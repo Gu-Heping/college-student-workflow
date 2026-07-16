@@ -267,6 +267,21 @@ def same_link_install(destination: Path) -> bool:
     return destination.exists() and skill_link.is_symlink() and skill_link.resolve() == (SOURCE_SKILL_DIR / "SKILL.md").resolve()
 
 
+def sync_linked_entries(destination: Path, source: Path) -> list[str]:
+    if destination.is_symlink():
+        return []
+    created: list[str] = []
+    for child in sorted(source.iterdir(), key=lambda item: item.name):
+        if child.name == MANIFEST_FILENAME or child.name in LOCAL_OVERRIDE_NAMES:
+            continue
+        target_child = destination / child.name
+        if target_child.exists() or target_child.is_symlink():
+            continue
+        target_child.symlink_to(child.resolve(), target_is_directory=child.is_dir())
+        created.append(child.name)
+    return created
+
+
 def install_with_symlink(source: Path, target: Path) -> str:
     target.mkdir(parents=True, exist_ok=False)
     try:
@@ -306,6 +321,7 @@ def install_one(
 
     if destination.exists() or destination.is_symlink():
         if same_link_install(destination) and not force:
+            sync_linked_entries(destination, SOURCE_SKILL_DIR)
             manifest = build_install_manifest(
                 destination=destination,
                 agent=target.agent,
