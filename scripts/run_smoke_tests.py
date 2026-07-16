@@ -677,6 +677,38 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     if "must stay under" not in failure_output:
         raise AssertionError(f"Expected path-guard failure, got: {failure_output}")
 
+    archive_feedback = Path(
+        run_script(
+            "log_feedback.py",
+            str(repo),
+            "--title",
+            "Archive should not fake GitHub status",
+            "--feedback-kind",
+            "docs",
+            "--severity",
+            "low",
+            "--developer-summary",
+            "- Archive status should preserve any known GitHub issue state.",
+        )
+    )
+    archived_text = archive_feedback.read_text(encoding="utf-8")
+    archived_text = archived_text.replace('github_issue_url: ""', 'github_issue_url: "https://github.com/Gu-Heping/college-student-workflow/issues/77"')
+    archived_text = archived_text.replace('github_issue_number: ""', 'github_issue_number: "77"')
+    archived_text = archived_text.replace('github_issue_status: ""', 'github_issue_status: "open"')
+    archive_feedback.write_text(archived_text, encoding="utf-8", newline="\n")
+    archived_path = Path(
+        run_script(
+            "resolve_feedback.py",
+            str(repo),
+            str(archive_feedback),
+            "--status",
+            "archived",
+            "--resolution-summary",
+            "- Archived locally without changing the public issue state.",
+        )
+    )
+    ensure_contains(archived_path, 'github_issue_status: "open"')
+
     github_issue_feedback = Path(
         run_script(
             "log_feedback.py",
@@ -690,15 +722,15 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
             "--source-context",
             "Codex on Windows with installed version: 0.7.0",
             "--related-artifacts",
-            r"D:\vault\private-course\notes.md,.env",
+            r"D:\vault\private-course\notes.md,.env,/Users/alice/private-notes.md",
             "--related-roles",
             "feedback-operator,codex",
             "--what-happened",
-            "- The installer exposed a private path from D:\\vault\\private-course\\notes.md.",
+            "- The installer exposed a private path from D:\\vault\\private-course\\notes.md and /Users/alice/private-notes.md.",
             "--expected-behavior",
             "- Public reports should redact private Windows paths and vault references.",
             "--evidence",
-            "- D:\\vault\\private-course\\notes.md\n- .env\n- github_pat_1234567890ABCDEFGHIJKLMNOP",
+            "- D:\\vault\\private-course\\notes.md\n- /Users/alice/private-notes.md\n- .env\n- sk-proj-1234567890-ABCDEFGHIJKLMNOPQRST\n- github_pat_1234567890ABCDEFGHIJKLMNOP",
         )
     )
     issue_payload = json.loads(
@@ -715,9 +747,102 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     if "## Feedback ID" not in issue_payload["body"] or "## Privacy Check" not in issue_payload["body"]:
         raise AssertionError("prepare_github_issue.py should emit the expected issue body sections")
     joined_warnings = "\n".join(issue_payload["privacy_warnings"])
-    for expected_warning in ["Windows absolute paths", ".env", "token-like strings", "private vault path"]:
+    for expected_warning in ["Windows absolute paths", "Unix-style absolute paths", ".env", "token-like strings", "private vault path"]:
         if expected_warning not in joined_warnings:
             raise AssertionError(f"Expected privacy warning containing {expected_warning!r}, got: {joined_warnings}")
+
+    publish_failure = run_script_failure(
+        "publish_github_issue.py",
+        str(repo),
+        str(resolved_path),
+        "--github-repo",
+        "Gu-Heping/college-student-workflow",
+    )
+    if "already linked to a GitHub issue" not in publish_failure:
+        raise AssertionError("publish_github_issue.py should refuse duplicate publication for already-linked feedback")
+
+    manual_feedback = repo / "feedback" / "triaged" / "manual-path-feedback.md"
+    manual_feedback.write_text(
+        "\n".join(
+            [
+                "---",
+                'type: "feedback"',
+                'status: "triaged"',
+                f'created: "{feedback_day.isoformat()}"',
+                f'updated: "{feedback_day.isoformat()}"',
+                'tags: ["feedback"]',
+                'feedback_id: "../../notes/leak"',
+                'feedback_kind: "other"',
+                'severity: "medium"',
+                'reproducibility: "sometimes"',
+                'source_context: "manual import"',
+                'related_course: ""',
+                'related_artifacts: ""',
+                'related_roles: "feedback-operator"',
+                'github_issue_url: ""',
+                'github_issue_number: ""',
+                'github_issue_status: ""',
+                'reported_to_github_at: ""',
+                "---",
+                "",
+                "# Feedback - Manual path $(danger) `tick` test",
+                "",
+                "## What Happened",
+                "",
+                "- Fallback issue body generation should stay inside feedback/summaries.",
+                "",
+                "## Expected Behavior",
+                "",
+                "- Draft issue body should use a safe filename.",
+                "",
+                "## Why This Was Unsatisfying",
+                "",
+                "- Path traversal in feedback_id should not escape the summaries directory.",
+                "",
+                "## Likely Cause",
+                "",
+                "- The fallback body path trusted frontmatter directly.",
+                "",
+                "## Suggested Improvement",
+                "",
+                "- Normalize feedback IDs before using them in filenames.",
+                "",
+                "## Evidence",
+                "",
+                "- Manual path traversal test.",
+                "",
+                "## Follow-up",
+                "",
+                "- Confirm the generated draft body lives under feedback/summaries.",
+                "",
+            ]
+        ) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    publish_payload = json.loads(
+        run_path_script(
+            STUDENT_OS_SCRIPTS / "publish_github_issue.py",
+            str(repo),
+            str(manual_feedback),
+            "--github-repo",
+            "Gu-Heping/college-student-workflow",
+            "--json",
+            cwd=repo,
+            env={"PATH": ""},
+        )
+    )
+    if publish_payload["published"]:
+        raise AssertionError("publish_github_issue.py fallback path should not publish when gh is unavailable")
+    body_path = repo / publish_payload["body_path"]
+    ensure_exists(body_path)
+    try:
+        body_path.relative_to(repo / "feedback" / "summaries")
+    except ValueError as exc:
+        raise AssertionError("Fallback GitHub issue body should stay inside feedback/summaries") from exc
+    gh_command = publish_payload["gh_command"]
+    if "'../../notes/leak: Manual path $(danger) `tick` test'" not in gh_command:
+        raise AssertionError("Fallback gh command should shell-quote feedback-controlled titles safely")
 
 
 def build_single_semester(repo: Path, today: date) -> None:

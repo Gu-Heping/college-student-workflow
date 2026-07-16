@@ -11,8 +11,9 @@ from feedback_utils import extract_title, normalize_scalar, parse_frontmatter, r
 
 DEFAULT_LABEL = "feedback"
 WINDOWS_PATH_RE = re.compile(r"[A-Za-z]:\\[^\s`]+")
+UNIX_PATH_RE = re.compile(r"(?:(?<=\s)|^)/(?:Users|home|var|tmp|opt|srv|mnt)/[^\s`]+")
 TOKEN_RE = re.compile(
-    r"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z\-_]{20,})"
+    r"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9][A-Za-z0-9\-]{19,}|AIza[0-9A-Za-z\-_]{20,})"
 )
 
 
@@ -38,6 +39,8 @@ def detect_privacy_warnings(text: str) -> list[str]:
     warnings: list[str] = []
     if WINDOWS_PATH_RE.search(text):
         warnings.append("Contains Windows absolute paths; redact user-specific local paths before public posting.")
+    if UNIX_PATH_RE.search(text):
+        warnings.append("Contains Unix-style absolute paths; redact user-specific local paths before public posting.")
     if ".env" in text:
         warnings.append("Mentions .env or environment files; verify no secrets or private configuration are included.")
     if TOKEN_RE.search(text):

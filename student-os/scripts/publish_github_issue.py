@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -41,8 +43,24 @@ def gh_authenticated() -> bool:
     return result.returncode == 0
 
 
-def quote_for_shell(value: str) -> str:
-    return '"' + value.replace('"', '\\"') + '"'
+def quote_for_shell(parts: list[str]) -> str:
+    return shlex.join(parts)
+
+
+def safe_feedback_slug(value: object) -> str:
+    text = str(value or "").strip().lower()
+    text = re.sub(r"[^a-z0-9._-]+", "-", text)
+    text = text.strip("-.")
+    return text or "issue"
+
+
+def replace_body_file_argument(command: list[str], body_file: str) -> list[str]:
+    updated = list(command)
+    for index, part in enumerate(updated[:-1]):
+        if part == "--body-file":
+            updated[index + 1] = body_file
+            return updated
+    raise ValueError("Missing --body-file argument")
 
 
 def store_issue_metadata(repo: Path, feedback_path: Path, *, issue_url: str, issue_number: str, issue_status: str) -> None:
@@ -58,6 +76,12 @@ def store_issue_metadata(repo: Path, feedback_path: Path, *, issue_url: str, iss
     write_feedback(feedback_path, frontmatter, body)
 
 
+def existing_issue_link(frontmatter: dict[str, str]) -> tuple[str, str]:
+    issue_url = str(frontmatter.get("github_issue_url", "")).strip().strip('"')
+    issue_number = str(frontmatter.get("github_issue_number", "")).strip().strip('"')
+    return issue_url, issue_number
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Publish a student-os feedback item to GitHub Issues when gh is available.")
     parser.add_argument("repo", help="Target repository root")
@@ -68,6 +92,15 @@ def main() -> int:
 
     repo = Path(args.repo).resolve()
     feedback_path = resolve_feedback_path(repo, args.feedback)
+    frontmatter, _ = parse_frontmatter(feedback_path)
+    if not frontmatter:
+        raise SystemExit(f"Feedback entry is missing frontmatter: {feedback_path}")
+    existing_url, existing_number = existing_issue_link(frontmatter)
+    if existing_url or existing_number:
+        raise SystemExit(
+            "Feedback entry is already linked to a GitHub issue. "
+            f"Existing link: {existing_url or existing_number}"
+        )
     payload = prepare_payload(repo, args.feedback)
     labels = payload["labels"]
     command = [
@@ -85,12 +118,10 @@ def main() -> int:
         command.extend(["--label", str(label)])
 
     if not gh_available() or not gh_authenticated():
-        temp_body = repo / "feedback" / "summaries" / f"{payload['feedback_id'] or 'issue'}-github-issue-body.md"
+        temp_body = repo / "feedback" / "summaries" / f"{safe_feedback_slug(payload['feedback_id'])}-github-issue-body.md"
         temp_body.parent.mkdir(parents=True, exist_ok=True)
         temp_body.write_text(str(payload["body"]), encoding="utf-8", newline="\n")
-        ready_command = " ".join(
-            quote_for_shell(part) for part in [*command[:-1], str(temp_body)]
-        )
+        ready_command = quote_for_shell(replace_body_file_argument(command, str(temp_body)))
         result = {
             "published": False,
             "feedback_id": payload["feedback_id"],
@@ -109,7 +140,7 @@ def main() -> int:
         handle.write(str(payload["body"]))
         temp_path = Path(handle.name)
     try:
-        actual_command = command[:-1] + [str(temp_path)]
+        actual_command = replace_body_file_argument(command, str(temp_path))
         result = subprocess.run(
             actual_command,
             check=True,

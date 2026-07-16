@@ -206,6 +206,10 @@ def should_skip_snapshot(path: Path, root: Path) -> bool:
     rel = path.relative_to(root)
     if rel.name == MANIFEST_FILENAME:
         return True
+    if rel.name.endswith(".pyc") and "__pycache__" in rel.parts:
+        return True
+    if "__pycache__" in rel.parts:
+        return True
     if rel.parts and rel.parts[0] in LOCAL_OVERRIDE_NAMES:
         return True
     return False

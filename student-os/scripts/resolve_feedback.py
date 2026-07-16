@@ -42,7 +42,8 @@ def main() -> int:
     frontmatter["updated"] = today
     frontmatter["fix_version"] = quoted_yaml_string(args.fix_version)
     if frontmatter.get("github_issue_number", "").strip().strip('"'):
-        frontmatter["github_issue_status"] = quoted_yaml_string("closed" if args.status == "resolved" else "archived")
+        if args.status == "resolved":
+            frontmatter["github_issue_status"] = quoted_yaml_string("closed")
 
     triage_status = "resolved" if args.status == "resolved" else "archived"
     body = replace_section(
