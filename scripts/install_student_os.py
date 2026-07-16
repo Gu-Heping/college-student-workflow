@@ -316,24 +316,26 @@ def install_one(
     if destination.exists() or destination.is_symlink():
         if same_link_install(destination) and not force:
             sync_linked_entries(destination, SOURCE_SKILL_DIR)
-            manifest = build_install_manifest(
-                destination=destination,
-                agent=target.agent,
-                scope=target.scope,
-                install_method="linked",
-                used_symlink=True,
-                source_repo=source_repo,
-                source_ref=source_ref,
-                linked_source_path=str(SOURCE_SKILL_DIR.resolve()),
-            )
-            manifest_path = write_manifest(destination, manifest)
+            manifest_path = ""
+            if not destination.is_symlink():
+                manifest = build_install_manifest(
+                    destination=destination,
+                    agent=target.agent,
+                    scope=target.scope,
+                    install_method="linked",
+                    used_symlink=True,
+                    source_repo=source_repo,
+                    source_ref=source_ref,
+                    linked_source_path=str(SOURCE_SKILL_DIR.resolve()),
+                )
+                manifest_path = str(write_manifest(destination, manifest))
             return {
                 "agent": target.agent,
                 "scope": target.scope,
                 "destination": str(destination),
                 "status": "unchanged",
                 "method": "linked",
-                "manifest": str(manifest_path),
+                "manifest": manifest_path,
             }
         if not force:
             raise SystemExit(

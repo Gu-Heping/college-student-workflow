@@ -591,6 +591,12 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
             "- Confirmed the issue belongs to planning ingestion rather than task creation.",
         )
     )
+    triaged_text = triaged_path.read_text(encoding="utf-8")
+    triaged_text = triaged_text.replace('github_issue_url: ""', 'github_issue_url: "https://github.com/Gu-Heping/college-student-workflow/issues/42"')
+    triaged_text = triaged_text.replace('github_issue_number: ""', 'github_issue_number: "42"')
+    triaged_text = triaged_text.replace('github_issue_status: ""', 'github_issue_status: "open"')
+    triaged_text = triaged_text.replace('reported_to_github_at: ""', 'reported_to_github_at: "2026-07-16"')
+    triaged_path.write_text(triaged_text, encoding="utf-8", newline="\n")
     resolved_path = Path(
         run_script(
             "resolve_feedback.py",
@@ -657,6 +663,10 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
 
     ensure_exists(resolved_path)
     ensure_contains(resolved_path, "feedback_id:")
+    ensure_contains(resolved_path, 'github_issue_url: "https://github.com/Gu-Heping/college-student-workflow/issues/42"')
+    ensure_contains(resolved_path, 'github_issue_number: "42"')
+    ensure_contains(resolved_path, 'github_issue_status: "closed"')
+    ensure_contains(resolved_path, 'reported_to_github_at: "2026-07-16"')
     ensure_contains(resolved_path, "## Triage Notes")
     ensure_contains(resolved_path, "## Resolution Summary")
     ensure_contains(second_triaged_path, f'feedback_id: "{expected_feedback_id}"')
@@ -666,6 +676,48 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     ensure_contains(summary_path, expected_feedback_id)
     if "must stay under" not in failure_output:
         raise AssertionError(f"Expected path-guard failure, got: {failure_output}")
+
+    github_issue_feedback = Path(
+        run_script(
+            "log_feedback.py",
+            str(repo),
+            "--title",
+            "GitHub issue prep privacy check",
+            "--feedback-kind",
+            "install",
+            "--severity",
+            "high",
+            "--source-context",
+            "Codex on Windows with installed version: 0.7.0",
+            "--related-artifacts",
+            r"D:\vault\private-course\notes.md,.env",
+            "--related-roles",
+            "feedback-operator,codex",
+            "--what-happened",
+            "- The installer exposed a private path from D:\\vault\\private-course\\notes.md.",
+            "--expected-behavior",
+            "- Public reports should redact private Windows paths and vault references.",
+            "--evidence",
+            "- D:\\vault\\private-course\\notes.md\n- .env\n- github_pat_1234567890ABCDEFGHIJKLMNOP",
+        )
+    )
+    issue_payload = json.loads(
+        run_script(
+            "prepare_github_issue.py",
+            str(repo),
+            str(github_issue_feedback),
+        )
+    )
+    if issue_payload["feedback_id"] == "":
+        raise AssertionError("prepare_github_issue.py should include feedback_id in its JSON output")
+    if issue_payload["labels"] != ["feedback", "feedback:install", "severity:high"]:
+        raise AssertionError("prepare_github_issue.py should derive labels from feedback kind and severity")
+    if "## Feedback ID" not in issue_payload["body"] or "## Privacy Check" not in issue_payload["body"]:
+        raise AssertionError("prepare_github_issue.py should emit the expected issue body sections")
+    joined_warnings = "\n".join(issue_payload["privacy_warnings"])
+    for expected_warning in ["Windows absolute paths", ".env", "token-like strings", "private vault path"]:
+        if expected_warning not in joined_warnings:
+            raise AssertionError(f"Expected privacy warning containing {expected_warning!r}, got: {joined_warnings}")
 
 
 def build_single_semester(repo: Path, today: date) -> None:
@@ -1295,6 +1347,27 @@ def verify_legacy_link_install_detection(tmp_root: Path) -> None:
         raise AssertionError("install_student_os.py should recreate missing top-level symlink entries for linked installs")
     if not (child_link_install / "references").is_symlink():
         raise AssertionError("install_student_os.py should materialize recreated linked entries as symlinks")
+    source_manifest = ROOT / "student-os" / ".student-os-install.json"
+    if source_manifest.exists():
+        source_manifest.unlink()
+    legacy_root = tmp_root / "legacy-link-root"
+    legacy_root.mkdir(parents=True, exist_ok=True)
+    legacy_install = legacy_root / "student-os"
+    try:
+        legacy_install.symlink_to((ROOT / "student-os").resolve(), target_is_directory=True)
+    except OSError:
+        return
+    result = install_module.install_one(
+        install_module.InstallTarget(agent="codex", scope="user", root=legacy_root),
+        "auto",
+        False,
+        source_repo="https://example.com/fork.git",
+        source_ref="main",
+    )
+    if result["manifest"] != "":
+        raise AssertionError("Legacy whole-directory symlink installs should not write manifests into the source checkout")
+    if source_manifest.exists():
+        raise AssertionError("Legacy whole-directory symlink installs should not create a manifest in the source repo")
 
 
 def verify_update_source_override_and_project_copy_detection(tmp_root: Path) -> None:
@@ -1455,6 +1528,8 @@ def verify_self_update_workflow(tmp_root: Path) -> None:
         raise AssertionError("copy-mode self-update should refresh the install manifest commit")
     if manifest["source_repo"] != str(source_repo.resolve()):
         raise AssertionError("copy-mode self-update should preserve the configured source repo in the manifest")
+    if Path(manifest["target_path"]) != install_target.resolve():
+        raise AssertionError("copy-mode self-update should record the final install target in the refreshed manifest")
     installed_updater = install_target / "scripts" / "update_student_os.py"
     ensure_exists(installed_updater)
     installed_check_payload = json.loads(
@@ -1473,6 +1548,8 @@ def verify_self_update_workflow(tmp_root: Path) -> None:
     )
     if Path(installed_check_payload["target_path"]) != install_target:
         raise AssertionError("Installed updater entrypoint should work from the installed skill directory")
+    if "local_changes" in installed_check_payload and installed_check_payload["local_changes"]:
+        raise AssertionError("Installed updater should not report its own __pycache__ artifacts as local changes")
     assert_no_pycache(install_target)
     assert_no_pycache(source_repo)
 

@@ -1,6 +1,6 @@
 ---
 name: student-os
-description: Git-first student knowledge base operating system for Claude Code, Codex, OpenCode, and similar agents. Use when an agent needs to initialize or govern a markdown-first knowledge repository; create course spaces, semester overviews, lecture notes, homework pages, review sheets, lab reports, weekly plans, inbox tasks, dashboards, and learning summaries; import or transform PDF, DOCX, XLSX, and PPTX materials into the repository; route work across coordinator, course tutor, project helper, review coach, planning assistant, file operator, and feedback operator roles; inspect git status and separate task-specific changes from pre-existing dirty work; prepare branch names, commit messages, and grouped change summaries for day-to-day student workflows; or safely update the installed student-os skill itself without touching the managed vault.
+description: Git-first student knowledge base operating system for Claude Code, Codex, OpenCode, and similar agents. Use when an agent needs to initialize or govern a markdown-first knowledge repository; create course spaces, semester overviews, lecture notes, homework pages, review sheets, lab reports, weekly plans, inbox tasks, dashboards, and learning summaries; import or transform PDF, DOCX, XLSX, and PPTX materials into the repository; route work across coordinator, course tutor, project helper, review coach, planning assistant, file operator, and feedback operator roles; inspect git status and separate task-specific changes from pre-existing dirty work; prepare branch names, commit messages, and grouped change summaries for day-to-day student workflows; safely update the installed student-os skill itself without touching the managed vault; or turn structured local feedback into privacy-checked GitHub issue drafts.
 ---
 
 # Student OS
@@ -39,6 +39,8 @@ Use these scripts when helpful:
 - `scripts/triage_feedback.py` for classifying and moving feedback into the triaged queue.
 - `scripts/resolve_feedback.py` for recording the shipped fix and closing the loop.
 - `scripts/summarize_feedback.py` for feedback summaries, open issues, and recent resolutions.
+- `scripts/prepare_github_issue.py` for privacy-checked GitHub issue drafts from local feedback entries.
+- `scripts/publish_github_issue.py` for optional `gh issue create` publishing after explicit approval.
 - `scripts/update_student_os.py` for installed-skill update checks, safe apply, and rollback guidance.
 - `scripts/build_week_plan.py` for weekly plans, near-term deadlines, and exam countdown material.
 - `scripts/build_review_indexes.py` for homework and review indexes.
@@ -146,6 +148,7 @@ Handle:
 ### Feedback operations
 
 Use `references/feedback-ops.md`.
+Use `references/github-feedback.md` when the user wants developer-facing or GitHub-facing publication.
 
 Handle:
 - recording one feedback entry
@@ -153,6 +156,8 @@ Handle:
 - triaging feedback for later implementation
 - marking feedback as resolved
 - generating periodic feedback summaries
+- preparing a GitHub issue draft from feedback
+- publishing a GitHub issue after explicit confirmation
 
 ### Skill maintenance
 
@@ -204,6 +209,7 @@ Use the command templates to expose common entry points:
 - `commands/pdf-to-md.md`
 - `commands/tabular-summary.md`
 - `commands/feedback.md`
+- `commands/report-issue.md`
 - `commands/update.md`
 
 Default routing:
@@ -216,6 +222,7 @@ Default routing:
 - `pdf-to-md` -> `coordinator` with `file-operator`
 - `tabular-summary` -> `coordinator` with `file-operator` and `planning-assistant` when the result is a planning or dashboard artifact
 - `feedback` -> `coordinator` with `feedback-operator`
+- `report-issue` -> `coordinator` with `feedback-operator`
 - `update` -> `coordinator` with the update workflow
 
 ## File conventions
@@ -283,6 +290,15 @@ When the user asks to update or upgrade `student-os`:
 - require one confirmation before applying the update
 - limit changes to the installed skill directory
 - report the current commit, latest commit, files updated, validation result, backup path, and rollback command
+
+## GitHub feedback contract
+
+When the user asks to report a `student-os` issue to the developer or GitHub:
+- first capture or locate the feedback entry
+- prepare an issue draft before any public posting
+- run a privacy check and surface warnings clearly
+- require explicit confirmation before calling `gh issue create` or sharing public issue content
+- never include private vault content, secrets, personal files, or raw course material without explicit approval
 
 ## Output contract
 

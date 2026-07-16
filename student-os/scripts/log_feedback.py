@@ -79,6 +79,10 @@ def main() -> int:
             ("related_course", quoted_yaml_string(args.related_course)),
             ("related_artifacts", f"[{yaml_list(artifacts)}]"),
             ("related_roles", f"[{yaml_list(roles)}]"),
+            ("github_issue_url", '""'),
+            ("github_issue_number", '""'),
+            ("github_issue_status", '""'),
+            ("reported_to_github_at", '""'),
             ("fix_version", '""'),
         ]
     )
