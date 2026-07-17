@@ -757,21 +757,23 @@ def parse_page_selection(pages: str | None, page_count: int) -> list[int]:
     if not pages or page_count <= 0:
         return list(range(max(page_count, 0)))
     selected: set[int] = set()
-    for part in pages.split(","):
-        part = part.strip()
-        if not part:
+    for raw_part in pages.split(","):
+        piece = raw_part.strip()
+        if not piece:
             continue
-        if "-" in part:
-            start_raw, end_raw = part.split("-", 1)
+        if "-" in piece:
+            start_raw, end_raw = piece.split("-", 1)
             start = max(1, int(start_raw.strip()))
             end = min(page_count, int(end_raw.strip()))
             if start <= end:
                 selected.update(range(start - 1, end))
             continue
-        page = int(part)
+        page = int(piece)
         if 1 <= page <= page_count:
             selected.add(page - 1)
-    return sorted(selected) if selected else list(range(page_count))
+    if not selected:
+        raise ValueError(f"--pages does not select any pages from this {page_count}-page document")
+    return sorted(selected)
 
 
 def convert_with_pymupdf(source_file: Path, output_path: Path, ctx: ConversionContext) -> dict[str, Any]:
@@ -899,7 +901,7 @@ def convert_with_tool(
         }
     if tool == "mineru-api":
         if not ctx.api_token:
-            if probe.get("forced") or ctx.force_strategy in {"ocr", "mineru-api"}:
+            if probe.get("forced") or ctx.method == "api" or ctx.force_strategy in {"ocr", "mineru-api"}:
                 raise RuntimeError(
                     "MinerU API strategy requires a token via --api-token, MINERU_TOKEN, or .env"
                 )

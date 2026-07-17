@@ -503,6 +503,8 @@ def resolve_probe(
             )
         probe["source"] = str(path)
         probe["suffix"] = suffix
+        # Explicit --method api must not silently degrade when a token is missing.
+        probe["forced"] = True
     else:  # local
         tool = local_tool_for_suffix(suffix) or "binary-index"
         probe = _base_result(
@@ -516,7 +518,7 @@ def resolve_probe(
         probe["suffix"] = suffix
 
     # Without a token, API-needed strategies degrade unless the user forced an API strategy.
-    if probe.get("needs_api") and not has_api_token and not force_strategy:
+    if probe.get("needs_api") and not has_api_token and not probe.get("forced"):
         if suffix in PDF_SUFFIXES:
             fallback_tool = "pdf-to-md"
             fallback_strategy = "api-unavailable-pdf"

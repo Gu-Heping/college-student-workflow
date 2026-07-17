@@ -1168,6 +1168,69 @@ def exercise_import_workflows(repo: Path) -> None:
     if "## Page 2" not in pymupdf_md or "## Page 1" in pymupdf_md or "## Page 3" in pymupdf_md:
         raise AssertionError(f"Expected pymupdf --pages 2 to extract only page 2, got:\n{pymupdf_md}")
 
+    invalid_pages_result = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "materials_convert.py"),
+            str(manual_pdf),
+            "--output-root",
+            str(repo / "references" / "imports" / "pymupdf-invalid-pages"),
+            "--force-strategy",
+            "pymupdf",
+            "--pages",
+            "99",
+            "--overwrite",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if invalid_pages_result.returncode == 0:
+        raise AssertionError("Expected out-of-range --pages to exit nonzero")
+    invalid_pages_payload = json.loads(invalid_pages_result.stdout)
+    if not invalid_pages_payload.get("errors") or "does not select any pages" not in invalid_pages_payload["errors"][
+        0
+    ].get("error", ""):
+        raise AssertionError(f"Expected invalid --pages error, got: {invalid_pages_payload}")
+
+    method_api_no_token = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "materials_convert.py"),
+            str(manual_pdf),
+            "--output-root",
+            str(repo / "references" / "imports" / "method-api-no-token"),
+            "--method",
+            "api",
+            "--overwrite",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=empty_skill_root,
+        env={
+            **os.environ,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONIOENCODING": "utf-8",
+            **no_token_env,
+        },
+    )
+    if method_api_no_token.returncode == 0:
+        raise AssertionError("Expected --method api without token to exit nonzero")
+    method_api_payload = json.loads(method_api_no_token.stdout)
+    if method_api_payload.get("converted"):
+        raise AssertionError(f"--method api without token must not convert locally, got: {method_api_payload}")
+    if not method_api_payload.get("errors") or "requires a token" not in method_api_payload["errors"][0].get(
+        "error", ""
+    ):
+        raise AssertionError(f"Expected --method api without token to error, got: {method_api_payload}")
+
     forced_api_no_token = subprocess.run(
         [
             sys.executable,
