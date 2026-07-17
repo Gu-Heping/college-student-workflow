@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import math
 import os
 import subprocess
 import sys
@@ -71,7 +72,31 @@ class ConversionContext:
     table: bool | None
     pages: str | None
     timeout: int
+    auto_split: bool = True
+    chunk_size: int = 200
+    merge: bool = True
     mineru_client: Any | None = None
+
+
+DEFAULT_PDF_CHUNK_SIZE = 200
+MINERU_MAX_PAGES = 200
+
+
+def _resolve_max_file_bytes() -> int:
+    # Allow tests (and advanced users) to lower MinerU's 200MB size cap so the
+    # size-driven split path can be exercised without huge fixtures.
+    override = os.environ.get("STUDENT_OS_MINERU_MAX_FILE_BYTES")
+    if override:
+        try:
+            value = int(override)
+        except ValueError:
+            value = 0
+        if value > 0:
+            return value
+    return 200 * 1024 * 1024
+
+
+MINERU_MAX_FILE_BYTES = _resolve_max_file_bytes()
 
 
 def yaml_string(value: str) -> str:
@@ -126,6 +151,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-table", dest="table", action="store_false", help="Disable table recognition for MinerU API runs.")
     parser.add_argument("--pages", help="Optional PDF page range such as 1-10 or 1-5,8.")
     parser.add_argument("--timeout", type=int, default=300, help="Maximum seconds to wait for MinerU API completion per file.")
+    parser.add_argument(
+        "--no-auto-split",
+        action="store_true",
+        help="Disable automatic PDF splitting for MinerU API runs. Oversized PDFs will error instead of being chunked.",
+    )
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=DEFAULT_PDF_CHUNK_SIZE,
+        help=f"PDF page chunk size for MinerU API auto-split (default {DEFAULT_PDF_CHUNK_SIZE}; MinerU v4 limit is {MINERU_MAX_PAGES}).",
+    )
+    parser.add_argument(
+        "--merge",
+        dest="merge",
+        action="store_true",
+        default=True,
+        help="After auto-splitting a PDF, merge chunk markdown into one sidecar (default).",
+    )
+    parser.add_argument(
+        "--no-merge",
+        dest="merge",
+        action="store_false",
+        help="Keep auto-split PDF chunk markdown as separate sidecars instead of merging.",
+    )
     parser.add_argument(
         "--overwrite",
         action="store_true",
@@ -348,16 +397,101 @@ def get_mineru_client(ctx: ConversionContext) -> Any:
     return ctx.mineru_client
 
 
-def save_mineru_images(output_path: Path, images: list[Any]) -> None:
+def save_mineru_images(output_path: Path, images: list[Any], *, prefix: str | None = None) -> dict[str, str]:
+    """
+    Persist MinerU images beside ``output_path`` under an ``images`` directory.
+
+    When ``prefix`` is provided (used for split PDF chunks), each image is stored
+    under a unique ``<prefix>-<name>`` filename and the returned mapping can be
+    used to rewrite markdown references so later chunks do not overwrite earlier
+    chunk images that happen to share a name such as ``image1.png``.
+    """
     if not images:
-        return
+        return {}
     image_dir = output_path.parent / "images"
     image_dir.mkdir(parents=True, exist_ok=True)
+    renamed: dict[str, str] = {}
     for image in images:
-        (image_dir / image.name).write_bytes(image.data)
+        target_name = f"{prefix}-{image.name}" if prefix else image.name
+        (image_dir / target_name).write_bytes(image.data)
+        if target_name != image.name:
+            renamed[image.name] = target_name
+    return renamed
 
 
-def convert_with_mineru(source_file: Path, output_path: Path, ctx: ConversionContext) -> dict[str, Any]:
+def rewrite_image_references(markdown: str, renamed: dict[str, str]) -> str:
+    for original_name, new_name in renamed.items():
+        markdown = markdown.replace(original_name, new_name)
+    return markdown
+
+
+def effective_chunk_pages(page_count: int, file_size: int, chunk_size: int) -> int:
+    """
+    Compute the per-chunk page count for MinerU auto-split.
+
+    Caps the request at MinerU's hard page limit and, when the file is over the
+    byte cap, shrinks chunks page-proportionally so each part has a chance of
+    landing under the size limit.
+    """
+    pages = min(chunk_size, MINERU_MAX_PAGES)
+    if file_size > MINERU_MAX_FILE_BYTES and page_count > 1:
+        parts_needed = math.ceil(file_size / MINERU_MAX_FILE_BYTES)
+        size_pages = max(1, page_count // parts_needed)
+        pages = min(pages, size_pages)
+    return max(1, pages)
+
+
+def load_pdf_tools() -> tuple[Any, Any]:
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except ImportError as exc:
+        raise SystemExit(
+            "Missing dependency 'pypdf'. Install the packages from requirements.txt before splitting large PDFs."
+        ) from exc
+    return PdfReader, PdfWriter
+
+
+def get_pdf_page_count(path: Path) -> int:
+    PdfReader, _ = load_pdf_tools()
+    return len(PdfReader(str(path)).pages)
+
+
+def split_pdf(filepath: Path, chunk_size: int, work_dir: Path) -> list[dict[str, Any]]:
+    if chunk_size <= 0:
+        raise ValueError("--chunk-size must be a positive integer")
+    PdfReader, PdfWriter = load_pdf_tools()
+    reader = PdfReader(str(filepath))
+    total_pages = len(reader.pages)
+    chunks: list[dict[str, Any]] = []
+    part_index = 1
+    for start in range(0, total_pages, chunk_size):
+        end = min(start + chunk_size, total_pages)
+        writer = PdfWriter()
+        for page_index in range(start, end):
+            writer.add_page(reader.pages[page_index])
+        part_path = work_dir / f"{filepath.name}.part{part_index}.pdf"
+        with part_path.open("wb") as handle:
+            writer.write(handle)
+        chunks.append(
+            {
+                "path": part_path,
+                "part_index": part_index,
+                "start_page": start + 1,
+                "end_page": end,
+            }
+        )
+        part_index += 1
+    return chunks
+
+
+def merge_md_files(parts: list[dict[str, Any]]) -> str:
+    ranges = ", ".join(f"pages {part['start_page']}-{part['end_page']}" for part in parts)
+    header = f"<!-- MERGED from {len(parts)} parts: {ranges} -->"
+    bodies = [str(part["markdown"]).strip() for part in parts if str(part.get("markdown", "")).strip()]
+    return header + "\n\n" + "\n\n".join(bodies)
+
+
+def extract_mineru_markdown(source_file: Path, ctx: ConversionContext, *, pages: str | None = None) -> Any:
     client = get_mineru_client(ctx)
     result = client.extract(
         str(source_file),
@@ -366,12 +500,179 @@ def convert_with_mineru(source_file: Path, output_path: Path, ctx: ConversionCon
         formula=ctx.formula,
         table=ctx.table,
         language=ctx.language,
-        pages=ctx.pages if source_file.suffix.lower() in PDF_SUFFIXES else None,
+        pages=pages if source_file.suffix.lower() in PDF_SUFFIXES else None,
         timeout=ctx.timeout,
     )
     if not result.markdown:
         error = result.error or "MinerU API returned no markdown output."
         raise RuntimeError(error)
+    return result
+
+
+def part_output_path(output_path: Path, part_index: int) -> Path:
+    return output_path.with_name(f"{output_path.stem}.part{part_index}{output_path.suffix}")
+
+
+def convert_with_mineru_chunked(
+    source_file: Path,
+    output_path: Path,
+    ctx: ConversionContext,
+    page_count: int,
+    chunk_pages: int,
+    file_size: int,
+) -> dict[str, Any]:
+    if not ctx.auto_split:
+        raise RuntimeError(
+            f"PDF has {page_count} pages which exceeds --chunk-size {ctx.chunk_size} "
+            f"(effective {chunk_pages} pages/chunk). "
+            "Re-run without --no-auto-split, lower --chunk-size, or pass --pages."
+        )
+    if file_size > MINERU_MAX_FILE_BYTES and page_count <= 1:
+        raise RuntimeError(
+            f"PDF exceeds MinerU's {MINERU_MAX_FILE_BYTES // (1024 * 1024)}MB size limit "
+            "and has too few pages to split by page count."
+        )
+
+    # Guard against clobbering existing per-chunk sidecars before we do any work.
+    if not ctx.merge and not ctx.overwrite:
+        expected_parts = math.ceil(page_count / chunk_pages)
+        for index in range(1, expected_parts + 1):
+            candidate = part_output_path(output_path, index)
+            if candidate.exists():
+                return {
+                    "status": "skipped",
+                    "source": str(source_file),
+                    "output": str(candidate),
+                    "reason": "output-exists",
+                }
+
+    work_dir = output_path.parent / f".{output_path.stem}.split-tmp"
+    if work_dir.exists():
+        for stale in work_dir.glob("*"):
+            if stale.is_file():
+                stale.unlink()
+    else:
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+    chunks = split_pdf(source_file, chunk_pages, work_dir)
+    part_results: list[dict[str, Any]] = []
+    part_outputs: list[str] = []
+    part_repairs: list[dict[str, Any]] = []
+    try:
+        for chunk in chunks:
+            result = extract_mineru_markdown(chunk["path"], ctx, pages=None)
+            renamed = save_mineru_images(
+                output_path,
+                list(getattr(result, "images", []) or []),
+                prefix=f"part{chunk['part_index']}",
+            )
+            part_markdown = rewrite_image_references(str(result.markdown), renamed)
+            part_payload = {
+                **chunk,
+                "markdown": part_markdown,
+            }
+            part_results.append(part_payload)
+            if not ctx.merge:
+                part_output = part_output_path(output_path, chunk["part_index"])
+                write_markdown(
+                    part_output,
+                    wrap_mineru_markdown(
+                        source_file=source_file,
+                        markdown_body=(
+                            f"<!-- PART {chunk['part_index']}: pages {chunk['start_page']}-{chunk['end_page']} -->\n\n"
+                            + part_markdown
+                        ),
+                        import_method=f"mineru-api:{ctx.api_model}",
+                        course=ctx.course,
+                    ),
+                )
+                part_outputs.append(str(part_output))
+                if ctx.repair:
+                    repair_payload = repair_generated_markdown(part_output)
+                    part_repairs.append(
+                        {
+                            "part_index": chunk["part_index"],
+                            "output": str(part_output),
+                            "raw_output": str(part_output.with_name(f"{part_output.stem}.raw{part_output.suffix}")),
+                            "repair_summary": repair_payload["summary_path"],
+                            "repairs": repair_payload["repairs"],
+                        }
+                    )
+        if ctx.merge:
+            merged_body = merge_md_files(part_results)
+            write_markdown(
+                output_path,
+                wrap_mineru_markdown(
+                    source_file=source_file,
+                    markdown_body=merged_body,
+                    import_method=f"mineru-api:{ctx.api_model}",
+                    course=ctx.course,
+                ),
+            )
+            final_output = str(output_path)
+        else:
+            final_output = part_outputs[0] if part_outputs else str(output_path)
+    finally:
+        for chunk in chunks:
+            part_path = Path(chunk["path"])
+            if part_path.exists():
+                part_path.unlink()
+        if work_dir.exists():
+            try:
+                work_dir.rmdir()
+            except OSError:
+                pass
+
+    payload: dict[str, Any] = {
+        "status": "converted",
+        "source": str(source_file),
+        "output": final_output,
+        "kind": "mineru-api",
+        "import_method": f"mineru-api:{ctx.api_model}",
+        "split": {
+            "enabled": True,
+            "page_count": page_count,
+            "chunk_size": chunk_pages,
+            "requested_chunk_size": ctx.chunk_size,
+            "part_count": len(part_results),
+            "merged": ctx.merge,
+            "parts": [
+                {
+                    "part_index": part["part_index"],
+                    "start_page": part["start_page"],
+                    "end_page": part["end_page"],
+                }
+                for part in part_results
+            ],
+        },
+    }
+    if part_outputs:
+        payload["part_outputs"] = part_outputs
+    if ctx.repair and ctx.merge:
+        repair_payload = repair_generated_markdown(output_path)
+        payload["raw_output"] = str(output_path.with_name(f"{output_path.stem}.raw{output_path.suffix}"))
+        payload["repair_summary"] = repair_payload["summary_path"]
+        payload["repairs"] = repair_payload["repairs"]
+    if part_repairs:
+        payload["part_repairs"] = part_repairs
+    return payload
+
+
+def convert_with_mineru(source_file: Path, output_path: Path, ctx: ConversionContext) -> dict[str, Any]:
+    if source_file.suffix.lower() in PDF_SUFFIXES and not ctx.pages:
+        try:
+            page_count = get_pdf_page_count(source_file)
+        except SystemExit:
+            raise
+        except Exception as exc:  # malformed/encrypted PDF probe should not abort the batch
+            raise RuntimeError(f"Failed to read PDF for page-count probe: {exc}") from exc
+        file_size = source_file.stat().st_size
+        chunk_pages = effective_chunk_pages(page_count, file_size, ctx.chunk_size)
+        needs_split = page_count > chunk_pages or file_size > MINERU_MAX_FILE_BYTES
+        if needs_split:
+            return convert_with_mineru_chunked(source_file, output_path, ctx, page_count, chunk_pages, file_size)
+
+    result = extract_mineru_markdown(source_file, ctx, pages=ctx.pages)
     save_mineru_images(output_path, list(getattr(result, "images", []) or []))
     write_markdown(
         output_path,
@@ -573,6 +874,9 @@ def main() -> int:
     if not source.exists():
         raise SystemExit(f"Source path does not exist: {source}")
 
+    if args.chunk_size <= 0:
+        raise SystemExit("--chunk-size must be a positive integer")
+
     ctx = ConversionContext(
         method=args.method,
         course=args.course,
@@ -587,6 +891,9 @@ def main() -> int:
         table=args.table,
         pages=args.pages,
         timeout=args.timeout,
+        auto_split=not args.no_auto_split,
+        chunk_size=args.chunk_size,
+        merge=args.merge,
     )
     output_root = Path(args.output_root).resolve() if args.output_root else None
     source_root, inputs = discover_inputs(source, args.pattern)

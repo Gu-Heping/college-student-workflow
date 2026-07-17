@@ -14,6 +14,8 @@ Recommended API mode:
 - run `python scripts/materials_convert.py <folder> --method api --api-model vlm`
 - use `--method auto` to prefer MinerU API when a token is present and fall back to local converters otherwise
 - if the materials include scans, images, or legacy `.doc` / `.ppt` / `.xls` files, first check whether a MinerU token is already configured and prompt the user to add one when higher-fidelity parsing is likely to help
+- large PDFs over the MinerU page limit are auto-split into `<= --chunk-size` chunks (default 200), converted, and merged into one markdown sidecar
+- use `--no-auto-split` to fail instead of chunking, `--chunk-size N` for v1/smaller limits, and `--no-merge` to keep per-chunk sidecars
 
 Repair mode:
 - add `--repair` to run the conservative markdown repair step immediately after conversion
