@@ -69,7 +69,9 @@ def main() -> int:
     repaired = re.sub(r"(?m)^- Repair status:\s*$", "- Repair status: repaired", repaired, count=1)
     if args.derived_from:
         derived_line = f"derived_from_import: {yaml_string(str(Path(args.derived_from).resolve()))}"
-        repaired = re.sub(r"(?m)^derived_from_import:\s*$", derived_line, repaired, count=1)
+        # Use a callable replacement so Windows paths with JSON \\uXXXX escapes are not
+        # reinterpreted as re.sub template escapes (re.error: bad escape \\u).
+        repaired = re.sub(r"(?m)^derived_from_import:\s*$", lambda _: derived_line, repaired, count=1)
         repaired = repaired.replace('derived_from_import: ""', derived_line, 1)
     output_path.write_text(repaired, encoding="utf-8")
 
