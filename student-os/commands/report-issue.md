@@ -21,3 +21,15 @@ Expected outputs:
 - mandatory cleanup before posting when blocking sensitive data is detected
 - explicit confirmation before public posting
 - stored GitHub issue metadata after publish
+
+When the draft does not come from a local feedback entry, sanitize through:
+
+```bash
+python scripts/prepare_github_issue.py --stdin < draft.md \
+  | gh issue create --repo Gu-Heping/college-student-workflow -F -
+```
+
+- `--stdin` holds the draft back (non-zero exit, no stdout) when privacy warnings are present; re-run with `--allow-privacy-warnings` only after explicit user confirmation.
+- Always pin `--repo Gu-Heping/college-student-workflow` so the issue lands on the student-os tracker instead of the student's current/private repo.
+
+Do not call `gh issue create` directly on unsanitized text.
