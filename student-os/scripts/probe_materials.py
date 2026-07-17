@@ -466,7 +466,8 @@ def _optional_ocr_hint(path: Path) -> bool:
         return False
     try:
         return bool(probe_pdf(path).get("needs_ocr"))
-    except Exception:
+    except (Exception, SystemExit):
+        # Missing pypdf or unreadable PDF must not abort an explicit --method api request.
         return False
 
 
