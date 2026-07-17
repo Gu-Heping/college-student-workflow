@@ -6,6 +6,7 @@ import fnmatch
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -17,7 +18,7 @@ PDF_SUFFIXES = {".pdf"}
 DOCX_SUFFIXES = {".docx"}
 PPTX_SUFFIXES = {".pptx"}
 XLSX_SUFFIXES = {".xlsx"}
-IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
 LEGACY_WORD_SUFFIXES = {".doc"}
 LEGACY_PPT_SUFFIXES = {".ppt"}
 LEGACY_XLS_SUFFIXES = {".xls"}
@@ -75,6 +76,8 @@ class ConversionContext:
     auto_split: bool = True
     chunk_size: int = 200
     merge: bool = True
+    force_strategy: str | None = None
+    ocr_explicit: bool | None = None
     mineru_client: Any | None = None
 
 
@@ -122,7 +125,32 @@ def parse_args() -> argparse.Namespace:
         "--method",
         choices=["auto", "local", "api"],
         default="auto",
-        help="Conversion strategy. auto prefers the official MinerU API when a token is available, otherwise falls back to local converters.",
+        help=(
+            "Conversion strategy. auto probes each file and picks MinerU API, PyMuPDF, pandoc, "
+            "or local converters; local/api force a global backend."
+        ),
+    )
+    parser.add_argument(
+        "--probe-only",
+        action="store_true",
+        help="Probe each input and print strategy recommendations as JSON without writing sidecars.",
+    )
+    parser.add_argument(
+        "--force-strategy",
+        choices=[
+            "ocr",
+            "mineru-api",
+            "pymupdf",
+            "pandoc",
+            "python-pptx",
+            "xlsx-to-md",
+            "docx-to-md",
+            "pdf-to-md",
+            "image-index",
+            "legacy-office-index",
+            "binary-index",
+        ],
+        help="Override automatic probing and force one conversion strategy for every input.",
     )
     repair_group = parser.add_mutually_exclusive_group()
     repair_group.add_argument(
@@ -229,11 +257,21 @@ def resolve_api_token(cli_token: str | None) -> str | None:
     return load_token(cli_token)
 
 
-def should_resolve_api_token(method: str, repair_only: bool) -> bool:
+def should_resolve_api_token(
+    method: str,
+    repair_only: bool,
+    *,
+    probe_only: bool = False,
+    force_strategy: str | None = None,
+) -> bool:
     # Local-only and repair-only paths never need MinerU credentials; skip .env reads
     # so an unreadable cwd .env cannot abort those workflows.
     if repair_only:
         return False
+    if force_strategy in {"ocr", "mineru-api"}:
+        return True
+    if probe_only:
+        return True
     return method in {"auto", "api"}
 
 
@@ -714,6 +752,189 @@ def convert_with_mineru(source_file: Path, output_path: Path, ctx: ConversionCon
     return payload
 
 
+def convert_with_pymupdf(source_file: Path, output_path: Path, ctx: ConversionContext) -> dict[str, Any]:
+    try:
+        import fitz  # PyMuPDF
+    except ImportError as exc:
+        raise SystemExit(
+            "Missing dependency 'pymupdf'. Install the packages from requirements.txt before using the pymupdf strategy."
+        ) from exc
+
+    document = fitz.open(str(source_file))
+    try:
+        page_blocks: list[str] = []
+        for page_index, page in enumerate(document, start=1):
+            text = page.get_text("text") or ""
+            page_blocks.extend(
+                [
+                    f"## Page {page_index}",
+                    "",
+                    text.strip() if text.strip() else "[No extractable text found on this page.]",
+                    "",
+                ]
+            )
+    finally:
+        document.close()
+
+    write_markdown(
+        output_path,
+        wrap_mineru_markdown(
+            source_file=source_file,
+            markdown_body="\n".join(page_blocks).strip(),
+            import_method="pymupdf",
+            course=ctx.course,
+        ),
+    )
+    payload: dict[str, Any] = {
+        "status": "converted",
+        "source": str(source_file),
+        "output": str(output_path),
+        "kind": "pdf",
+        "import_method": "pymupdf",
+    }
+    if ctx.repair:
+        repair_payload = repair_generated_markdown(output_path)
+        payload["raw_output"] = str(output_path.with_name(f"{output_path.stem}.raw{output_path.suffix}"))
+        payload["repair_summary"] = repair_payload["summary_path"]
+        payload["repairs"] = repair_payload["repairs"]
+    return payload
+
+
+def convert_with_pandoc(source_file: Path, output_path: Path, ctx: ConversionContext) -> dict[str, Any]:
+    if shutil.which("pandoc") is None:
+        payload = run_script("docx_to_md.py", str(source_file), "--output", str(output_path))
+        apply_course_metadata(Path(payload["output"]), ctx.course)
+        result = {
+            "status": "converted",
+            "source": str(source_file),
+            "output": payload["output"],
+            "kind": "docx",
+            "import_method": "docx-to-md",
+            "pandoc_fallback": True,
+        }
+    else:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        completed = subprocess.run(
+            ["pandoc", str(source_file), "-t", "gfm", "-o", str(output_path)],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        body = output_path.read_text(encoding="utf-8")
+        write_markdown(
+            output_path,
+            wrap_mineru_markdown(
+                source_file=source_file,
+                markdown_body=body,
+                import_method="pandoc",
+                course=ctx.course,
+            ),
+        )
+        result = {
+            "status": "converted",
+            "source": str(source_file),
+            "output": str(output_path),
+            "kind": "docx",
+            "import_method": "pandoc",
+            "pandoc_stderr": (completed.stderr or "").strip(),
+        }
+
+    if ctx.repair:
+        repair_payload = repair_generated_markdown(Path(result["output"]))
+        result["raw_output"] = str(Path(result["output"]).with_name(f"{Path(result['output']).stem}.raw{Path(result['output']).suffix}"))
+        result["repair_summary"] = repair_payload["summary_path"]
+        result["repairs"] = repair_payload["repairs"]
+    return result
+
+
+def effective_ocr(ctx: ConversionContext, probe: dict[str, Any]) -> bool | None:
+    if ctx.ocr_explicit is not None:
+        return ctx.ocr_explicit
+    if probe.get("needs_ocr"):
+        return True
+    return ctx.ocr
+
+
+def convert_with_tool(
+    *,
+    source_file: Path,
+    output_path: Path,
+    ctx: ConversionContext,
+    probe: dict[str, Any],
+) -> dict[str, Any]:
+    tool = probe["tool"]
+    if tool == "skip":
+        return {
+            "status": "skipped",
+            "source": str(source_file),
+            "reason": "already-text-friendly",
+            "probe": probe,
+        }
+    if tool == "mineru-api":
+        if not ctx.api_token:
+            return {
+                "status": "skipped",
+                "source": str(source_file),
+                "reason": "mineru-token-required",
+                "probe": probe,
+            }
+        ocr_value = effective_ocr(ctx, probe)
+        previous = ctx.ocr
+        ctx.ocr = ocr_value
+        try:
+            payload = convert_with_mineru(source_file, output_path, ctx)
+        finally:
+            ctx.ocr = previous
+        payload["probe"] = probe
+        payload["ocr"] = ocr_value
+        return payload
+    if tool == "pymupdf":
+        payload = convert_with_pymupdf(source_file, output_path, ctx)
+        payload["probe"] = probe
+        return payload
+    if tool == "pandoc":
+        payload = convert_with_pandoc(source_file, output_path, ctx)
+        payload["probe"] = probe
+        return payload
+    if tool == "docx-to-md":
+        plan = ConversionPlan(kind="docx", import_method="docx-to-md")
+        payload = convert_with_local_plan(source_file, output_path, plan, ctx)
+        payload["probe"] = probe
+        return payload
+    if tool == "python-pptx":
+        plan = ConversionPlan(kind="pptx", import_method="pptx-to-md")
+        payload = convert_with_local_plan(source_file, output_path, plan, ctx)
+        payload["probe"] = probe
+        return payload
+    if tool == "xlsx-to-md":
+        plan = ConversionPlan(kind="xlsx", import_method="xlsx-to-md")
+        payload = convert_with_local_plan(source_file, output_path, plan, ctx)
+        payload["probe"] = probe
+        return payload
+    if tool == "pdf-to-md":
+        plan = ConversionPlan(kind="pdf", import_method="pdf-to-md")
+        payload = convert_with_local_plan(source_file, output_path, plan, ctx)
+        payload["probe"] = probe
+        return payload
+    if tool == "image-index":
+        plan = ConversionPlan(kind="image-index", import_method="image-index")
+        payload = convert_with_local_plan(source_file, output_path, plan, ctx)
+        payload["probe"] = probe
+        return payload
+    if tool == "legacy-office-index":
+        plan = ConversionPlan(kind="legacy-office-index", import_method="legacy-office-index")
+        payload = convert_with_local_plan(source_file, output_path, plan, ctx)
+        payload["probe"] = probe
+        return payload
+    if tool == "binary-index":
+        plan = ConversionPlan(kind="binary-index", import_method="binary-index")
+        payload = convert_with_local_plan(source_file, output_path, plan, ctx)
+        payload["probe"] = probe
+        return payload
+    raise RuntimeError(f"Unsupported conversion tool: {tool}")
+
+
 def convert_with_local_plan(
     source_file: Path,
     output_path: Path,
@@ -835,13 +1056,21 @@ def convert_one(
     output_root: Path | None,
     ctx: ConversionContext,
 ) -> dict[str, Any]:
+    from probe_materials import resolve_probe
+
     output_path = build_output_path(source_file, source_root, output_root)
-    plan = choose_local_plan(source_file)
-    if plan is None:
+    probe = resolve_probe(
+        source_file,
+        method=ctx.method,
+        force_strategy=ctx.force_strategy,
+        has_api_token=bool(ctx.api_token),
+    )
+    if probe.get("tool") == "skip":
         return {
             "status": "skipped",
             "source": str(source_file),
             "reason": "already-text-friendly",
+            "probe": probe,
         }
     if output_path.exists() and not ctx.overwrite:
         return {
@@ -849,12 +1078,14 @@ def convert_one(
             "source": str(source_file),
             "output": str(output_path),
             "reason": "output-exists",
+            "probe": probe,
         }
-
-    selected_method = choose_method(source_file, ctx)
-    if selected_method == "api":
-        return convert_with_mineru(source_file, output_path, ctx)
-    return convert_with_local_plan(source_file, output_path, plan, ctx)
+    return convert_with_tool(
+        source_file=source_file,
+        output_path=output_path,
+        ctx=ctx,
+        probe=probe,
+    )
 
 
 def repair_one_markdown(path: Path, *, overwrite: bool) -> dict[str, Any]:
@@ -885,6 +1116,8 @@ def repair_one_markdown(path: Path, *, overwrite: bool) -> dict[str, Any]:
 
 
 def main() -> int:
+    from probe_materials import resolve_probe
+
     args = parse_args()
     source = Path(args.source).resolve()
     if not source.exists():
@@ -892,6 +1125,8 @@ def main() -> int:
 
     if args.chunk_size <= 0:
         raise SystemExit("--chunk-size must be a positive integer")
+    if args.probe_only and args.repair_only:
+        raise SystemExit("--probe-only cannot be combined with --repair-only")
 
     ctx = ConversionContext(
         method=args.method,
@@ -899,7 +1134,14 @@ def main() -> int:
         overwrite=args.overwrite,
         repair=args.repair,
         repair_only=args.repair_only,
-        api_token=resolve_api_token(args.api_token) if should_resolve_api_token(args.method, args.repair_only) else None,
+        api_token=resolve_api_token(args.api_token)
+        if should_resolve_api_token(
+            args.method,
+            args.repair_only,
+            probe_only=args.probe_only,
+            force_strategy=args.force_strategy,
+        )
+        else None,
         api_model=args.api_model,
         language=args.language,
         ocr=args.ocr,
@@ -910,12 +1152,36 @@ def main() -> int:
         auto_split=not args.no_auto_split,
         chunk_size=args.chunk_size,
         merge=args.merge,
+        force_strategy=args.force_strategy,
+        ocr_explicit=args.ocr,
     )
     output_root = Path(args.output_root).resolve() if args.output_root else None
     source_root, inputs = discover_inputs(source, args.pattern)
     converted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+
+    if args.probe_only:
+        probes = [
+            resolve_probe(
+                source_file,
+                method=ctx.method,
+                force_strategy=ctx.force_strategy,
+                has_api_token=bool(ctx.api_token),
+            )
+            for source_file in inputs
+        ]
+        result = {
+            "source": str(source),
+            "source_root": str(source_root),
+            "requested_method": args.method,
+            "force_strategy": args.force_strategy,
+            "probe_only": True,
+            "has_api_token": bool(ctx.api_token),
+            "probes": probes,
+        }
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
 
     if ctx.repair_only:
         for source_file in inputs:
@@ -949,7 +1215,7 @@ def main() -> int:
                 output_root=output_root,
                 ctx=ctx,
             )
-        except (subprocess.CalledProcessError, RuntimeError) as exc:
+        except (subprocess.CalledProcessError, RuntimeError, SystemExit) as exc:
             message = (getattr(exc, "stderr", None) or getattr(exc, "stdout", None) or str(exc)).strip()
             errors.append({"source": str(source_file), "error": message})
             continue
@@ -958,11 +1224,15 @@ def main() -> int:
         else:
             skipped.append(payload)
 
+    api_like = any(
+        str(item.get("import_method", "")).startswith("mineru-api:") for item in converted
+    )
     result = {
         "source": str(source),
         "source_root": str(source_root),
         "requested_method": args.method,
-        "applied_method": "api" if any(item["import_method"].startswith("mineru-api:") for item in converted) else "local",
+        "force_strategy": args.force_strategy,
+        "applied_method": "api" if api_like else "local",
         "converted": converted,
         "skipped": skipped,
         "errors": errors,

@@ -12,5 +12,5 @@
 - CLI scripts operate on a **separate target vault directory passed as an argument** (e.g. `python student-os/scripts/inspect_repo.py /path/to/vault`). Never run them against this repo itself as the vault.
 - Gotchas:
   - `materials_convert.py` takes the source file/dir as its **only positional arg** (no vault arg); outputs are written beside the source as `<name>.<ext>.md` unless `--output-root` is given. Use `--method local` to force local converters and avoid the hosted MinerU API.
-  - Hosted MinerU conversion (`--method api`) needs `MINERU_TOKEN`/`MINERU_API_TOKEN` (CLI, process env, or skill/cwd `.env`); without it, conversion falls back to local converters.
+  - Hosted MinerU conversion (`--method api` / content-aware `--method auto`) needs `MINERU_TOKEN`/`MINERU_API_TOKEN` (CLI, process env, or skill/cwd `.env`); without it, conversion falls back to local converters or index sidecars. Optional `pandoc` improves DOCX routing.
   - Publishing feedback as GitHub Issues (`publish_github_issue.py`) needs an authenticated `gh` CLI; it degrades gracefully to a draft/shell-safe fallback when `gh` is absent.

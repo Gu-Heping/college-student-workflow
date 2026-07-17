@@ -1,5 +1,6 @@
 pdfplumber
 pypdf
+pymupdf
 python-docx
 openpyxl
 python-pptx
