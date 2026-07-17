@@ -17,7 +17,7 @@ from pathlib import Path
 
 SKILL_NAME = "student-os"
 MANIFEST_FILENAME = ".student-os-install.json"
-LOCAL_OVERRIDE_NAMES = [".student-os-local-overrides", ".student-os-install.local.json"]
+LOCAL_OVERRIDE_NAMES = [".student-os-local-overrides", ".student-os-install.local.json", ".env"]
 DEFAULT_SOURCE_REPO = "https://github.com/Gu-Heping/college-student-workflow.git"
 DEFAULT_REF = "main"
 BACKUP_DIRNAME = ".student-os-backups"

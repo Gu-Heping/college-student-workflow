@@ -14,7 +14,9 @@ Use this reference when the request starts from a PDF, DOCX, XLSX, or PPTX file 
 ## Runtime expectation
 
 - Install the optional converter dependencies from the repository `requirements.txt` before running the import scripts.
-- For higher-fidelity OCR and legacy Office parsing, configure `MINERU_TOKEN` and prefer `materials_convert.py --method api` or `--method auto`.
+- For higher-fidelity OCR and legacy Office parsing, configure a MinerU token and prefer `materials_convert.py --method api` or `--method auto`.
+- Token lookup order: `--api-token` → `MINERU_TOKEN` / `MINERU_API_TOKEN` process env → skill-root `.env` → current-working-directory `.env`.
+- Prefer a skill-local `.env` (copy from `.env.example`) so tokens stay out of shell history; never commit real `.env` files.
 - MinerU API mode auto-splits PDFs above `--chunk-size` (default 200 pages), converts each chunk, and merges the markdown unless `--no-merge` is set.
 - Use `--no-auto-split` when you want oversized PDFs to fail fast instead of chunking.
 

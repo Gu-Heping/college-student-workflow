@@ -14,7 +14,7 @@ from pathlib import Path
 
 SKILL_NAME = "student-os"
 MANIFEST_FILENAME = ".student-os-install.json"
-LOCAL_OVERRIDE_NAMES = [".student-os-local-overrides", ".student-os-install.local.json"]
+LOCAL_OVERRIDE_NAMES = [".student-os-local-overrides", ".student-os-install.local.json", ".env"]
 DEFAULT_SOURCE_REPO = "https://github.com/Gu-Heping/college-student-workflow.git"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCE_SKILL_DIR = REPO_ROOT / SKILL_NAME

@@ -36,6 +36,9 @@ node_modules/
 tmp/
 temp/
 *.log
+.env
+*.env
+!.env.example
 """
 
 
