@@ -752,6 +752,28 @@ def convert_with_mineru(source_file: Path, output_path: Path, ctx: ConversionCon
     return payload
 
 
+def parse_page_selection(pages: str | None, page_count: int) -> list[int]:
+    """Return 0-based page indices selected by a MinerU-style pages string."""
+    if not pages or page_count <= 0:
+        return list(range(max(page_count, 0)))
+    selected: set[int] = set()
+    for part in pages.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            start_raw, end_raw = part.split("-", 1)
+            start = max(1, int(start_raw.strip()))
+            end = min(page_count, int(end_raw.strip()))
+            if start <= end:
+                selected.update(range(start - 1, end))
+            continue
+        page = int(part)
+        if 1 <= page <= page_count:
+            selected.add(page - 1)
+    return sorted(selected) if selected else list(range(page_count))
+
+
 def convert_with_pymupdf(source_file: Path, output_path: Path, ctx: ConversionContext) -> dict[str, Any]:
     try:
         import fitz  # PyMuPDF
@@ -762,12 +784,14 @@ def convert_with_pymupdf(source_file: Path, output_path: Path, ctx: ConversionCo
 
     document = fitz.open(str(source_file))
     try:
+        page_indices = parse_page_selection(ctx.pages, document.page_count)
         page_blocks: list[str] = []
-        for page_index, page in enumerate(document, start=1):
+        for page_index in page_indices:
+            page = document.load_page(page_index)
             text = page.get_text("text") or ""
             page_blocks.extend(
                 [
-                    f"## Page {page_index}",
+                    f"## Page {page_index + 1}",
                     "",
                     text.strip() if text.strip() else "[No extractable text found on this page.]",
                     "",
@@ -792,6 +816,8 @@ def convert_with_pymupdf(source_file: Path, output_path: Path, ctx: ConversionCo
         "kind": "pdf",
         "import_method": "pymupdf",
     }
+    if ctx.pages:
+        payload["pages"] = ctx.pages
     if ctx.repair:
         repair_payload = repair_generated_markdown(output_path)
         payload["raw_output"] = str(output_path.with_name(f"{output_path.stem}.raw{output_path.suffix}"))
@@ -873,6 +899,10 @@ def convert_with_tool(
         }
     if tool == "mineru-api":
         if not ctx.api_token:
+            if probe.get("forced") or ctx.force_strategy in {"ocr", "mineru-api"}:
+                raise RuntimeError(
+                    "MinerU API strategy requires a token via --api-token, MINERU_TOKEN, or .env"
+                )
             return {
                 "status": "skipped",
                 "source": str(source_file),
@@ -1162,15 +1192,20 @@ def main() -> int:
     errors: list[dict[str, Any]] = []
 
     if args.probe_only:
-        probes = [
-            resolve_probe(
-                source_file,
-                method=ctx.method,
-                force_strategy=ctx.force_strategy,
-                has_api_token=bool(ctx.api_token),
-            )
-            for source_file in inputs
-        ]
+        probes: list[dict[str, Any]] = []
+        for source_file in inputs:
+            try:
+                probes.append(
+                    resolve_probe(
+                        source_file,
+                        method=ctx.method,
+                        force_strategy=ctx.force_strategy,
+                        has_api_token=bool(ctx.api_token),
+                    )
+                )
+            except Exception as exc:
+                message = (getattr(exc, "stderr", None) or getattr(exc, "stdout", None) or str(exc)).strip()
+                errors.append({"source": str(source_file), "error": message})
         result = {
             "source": str(source),
             "source_root": str(source_root),
@@ -1179,9 +1214,10 @@ def main() -> int:
             "probe_only": True,
             "has_api_token": bool(ctx.api_token),
             "probes": probes,
+            "errors": errors,
         }
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 0
+        return 0 if not errors else 1
 
     if ctx.repair_only:
         for source_file in inputs:
@@ -1215,7 +1251,11 @@ def main() -> int:
                 output_root=output_root,
                 ctx=ctx,
             )
-        except (subprocess.CalledProcessError, RuntimeError, SystemExit) as exc:
+        except SystemExit as exc:
+            message = str(exc).strip() or "SystemExit"
+            errors.append({"source": str(source_file), "error": message})
+            continue
+        except Exception as exc:
             message = (getattr(exc, "stderr", None) or getattr(exc, "stdout", None) or str(exc)).strip()
             errors.append({"source": str(source_file), "error": message})
             continue

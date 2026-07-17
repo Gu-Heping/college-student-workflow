@@ -1087,19 +1087,27 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_contains(repo / "references" / "imports" / "repair-only-sample-repair-summary.md", "Removed isolated page labels.")
 
     # Content-aware probing / smart routing.
+    no_token_env = {
+        "MINERU_TOKEN": "",
+        "MINERU_API_TOKEN": "",
+        "STUDENT_OS_SKILL_ROOT": str(empty_skill_root),
+    }
     probe_only_payload = json.loads(
         run_script(
             "materials_convert.py",
             str(fixture_root),
             "--probe-only",
-            env={"MINERU_TOKEN": "", "MINERU_API_TOKEN": ""},
+            cwd=empty_skill_root,
+            env=no_token_env,
         )
     )
     if not probe_only_payload.get("probe_only") or not probe_only_payload.get("probes"):
         raise AssertionError(f"Expected --probe-only JSON report, got: {probe_only_payload}")
     probes_by_name = {Path(item["source"]).name: item for item in probe_only_payload["probes"]}
-    if probes_by_name["linear-algebra-handout.pdf"]["tool"] not in {"pdf-to-md", "pymupdf", "mineru-api"}:
-        raise AssertionError(f"Unexpected PDF probe tool: {probes_by_name['linear-algebra-handout.pdf']}")
+    if probes_by_name["linear-algebra-handout.pdf"]["tool"] not in {"pdf-to-md", "pymupdf"}:
+        raise AssertionError(
+            f"Without a token, PDF probes should stay local, got: {probes_by_name['linear-algebra-handout.pdf']}"
+        )
     if probes_by_name["homework-photo.png"]["tool"] != "image-index":
         raise AssertionError("Without a token, image probes should degrade to image-index")
     if probes_by_name["linear-algebra-outline.docx"]["tool"] not in {"pandoc", "docx-to-md"}:
@@ -1116,8 +1124,12 @@ def exercise_import_workflows(repo: Path) -> None:
             "test-token",
         )
     )["probes"][0]
-    if scanned_probe["strategy"] != "scanned" or not scanned_probe.get("needs_ocr"):
-        raise AssertionError(f"Expected blank PDF to probe as scanned+OCR, got: {scanned_probe}")
+    if (
+        scanned_probe["strategy"] != "scanned"
+        or scanned_probe.get("tool") != "mineru-api"
+        or not scanned_probe.get("needs_ocr")
+    ):
+        raise AssertionError(f"Expected blank PDF to probe as scanned+mineru-api+OCR, got: {scanned_probe}")
 
     manual_pdf = fixture_root / "text-manual.pdf"
     write_text_heavy_pdf_fixture(manual_pdf, 3)
@@ -1126,10 +1138,9 @@ def exercise_import_workflows(repo: Path) -> None:
             "materials_convert.py",
             str(manual_pdf),
             "--probe-only",
+            cwd=empty_skill_root,
             env={
-                "MINERU_TOKEN": "",
-                "MINERU_API_TOKEN": "",
-                "STUDENT_OS_PDF_MANUAL_MIN_PAGES": "2",
+                **no_token_env,
                 "STUDENT_OS_PDF_MANUAL_CHARS_PER_PAGE": "100",
             },
         )
@@ -1146,13 +1157,72 @@ def exercise_import_workflows(repo: Path) -> None:
             str(pymupdf_root),
             "--force-strategy",
             "pymupdf",
+            "--pages",
+            "2",
             "--overwrite",
         )
     )
     if pymupdf_payload["converted"][0].get("import_method") != "pymupdf":
         raise AssertionError(f"Expected forced pymupdf conversion, got: {pymupdf_payload}")
-    ensure_contains(pymupdf_root / "text-manual.pdf.md", "import_method: pymupdf")
-    ensure_contains(pymupdf_root / "text-manual.pdf.md", "## Page 1")
+    pymupdf_md = (pymupdf_root / "text-manual.pdf.md").read_text(encoding="utf-8")
+    if "## Page 2" not in pymupdf_md or "## Page 1" in pymupdf_md or "## Page 3" in pymupdf_md:
+        raise AssertionError(f"Expected pymupdf --pages 2 to extract only page 2, got:\n{pymupdf_md}")
+
+    forced_api_no_token = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "materials_convert.py"),
+            str(manual_pdf),
+            "--output-root",
+            str(repo / "references" / "imports" / "forced-api-no-token"),
+            "--force-strategy",
+            "mineru-api",
+            "--overwrite",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=empty_skill_root,
+        env={
+            **os.environ,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONIOENCODING": "utf-8",
+            **no_token_env,
+        },
+    )
+    if forced_api_no_token.returncode == 0:
+        raise AssertionError("Expected forced mineru-api without token to exit nonzero")
+    forced_api_payload = json.loads(forced_api_no_token.stdout)
+    if not forced_api_payload.get("errors") or "requires a token" not in forced_api_payload["errors"][0].get("error", ""):
+        raise AssertionError(f"Expected forced API without token to error, got: {forced_api_payload}")
+
+    corrupt_docx = fixture_root / "corrupt.docx"
+    corrupt_docx.write_bytes(b"PK\x03\x04not-a-real-docx")
+    corrupt_probe_result = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "materials_convert.py"),
+            str(corrupt_docx),
+            "--probe-only",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if corrupt_probe_result.returncode == 0:
+        raise AssertionError("Expected corrupt DOCX --probe-only to exit nonzero")
+    corrupt_probe_payload = json.loads(corrupt_probe_result.stdout)
+    if not corrupt_probe_payload.get("errors") or "Failed to probe DOCX" not in corrupt_probe_payload["errors"][0].get(
+        "error", ""
+    ):
+        raise AssertionError(f"Expected corrupt DOCX probe error, got: {corrupt_probe_payload}")
+    corrupt_docx.unlink()
 
     image_heavy_docx = fixture_root / "image-heavy.docx"
     Document, _, _, _ = load_import_dependencies()
@@ -1180,8 +1250,12 @@ def exercise_import_workflows(repo: Path) -> None:
             "test-token",
         )
     )["probes"][0]
-    if heavy_probe["tool"] != "mineru-api" or heavy_probe["strategy"] != "image-heavy-docx":
-        raise AssertionError(f"Expected image-heavy DOCX to prefer MinerU API, got: {heavy_probe}")
+    if (
+        heavy_probe["tool"] != "mineru-api"
+        or heavy_probe["strategy"] != "image-heavy-docx"
+        or not heavy_probe.get("needs_ocr")
+    ):
+        raise AssertionError(f"Expected image-heavy DOCX to prefer MinerU API+OCR, got: {heavy_probe}")
     valid_png.unlink()
 
     auto_image_payload = json.loads(
@@ -1221,7 +1295,8 @@ def exercise_import_workflows(repo: Path) -> None:
             "materials_convert.py",
             str(legacy_doc),
             "--probe-only",
-            env={"MINERU_TOKEN": "", "MINERU_API_TOKEN": ""},
+            cwd=empty_skill_root,
+            env=no_token_env,
         )
     )["probes"][0]
     if legacy_no_token["tool"] != "legacy-office-index":
