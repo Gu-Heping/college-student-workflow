@@ -309,16 +309,50 @@ def choose_method(path: Path, ctx: ConversionContext) -> str:
     return "local"
 
 
+def decode_subprocess_stream(payload: bytes | str | None, *, strict: bool = False) -> str:
+    if payload is None:
+        return ""
+    if isinstance(payload, str):
+        return payload
+    if strict:
+        return payload.decode("utf-8")
+    return payload.decode("utf-8", errors="replace")
+
+
+def subprocess_error_message(exc: BaseException) -> str:
+    for attr in ("stderr", "stdout"):
+        text = decode_subprocess_stream(getattr(exc, attr, None)).strip()
+        if text:
+            return text
+    return str(exc).strip() or type(exc).__name__
+
+
+def child_script_env() -> dict[str, str]:
+    return {
+        **os.environ,
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+
+
 def run_script(script_name: str, *args: str) -> dict[str, Any]:
     script_path = Path(__file__).with_name(script_name)
+    # Capture raw bytes first to avoid UnicodeDecodeError/None stdout on Windows
+    # with non-UTF8 stderr/stdout (e.g., Chinese filenames in mixed encodings).
     completed = subprocess.run(
         [sys.executable, "-B", str(script_path), *args],
-        check=True,
+        check=False,
         capture_output=True,
-        text=True,
-        encoding="utf-8",
+        env=child_script_env(),
     )
-    return json.loads(completed.stdout)
+    stdout_text = decode_subprocess_stream(completed.stdout, strict=True)
+    stderr_text = decode_subprocess_stream(completed.stderr)
+    if not stdout_text.strip():
+        raise RuntimeError(
+            f"{script_name} returned empty stdout; stderr: {stderr_text.strip()[:500]}"
+        )
+    completed.check_returncode()
+    return json.loads(stdout_text)
 
 
 def run_repair(input_path: Path, output_path: Path, *, derived_from: Path | None) -> dict[str, Any]:
@@ -1206,7 +1240,7 @@ def main() -> int:
                     )
                 )
             except Exception as exc:
-                message = (getattr(exc, "stderr", None) or getattr(exc, "stdout", None) or str(exc)).strip()
+                message = subprocess_error_message(exc)
                 errors.append({"source": str(source_file), "error": message})
         result = {
             "source": str(source),
@@ -1226,7 +1260,7 @@ def main() -> int:
             try:
                 payload = repair_one_markdown(source_file, overwrite=ctx.overwrite)
             except (subprocess.CalledProcessError, RuntimeError) as exc:
-                message = (getattr(exc, "stderr", None) or getattr(exc, "stdout", None) or str(exc)).strip()
+                message = subprocess_error_message(exc)
                 errors.append({"source": str(source_file), "error": message})
                 continue
             if payload["status"] == "converted":
@@ -1258,7 +1292,7 @@ def main() -> int:
             errors.append({"source": str(source_file), "error": message})
             continue
         except Exception as exc:
-            message = (getattr(exc, "stderr", None) or getattr(exc, "stdout", None) or str(exc)).strip()
+            message = subprocess_error_message(exc)
             errors.append({"source": str(source_file), "error": message})
             continue
         if payload["status"] == "converted":
