@@ -311,14 +311,20 @@ def choose_method(path: Path, ctx: ConversionContext) -> str:
 
 def run_script(script_name: str, *args: str) -> dict[str, Any]:
     script_path = Path(__file__).with_name(script_name)
+    # Capture raw bytes first to avoid UnicodeDecodeError/None stdout on Windows
+    # with non-UTF8 stderr/stdout (e.g., Chinese filenames in mixed encodings).
     completed = subprocess.run(
         [sys.executable, "-B", str(script_path), *args],
         check=True,
         capture_output=True,
-        text=True,
-        encoding="utf-8",
     )
-    return json.loads(completed.stdout)
+    stdout_text = (completed.stdout or b"").decode("utf-8", errors="surrogateescape")
+    if not stdout_text.strip():
+        stderr_text = (completed.stderr or b"").decode("utf-8", errors="surrogateescape")
+        raise RuntimeError(
+            f"{script_name} returned empty stdout; stderr: {stderr_text.strip()[:500]}"
+        )
+    return json.loads(stdout_text)
 
 
 def run_repair(input_path: Path, output_path: Path, *, derived_from: Path | None) -> dict[str, Any]:
