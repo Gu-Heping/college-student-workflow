@@ -35,6 +35,7 @@
 
 ### Fixed
 
+- 修复 `repair_markdown_import.py` 在写入含 Windows/Unicode 路径的 `derived_from_import` 时，`re.sub` 把 JSON `\uXXXX` 当作 replacement 转义并崩溃的问题；改用 callable replacement，避免 `--repair` 在 Windows 中文路径下不可用。
 - 修复安装流程缺少可追踪安装元数据的问题，避免后续自更新无法判断安装来源、覆盖风险与回滚路径。
 - 修复自更新对 legacy symlink 安装、project-scoped copy 安装、manifest 缺失安装和 fork/local source 安装的兼容与安全边界，避免误触用户 vault 仓库或静默切回上游源。
 - 修复大文件检查对损坏符号链接的 `stat()` 崩溃问题，并补齐“已暂存但工作区已缩小/删除”的 oversized 文件识别，避免 `inspect_repo.py` 与 `group_git_changes.py` 漏报 index 中的大体积产物。

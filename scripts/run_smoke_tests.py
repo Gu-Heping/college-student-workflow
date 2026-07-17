@@ -643,6 +643,60 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_contains(repair_summary, "Removed isolated page labels.")
     ensure_contains(repair_summary, "Normalized heading spacing.")
     ensure_contains(repair_summary, "Trimmed heading dot leaders or page-number residue.")
+
+    unicode_derived_root = repo / "references" / "imports" / "用户资料"
+    unicode_derived_root.mkdir(parents=True, exist_ok=True)
+    unicode_derived_source = unicode_derived_root / "raw-import.md"
+    unicode_repair_input = repo / "references" / "imports" / "repaired" / "unicode-path-repair-input.md"
+    unicode_repair_output = repo / "references" / "imports" / "repaired" / "unicode-path-repair-output.md"
+    unicode_derived_source.write_text("# raw\n", encoding="utf-8", newline="\n")
+    unicode_repair_input.write_text(
+        "\n".join(
+            [
+                "---",
+                "type: pdf-import-note",
+                "course:",
+                "status: active",
+                "created:",
+                "updated:",
+                "tags: [import, pdf]",
+                'source_file: "sample.pdf"',
+                "import_method: manual-test",
+                "repair_status:",
+                "derived_from_import:",
+                "---",
+                "",
+                "#Broken heading",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    unicode_repair_payload = json.loads(
+        run_script(
+            "repair_markdown_import.py",
+            str(unicode_repair_input),
+            "--output",
+            str(unicode_repair_output),
+            "--derived-from",
+            str(unicode_derived_source),
+        )
+    )
+    ensure_exists(Path(unicode_repair_payload["output"]))
+    ensure_contains(unicode_repair_output, "derived_from_import:")
+    ensure_contains(unicode_repair_output, "raw-import.md")
+    # json.dumps escapes non-ASCII path segments; either literal or \\uXXXX form is fine.
+    unicode_output_text = unicode_repair_output.read_text(encoding="utf-8")
+    if "用户资料" not in unicode_output_text and "\\u7528\\u6237" not in unicode_output_text:
+        raise AssertionError(
+            "Expected unicode path segment to appear literally or as JSON escapes in derived_from_import"
+        )
+    ensure_contains(unicode_repair_output, "repair_status: repaired")
+    if 'derived_from_import:\n' in unicode_output_text or 'derived_from_import: ""' in unicode_output_text:
+        raise AssertionError("derived_from_import should be filled for unicode Windows paths")
+
     if len(materials_payload["converted"]) != 6:
         raise AssertionError(f"Expected six converted material outputs, got: {materials_payload}")
     ensure_exists(fixture_root / "linear-algebra-outline.docx.md")
