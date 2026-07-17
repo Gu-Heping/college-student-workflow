@@ -47,6 +47,8 @@ Use these scripts when helpful:
 - `scripts/update_student_os.py` for installed-skill update checks, safe apply, and rollback guidance.
 - `scripts/build_week_plan.py` for weekly plans, near-term deadlines, and exam countdown material.
 - `scripts/build_review_indexes.py` for homework and review indexes.
+- `scripts/init_exam_census.py` for scanning paper sidecars and writing exam-census manifests.
+- `scripts/build_exam_type_stats.py` for question-type frequency reports and ranked analysis skeletons.
 - `scripts/group_git_changes.py` for student-task change grouping and commit prefix suggestions.
 - `scripts/rebuild_indexes.py` for regenerating course/project/task/activity indexes.
 - `scripts/summarize_activity.py` for weekly summaries and recent activity reports.
@@ -100,6 +102,7 @@ Handle:
 - course dashboards
 - review artifacts
 - weekly review digests
+- exam census packs (type frequency, type analyses, prep guide)
 - progress-linked course updates
 
 ### Project workflow
@@ -193,6 +196,7 @@ When a request targets one of the seed courses, read the matching course pack be
 - `references/docx-workflow.md`
 - `references/xlsx-workflow.md`
 - `references/pptx-workflow.md`
+- `references/exam-census-workflow.md`
 
 If the course is not covered yet, follow the generic workflow and note that a course pack may be needed later.
 
@@ -211,6 +215,7 @@ Use the command templates to expose common entry points:
 - `commands/study.md`
 - `commands/project.md`
 - `commands/review.md`
+- `commands/exam-census.md`
 - `commands/plan-week.md`
 - `commands/inbox.md`
 - `commands/import-file.md`
@@ -225,6 +230,7 @@ Default routing:
 - `study` -> `coordinator` with `course-tutor` as the usual primary specialist
 - `project` -> `coordinator` with `project-helper`
 - `review` -> `coordinator` with `review-coach`
+- `exam-census` -> `coordinator` with `review-coach` (batch annotation orchestration)
 - `plan-week` -> `coordinator` with `planning-assistant`
 - `inbox` -> `coordinator` with `planning-assistant`
 - `import-file` -> `coordinator` with `file-operator`

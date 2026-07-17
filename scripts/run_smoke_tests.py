@@ -1379,6 +1379,222 @@ def exercise_import_workflows(repo: Path) -> None:
     binary_path.unlink()
 
 
+def exercise_exam_census(repo: Path) -> None:
+    exams_dir = repo / "courses" / "linear-algebra" / "references" / "exams"
+    exams_dir.mkdir(parents=True, exist_ok=True)
+
+    papers = {
+        "2019-期中-A.pdf.md": "\n".join(
+            [
+                "---",
+                "type: pdf-import-note",
+                'course: "Linear Algebra"',
+                "status: active",
+                "tags: [import, pdf, exam]",
+                "---",
+                "",
+                "# 2019 Midterm A",
+                "",
+                "1. Compute the rank of a matrix.",
+                "2. Diagonalize a symmetric matrix via eigenvalues.",
+                "",
+            ]
+        ),
+        "2020-期中-B.pdf.md": "\n".join(
+            [
+                "---",
+                "type: pdf-import-note",
+                'course: "Linear Algebra"',
+                "status: active",
+                "tags: [import, pdf, exam]",
+                "---",
+                "",
+                "# 2020 Midterm B",
+                "",
+                "1. Find the rank and nullity.",
+                "2. Solve a linear system with Gaussian elimination.",
+                "",
+            ]
+        ),
+        "2021-期中-C.pdf.md": "\n".join(
+            [
+                "---",
+                "type: pdf-import-note",
+                'course: "Linear Algebra"',
+                "status: active",
+                "tags: [import, pdf, exam]",
+                "---",
+                "",
+                "# 2021 Midterm C",
+                "",
+                "1. Eigenvalues and diagonalization.",
+                "2. Rank of an augmented matrix.",
+                "",
+            ]
+        ),
+    }
+    for name, body in papers.items():
+        (exams_dir / name).write_text(body + "\n", encoding="utf-8", newline="\n")
+
+    init_payload = json.loads(
+        run_script(
+            "init_exam_census.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+            "--papers-dir",
+            "courses/linear-algebra/references/exams",
+            "--pattern",
+            "**/*.pdf.md",
+            "--batch-size",
+            "2",
+        )
+    )
+    if init_payload.get("paper_count") != 3 or init_payload.get("batch_count") != 2:
+        raise AssertionError(f"Unexpected exam-census init payload: {init_payload}")
+
+    state_dir = repo / ".student-os" / "state" / "exam-census" / "linear-algebra" / "期中"
+    taxonomy_path = state_dir / "taxonomy.yaml"
+    taxonomy_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                'course: "Linear Algebra"',
+                "exam_scope: 期中",
+                "types:",
+                "  - id: matrix-rank",
+                "    name: 矩阵的秩",
+                "    aliases: [秩, rank]",
+                "    keywords: [秩, 行阶梯]",
+                "  - id: eigen-decomp",
+                "    name: 特征值与对角化",
+                "    aliases: [特征值, diagonalize]",
+                "    keywords: [特征值, 对角化]",
+                "  - id: gaussian-elim",
+                "    name: 高斯消元",
+                "    aliases: [消元]",
+                "    keywords: [高斯, 行变换]",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    annotations = {
+        "2019-期中-A": {
+            "source": "courses/linear-algebra/references/exams/2019-期中-A.pdf.md",
+            "exam_label": "2019 期中 A",
+            "types_present": ["matrix-rank", "eigen-decomp"],
+            "type_counts": {"matrix-rank": 1, "eigen-decomp": 1},
+            "confidence": "high",
+            "notes": "classic pair",
+        },
+        "2020-期中-B": {
+            "source": "courses/linear-algebra/references/exams/2020-期中-B.pdf.md",
+            "exam_label": "2020 期中 B",
+            "types_present": ["matrix-rank", "gaussian-elim"],
+            "type_counts": {"matrix-rank": 1, "gaussian-elim": 1},
+            "confidence": "high",
+            "notes": "",
+        },
+        "2021-期中-C": {
+            "source": "courses/linear-algebra/references/exams/2021-期中-C.pdf.md",
+            "exam_label": "2021 期中 C",
+            "types_present": ["matrix-rank", "eigen-decomp"],
+            "type_counts": {"matrix-rank": 1, "eigen-decomp": 1},
+            "confidence": "low",
+            "notes": "OCR a bit noisy",
+        },
+    }
+    annotations_dir = state_dir / "annotations"
+    for stem, payload in annotations.items():
+        (annotations_dir / f"{stem}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+
+    stats_payload = json.loads(
+        run_script(
+            "build_exam_type_stats.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+            "--overwrite",
+        )
+    )
+    ranked_ids = [item["id"] for item in stats_payload.get("ranked_types", [])]
+    if ranked_ids[:2] != ["matrix-rank", "eigen-decomp"]:
+        raise AssertionError(f"Expected matrix-rank then eigen-decomp by appearance, got: {ranked_ids}")
+    if stats_payload["ranked_types"][0]["paper_count"] != 3:
+        raise AssertionError(f"matrix-rank should appear in all 3 papers: {stats_payload}")
+    if not stats_payload["ranked_types"][0]["must_know"]:
+        raise AssertionError("matrix-rank should be must-know at 100% appearance")
+
+    report_path = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型频率统计.md"
+    ensure_exists(report_path)
+    ensure_contains(report_path, "type: exam-type-frequency-report")
+    ensure_contains(report_path, "matrix-rank")
+    ensure_contains(report_path, "Low-confidence annotations")
+    ensure_contains(report_path, "`2021-期中-C`")
+
+    first_skeleton = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型解析" / "01-matrix-rank.md"
+    ensure_exists(first_skeleton)
+    ensure_contains(first_skeleton, "type: exam-type-analysis")
+    ensure_contains(first_skeleton, "exam_type_id: \"matrix-rank\"")
+    ensure_contains(first_skeleton, "Must-know tier: yes")
+
+    second_skeleton = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型解析" / "02-eigen-decomp.md"
+    ensure_exists(second_skeleton)
+    third_skeleton = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型解析" / "03-gaussian-elim.md"
+    ensure_exists(third_skeleton)
+
+    # --validate should fail when an annotation is missing.
+    (annotations_dir / "2021-期中-C.json").unlink()
+    validate_result = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "build_exam_type_stats.py"),
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+            "--validate",
+            "--overwrite",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if validate_result.returncode == 0:
+        raise AssertionError("build_exam_type_stats.py --validate should fail when annotations are missing")
+    # Restore annotation and rebuild final report for the example snapshot.
+    (annotations_dir / "2021-期中-C.json").write_text(
+        json.dumps(annotations["2021-期中-C"], ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    run_script(
+        "build_exam_type_stats.py",
+        str(repo),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期中",
+        "--overwrite",
+    )
+
+
 def exercise_feedback_lifecycle(repo: Path) -> None:
     feedback_day = date.today()
     expected_feedback_id = f'fb-{feedback_day.strftime("%Y%m%d")}-weekly-plan-omitted-imported-deadline-2'
@@ -1971,6 +2187,7 @@ def build_single_semester(repo: Path, today: date) -> None:
     run_script("build_review_indexes.py", str(repo))
     exercise_feedback_lifecycle(repo)
     exercise_import_workflows(repo)
+    exercise_exam_census(repo)
     run_script("build_review_indexes.py", str(repo))
     run_script("build_week_plan.py", str(repo))
     ensure_contains(repo / "tasks" / "weekly" / f"{default_week_label}.md", "Linear Algebra Midterm")

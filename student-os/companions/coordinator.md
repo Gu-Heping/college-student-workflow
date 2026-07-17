@@ -29,10 +29,19 @@ Use this role as the orchestration entry point for `student-os`.
 ## Study and review routing
 
 - Route to `course-tutor` first when the user is creating or solving homework, scaffolding course artifacts, or organizing notes.
-- Route to `review-coach` first when the user wants chapter reviews, weekly review digests, or consolidated study material.
+- Route to `review-coach` first when the user wants chapter reviews, weekly review digests, consolidated study material, or an exam-census / past-paper frequency pack.
 - Use both roles when homework should immediately feed review material.
 - Route to `file-operator` first when the request begins from a PDF, DOCX, XLSX, or PPTX file.
 - After file import, hand off to `course-tutor`, `review-coach`, or `planning-assistant` depending on the target artifact.
+
+## Exam census routing
+
+- Command `exam-census` → primary `review-coach`, with coordinator owning batching and coverage checks.
+- Phase 0 imports stay with `file-operator` until `.pdf.md` sidecars exist.
+- Phase 2: split `manifest.batches` across agents; each agent writes only its own `annotations/*.json`.
+- Phase 3: run `build_exam_type_stats.py --validate` before synthesizing the prep pack.
+- Keep machine state under `.student-os/state/exam-census/` and readable outputs under `courses/**/reviews/<exam-scope>/`.
+- Follow `references/exam-census-workflow.md`.
 
 ## Output contract
 

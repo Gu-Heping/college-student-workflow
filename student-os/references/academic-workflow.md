@@ -70,6 +70,22 @@ Slug notes:
 - Separate "review digest" from "raw note dump".
 - Extract concepts, methods, pitfalls, and practice targets instead of merely rearranging source text.
 
+### Build exam census material
+
+- Use when the user has many past papers and wants type frequencies plus an exam-prep pack.
+- Follow `references/exam-census-workflow.md` and the `exam-census` command.
+- Keep annotations and taxonomy under `.student-os/state/exam-census/<course>/<exam-scope-slug>/`.
+- Write the readable pack under `courses/<course>/reviews/<exam-scope>/`.
+- Prefer these templates:
+  - `templates/exam-type-taxonomy.md`
+  - `templates/exam-type-frequency-report.md`
+  - `templates/exam-type-analysis.md`
+  - `templates/exam-prep-guide.md`
+  - `templates/formula-cheat-sheet.md`
+  - `templates/answer-template-quickref.md`
+  - `templates/pre-exam-one-hour-checklist.md`
+- Rank study effort by paper appearance rate from `build_exam_type_stats.py`, not gut feel.
+
 ### Add lab or report work
 
 - Use `templates/lab-report.md`.
@@ -95,7 +111,9 @@ Optional fields for this iteration:
 source_artifacts:
   - courses/analog-electronics/notes/2026-09-01.md
 solution_status: derived | reference-backed | needs-review
-review_scope: chapter | week | topic | problem
+review_scope: chapter | week | topic | problem | exam-census
+exam_scope: midterm | final | 期中 | 期末 | custom-label
+exam_type_id: matrix-rank
 ```
 
 ## Quality rules
