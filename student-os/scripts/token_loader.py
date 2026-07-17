@@ -12,7 +12,22 @@ def skill_root_dir() -> Path:
     override = os.environ.get("STUDENT_OS_SKILL_ROOT")
     if override:
         return Path(override).expanduser().resolve()
-    return Path(__file__).resolve().parent.parent
+    # Prefer the lexical install root so a legacy layout whose scripts/ entry is a
+    # symlink still finds .env beside the installed skill, not only in the source
+    # checkout that the symlink targets. Fall back to the resolved root when needed.
+    lexical = Path(__file__).absolute().parent.parent
+    resolved = Path(__file__).resolve().parent.parent
+    candidates: list[Path] = []
+    for candidate in (lexical, resolved):
+        if candidate not in candidates:
+            candidates.append(candidate)
+    for candidate in candidates:
+        if (candidate / ".env").is_file():
+            return candidate
+    for candidate in candidates:
+        if (candidate / ".student-os-install.json").is_file() or (candidate / "SKILL.md").exists():
+            return candidate
+    return lexical
 
 
 def strip_env_value(value: str) -> str:
@@ -25,8 +40,13 @@ def strip_env_value(value: str) -> str:
 def parse_env_file(path: Path) -> dict[str, str]:
     if not path.is_file():
         return {}
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # Unreadable or non-UTF-8 .env files must not abort local-only workflows.
+        return {}
     values: dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    for raw_line in raw_text.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue

@@ -229,6 +229,14 @@ def resolve_api_token(cli_token: str | None) -> str | None:
     return load_token(cli_token)
 
 
+def should_resolve_api_token(method: str, repair_only: bool) -> bool:
+    # Local-only and repair-only paths never need MinerU credentials; skip .env reads
+    # so an unreadable cwd .env cannot abort those workflows.
+    if repair_only:
+        return False
+    return method in {"auto", "api"}
+
+
 def choose_local_plan(path: Path) -> ConversionPlan | None:
     suffix = path.suffix.lower()
     if suffix in PDF_SUFFIXES:
@@ -891,7 +899,7 @@ def main() -> int:
         overwrite=args.overwrite,
         repair=args.repair,
         repair_only=args.repair_only,
-        api_token=resolve_api_token(args.api_token),
+        api_token=resolve_api_token(args.api_token) if should_resolve_api_token(args.method, args.repair_only) else None,
         api_model=args.api_model,
         language=args.language,
         ocr=args.ocr,
