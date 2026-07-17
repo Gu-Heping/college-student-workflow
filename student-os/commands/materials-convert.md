@@ -9,13 +9,17 @@ Use when the user asks to:
 - run a conservative post-processing repair pass after conversion
 - repair a batch of already-generated markdown imports without re-running extraction
 
-Recommended API mode:
+Recommended API / auto mode:
 - set `MINERU_TOKEN` in the environment, or put it in the skill-root / cwd `.env` (see `.env.example`), or pass `--api-token`
-- run `python scripts/materials_convert.py <folder> --method api --api-model vlm`
-- use `--method auto` to prefer MinerU API when a token is present and fall back to local converters otherwise
-- if the materials include scans, images, or legacy `.doc` / `.ppt` / `.xls` files, first check whether a MinerU token is already configured and prompt the user to add one when higher-fidelity parsing is likely to help
+- `--method auto` (default) probes each file and routes to MinerU API (+OCR when scanned/image-heavy), PyMuPDF for text-heavy manuals, pandoc/`docx_to_md` for text DOCX, or local pptx/xlsx converters
+- `--probe-only` prints the per-file strategy JSON without writing sidecars
+- `--force-strategy ocr|mineru-api|pymupdf|pandoc|...` overrides probing for every input
+- `--method api` / `--method local` still force a global backend
+- run `python scripts/materials_convert.py <folder> --method api --api-model vlm` when you want MinerU for everything API-supported
 - large PDFs over the MinerU page limit are auto-split into `<= --chunk-size` chunks (default 200), converted, and merged into one markdown sidecar
 - use `--no-auto-split` to fail instead of chunking, `--chunk-size N` for v1/smaller limits, and `--no-merge` to keep per-chunk sidecars
+- optional system `pandoc` improves DOCX quality; without it, auto falls back to `docx_to_md.py`
+- install `pymupdf` from `requirements.txt` for the local text-manual PDF path
 
 Repair mode:
 - add `--repair` to run the conservative markdown repair step immediately after conversion

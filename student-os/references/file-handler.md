@@ -13,10 +13,13 @@ Use this reference when the request starts from a PDF, DOCX, XLSX, or PPTX file 
 
 ## Runtime expectation
 
-- Install the optional converter dependencies from the repository `requirements.txt` before running the import scripts.
-- For higher-fidelity OCR and legacy Office parsing, configure a MinerU token and prefer `materials_convert.py --method api` or `--method auto`.
+- Install the optional converter dependencies from the repository `requirements.txt` before running the import scripts (`pymupdf` is required for text-heavy PDF local extraction).
+- Optional system binary: `pandoc` improves DOCX conversion; without it, auto mode falls back to `docx_to_md.py`.
+- For higher-fidelity OCR and legacy Office parsing, configure a MinerU token and prefer `materials_convert.py --method auto` or `--method api`.
 - Token lookup order: `--api-token` → `MINERU_TOKEN` / `MINERU_API_TOKEN` process env → skill-root `.env` → current-working-directory `.env`.
 - Prefer a skill-local `.env` (copy from `.env.example`) so tokens stay out of shell history; never commit real `.env` files.
+- `--method auto` probes each file (PDF text layer, DOCX/PPTX text vs images, legacy Office, images) and selects MinerU API (+OCR), PyMuPDF, pandoc, or local converters.
+- Use `--probe-only` to preview routing without writing sidecars, and `--force-strategy` to override probing.
 - MinerU API mode auto-splits PDFs above `--chunk-size` (default 200 pages), converts each chunk, and merges the markdown unless `--no-merge` is set.
 - Use `--no-auto-split` when you want oversized PDFs to fail fast instead of chunking.
 

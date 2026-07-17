@@ -31,7 +31,8 @@ Use these scripts when helpful:
 - `scripts/scaffold_homework.py` for creating homework, linked task artifacts, and basic backlinks.
 - `scripts/pdf_probe.py` for PDF file facts such as page count and metadata.
 - `scripts/pdf_to_markdown.py` for PDF import in generic or MinerU-style mode.
-- `scripts/materials_convert.py` for batch conversion of mixed materials folders into markdown sidecars, including MinerU API auto-split for large PDFs.
+- `scripts/materials_convert.py` for batch conversion of mixed materials folders into markdown sidecars, including content-aware routing (MinerU API/OCR, PyMuPDF, pandoc) plus MinerU auto-split for large PDFs.
+- `scripts/probe_materials.py` for per-file conversion probes used by `--method auto` and `--probe-only`.
 - `scripts/token_loader.py` for shared MinerU token lookup from CLI args, process env, and skill/cwd `.env` files.
 - `scripts/repair_markdown_import.py` for conservative cleanup of imported markdown plus repair summaries.
 - `scripts/docx_to_md.py` for DOCX import into markdown reference drafts.
