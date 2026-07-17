@@ -209,6 +209,27 @@ def load_root_script_module(name: str, module_name: str) -> object:
     return module
 
 
+def load_student_os_script_module(name: str, module_name: str) -> object:
+    script_path = STUDENT_OS_SCRIPTS / name
+    spec = importlib.util.spec_from_file_location(module_name, script_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load module spec for {script_path}")
+    module = importlib.util.module_from_spec(spec)
+    original_flag = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    previous_module = sys.modules.get(module_name)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if previous_module is None:
+            sys.modules.pop(module_name, None)
+        else:
+            sys.modules[module_name] = previous_module
+        sys.dont_write_bytecode = original_flag
+    return module
+
+
 def load_import_dependencies() -> tuple[object, object, object, object]:
     try:
         from docx import Document
@@ -844,6 +865,35 @@ def exercise_import_workflows(repo: Path) -> None:
         raise AssertionError(f"Expected --no-auto-split to record conversion errors, got: {no_split_payload}")
     if "exceeds --chunk-size" not in no_split_payload["errors"][0].get("error", ""):
         raise AssertionError(f"Expected chunk-size error message, got: {no_split_payload['errors']}")
+
+    dotenv_cwd = repo / "references" / "imports" / "dotenv-cwd"
+    dotenv_cwd.mkdir(parents=True, exist_ok=True)
+    empty_skill_root = dotenv_cwd / "empty-skill-root"
+    empty_skill_root.mkdir(parents=True, exist_ok=True)
+    (dotenv_cwd / ".env").write_text('MINERU_TOKEN="dotenv-from-cwd"\n', encoding="utf-8", newline="\n")
+    dotenv_output_root = repo / "references" / "imports" / "api-dotenv-output"
+    dotenv_payload = json.loads(
+        run_script(
+            "materials_convert.py",
+            str(pdf_path),
+            "--output-root",
+            str(dotenv_output_root),
+            "--method",
+            "api",
+            "--overwrite",
+            cwd=dotenv_cwd,
+            env={
+                "PYTHONPATH": str(fake_sdk_root),
+                "MINERU_TOKEN": "",
+                "MINERU_API_TOKEN": "",
+                "STUDENT_OS_SKILL_ROOT": str(empty_skill_root),
+            },
+        )
+    )
+    if dotenv_payload["applied_method"] != "api":
+        raise AssertionError(f"Expected cwd .env token to enable API mode, got: {dotenv_payload}")
+    ensure_exists(dotenv_output_root / "linear-algebra-handout.pdf.md")
+    ensure_contains(dotenv_output_root / "linear-algebra-handout.pdf.md", "Import method: mineru-api:vlm")
 
     # A --chunk-size above MinerU's 200-page limit must still split PDFs over 200 pages.
     over_limit_pdf = fixture_root / "over-limit.pdf"
@@ -2163,6 +2213,165 @@ def assert_no_pycache(root: Path) -> None:
         raise AssertionError(f"Validation should not leave __pycache__ artifacts behind: {pycache_paths}")
 
 
+def verify_token_loader(tmp_root: Path) -> None:
+    module = load_student_os_script_module("token_loader.py", "student_os_token_loader_smoke")
+    install_module = load_root_script_module("install_student_os.py", "student_os_install_dotenv_smoke")
+    update_module = load_student_os_script_module("update_student_os_impl.py", "student_os_update_dotenv_smoke")
+
+    if ".env" not in install_module.LOCAL_OVERRIDE_NAMES:
+        raise AssertionError("install_student_os.py should preserve skill-local .env across installs/updates")
+    if ".env" not in update_module.LOCAL_OVERRIDE_NAMES:
+        raise AssertionError("update_student_os_impl.py should preserve skill-local .env across updates")
+    if not (ROOT / "student-os" / ".env.example").exists():
+        raise AssertionError("student-os/.env.example should exist as the documented template")
+    repo_gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    for needle in [".env", "student-os/.env", "!.env.example"]:
+        if needle not in repo_gitignore:
+            raise AssertionError(f"repository .gitignore should ignore skill secrets via {needle!r}")
+
+    skill_root = tmp_root / "skill-root"
+    cwd = tmp_root / "cwd"
+    skill_root.mkdir(parents=True, exist_ok=True)
+    cwd.mkdir(parents=True, exist_ok=True)
+    (skill_root / ".env").write_text('MINERU_TOKEN="skill-token"\n# comment\nexport MINERU_API_TOKEN=unused\n', encoding="utf-8", newline="\n")
+    (cwd / ".env").write_text("MINERU_TOKEN=cwd-token\n", encoding="utf-8", newline="\n")
+
+    scaffold_repo = tmp_root / "scaffold-gitignore"
+    run_script("scaffold_repo.py", str(scaffold_repo))
+    gitignore_text = (scaffold_repo / ".gitignore").read_text(encoding="utf-8")
+    for needle in [".env", "*.env", "!.env.example"]:
+        if needle not in gitignore_text:
+            raise AssertionError(f"scaffold_repo.py should ignore secrets via {needle!r}")
+
+    existing_vault = tmp_root / "existing-vault"
+    existing_vault.mkdir(parents=True, exist_ok=True)
+    (existing_vault / ".gitignore").write_text("*.log\nnode_modules/\n", encoding="utf-8", newline="\n")
+    run_script("scaffold_repo.py", str(existing_vault))
+    merged_gitignore = (existing_vault / ".gitignore").read_text(encoding="utf-8")
+    if "*.log" not in merged_gitignore or "node_modules/" not in merged_gitignore:
+        raise AssertionError("scaffold_repo.py should preserve existing .gitignore entries")
+    for needle in [".env", "*.env", "!.env.example"]:
+        if needle not in merged_gitignore:
+            raise AssertionError(f"scaffold_repo.py should append missing secret rule {needle!r} to existing .gitignore")
+
+    env_backup = {name: os.environ.get(name) for name in ["MINERU_TOKEN", "MINERU_API_TOKEN"]}
+    try:
+        os.environ.pop("MINERU_TOKEN", None)
+        os.environ.pop("MINERU_API_TOKEN", None)
+
+        if module.load_token(" cli-token ", skill_root=skill_root, cwd=cwd) != "cli-token":
+            raise AssertionError("CLI token should win over env and .env files")
+
+        os.environ["MINERU_TOKEN"] = " process-env-token "
+        if module.load_token(None, skill_root=skill_root, cwd=cwd) != "process-env-token":
+            raise AssertionError("Process environment should win over .env files")
+        os.environ.pop("MINERU_TOKEN", None)
+
+        if module.load_token(None, skill_root=skill_root, cwd=cwd) != "skill-token":
+            raise AssertionError("Skill-root .env should win over cwd .env")
+
+        (skill_root / ".env").unlink()
+        if module.load_token(None, skill_root=skill_root, cwd=cwd) != "cwd-token":
+            raise AssertionError("cwd .env should be used when skill-root .env is absent")
+
+        (cwd / ".env").write_text("MINERU_API_TOKEN=alias-token\n", encoding="utf-8", newline="\n")
+        if module.load_token(None, skill_root=skill_root, cwd=cwd) != "alias-token":
+            raise AssertionError("MINERU_API_TOKEN in .env should be accepted as an alias")
+
+        (cwd / ".env").write_bytes(b"\xff\xfeMINERU_TOKEN=bad-encoding\n")
+        if module.load_token(None, skill_root=skill_root, cwd=cwd) is not None:
+            raise AssertionError("Unreadable/non-UTF-8 .env files should be skipped without raising")
+
+        repair_only_md = cwd / "repair-only-local.md"
+        repair_only_md.write_text(
+            "\n".join(
+                [
+                    "---",
+                    "type: imported-reference",
+                    "repair_status:",
+                    "derived_from_import:",
+                    "---",
+                    "",
+                    "#Broken",
+                    "",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        local_payload = json.loads(
+            run_script(
+                "materials_convert.py",
+                str(repair_only_md),
+                "--method",
+                "local",
+                "--repair-only",
+                cwd=cwd,
+                env={"MINERU_TOKEN": "", "MINERU_API_TOKEN": ""},
+            )
+        )
+        if not local_payload.get("converted"):
+            raise AssertionError(f"Local/repair-only conversion should ignore bad cwd .env, got: {local_payload}")
+    finally:
+        for name, value in env_backup.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+    # Legacy entry-symlink layout: scripts/ points at the source checkout, but .env lives
+    # in the installed skill root and must still be discovered.
+    legacy_install = tmp_root / "legacy-entry-symlink-install"
+    legacy_scripts = legacy_install / "scripts"
+    legacy_scripts.mkdir(parents=True, exist_ok=True)
+    try:
+        for child in (ROOT / "student-os").iterdir():
+            if child.name == "scripts":
+                continue
+            target = legacy_install / child.name
+            if child.is_dir():
+                target.symlink_to(child.resolve(), target_is_directory=True)
+            else:
+                target.symlink_to(child.resolve())
+        # Replace real scripts dir with a symlink to the source scripts.
+        shutil.rmtree(legacy_scripts)
+        legacy_scripts.symlink_to((ROOT / "student-os" / "scripts").resolve(), target_is_directory=True)
+    except OSError:
+        return
+    (legacy_install / ".env").write_text("MINERU_TOKEN=legacy-install-token\n", encoding="utf-8", newline="\n")
+    loader_via_symlink = legacy_scripts / "token_loader.py"
+    spec = importlib.util.spec_from_file_location("student_os_token_loader_symlink_smoke", loader_via_symlink)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Unable to load token_loader via legacy scripts symlink")
+    symlink_module = importlib.util.module_from_spec(spec)
+    original_flag = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(symlink_module)
+    finally:
+        sys.dont_write_bytecode = original_flag
+    lexical_root = symlink_module.skill_root_dir()
+    if lexical_root.resolve() != legacy_install.resolve():
+        # Compare using absolute() semantics: resolved source checkout should NOT win.
+        if Path(lexical_root).absolute() != legacy_install.absolute():
+            raise AssertionError(
+                f"skill_root_dir() should keep the installed root for entry-symlink layouts, got: {lexical_root}"
+            )
+    env_backup = {name: os.environ.get(name) for name in ["MINERU_TOKEN", "MINERU_API_TOKEN"]}
+    try:
+        os.environ.pop("MINERU_TOKEN", None)
+        os.environ.pop("MINERU_API_TOKEN", None)
+        if symlink_module.load_token(None, cwd=tmp_root / "empty-cwd") != "legacy-install-token":
+            raise AssertionError("Entry-symlink installs should read .env from the installed skill root")
+    finally:
+        for name, value in env_backup.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 def verify_install_manifest_generation(tmp_root: Path) -> None:
     install_module = load_root_script_module("install_student_os.py", "student_os_install_manifest_smoke")
     codex_home = tmp_root / "codex-home"
@@ -2206,6 +2415,30 @@ def verify_install_manifest_generation(tmp_root: Path) -> None:
         raise AssertionError("copy installs should record copied as the install method")
     if manifest["source_repo"] != install_module.discover_source_repo():
         raise AssertionError("install manifests should record the actual source repo by default")
+
+    (destination / ".env").write_text("MINERU_TOKEN=preserve-me\n", encoding="utf-8", newline="\n")
+    forced = json.loads(
+        run_root_script(
+            "install_student_os.py",
+            "--agent",
+            "codex",
+            "--scope",
+            "user",
+            "--mode",
+            "copy",
+            "--force",
+            "--json",
+            env={"CODEX_HOME": str(codex_home)},
+        )
+    )
+    forced_destination = Path(forced["results"][0]["destination"])
+    preserved_env = forced_destination / ".env"
+    if not preserved_env.exists():
+        raise AssertionError("Forced copy reinstall should preserve skill-local .env")
+    if "preserve-me" not in preserved_env.read_text(encoding="utf-8"):
+        raise AssertionError("Forced copy reinstall should restore the previous .env contents")
+    if ".env" not in forced["results"][0].get("preserved_overrides", ""):
+        raise AssertionError("Forced reinstall payload should report preserved .env overrides")
 
 
 def verify_legacy_link_install_detection(tmp_root: Path) -> None:
@@ -2489,6 +2722,7 @@ def main() -> int:
         verify_legacy_link_install_detection(tmp_root / "legacy-link-install-demo")
         verify_update_source_override_and_project_copy_detection(tmp_root / "update-override-demo")
         verify_self_update_workflow(tmp_root / "self-update-demo")
+        verify_token_loader(tmp_root / "token-loader-demo")
 
         if args.refresh_examples:
             EXAMPLES_ROOT.mkdir(parents=True, exist_ok=True)
@@ -2512,6 +2746,7 @@ def main() -> int:
     print("OK legacy-link-install-demo")
     print("OK update-override-demo")
     print("OK self-update-demo")
+    print("OK token-loader-demo")
     if args.refresh_examples:
         print(f"REFRESHED {EXAMPLES_ROOT}")
     return 0

@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,7 +15,7 @@ from pathlib import Path
 
 SKILL_NAME = "student-os"
 MANIFEST_FILENAME = ".student-os-install.json"
-LOCAL_OVERRIDE_NAMES = [".student-os-local-overrides", ".student-os-install.local.json"]
+LOCAL_OVERRIDE_NAMES = [".student-os-local-overrides", ".student-os-install.local.json", ".env"]
 DEFAULT_SOURCE_REPO = "https://github.com/Gu-Heping/college-student-workflow.git"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCE_SKILL_DIR = REPO_ROOT / SKILL_NAME
@@ -156,6 +157,48 @@ def remove_existing(path: Path) -> None:
         return
     if path.exists():
         shutil.rmtree(path)
+
+
+def stash_local_overrides(destination: Path) -> Path | None:
+    """Copy local override files aside before a forced reinstall replaces the destination."""
+    if destination.is_symlink() or not destination.exists() or not destination.is_dir():
+        return None
+    stash_root: Path | None = None
+    for name in LOCAL_OVERRIDE_NAMES:
+        item = destination / name
+        if not item.exists() and not item.is_symlink():
+            continue
+        if stash_root is None:
+            stash_root = Path(tempfile.mkdtemp(prefix="student-os-overrides-"))
+        target = stash_root / name
+        if item.is_dir() and not item.is_symlink():
+            shutil.copytree(item, target)
+        else:
+            shutil.copy2(item, target, follow_symlinks=False)
+    return stash_root
+
+
+def restore_local_overrides(destination: Path, stash_root: Path | None) -> list[str]:
+    if stash_root is None:
+        return []
+    restored: list[str] = []
+    try:
+        for name in LOCAL_OVERRIDE_NAMES:
+            item = stash_root / name
+            if not item.exists() and not item.is_symlink():
+                continue
+            target = destination / name
+            if target.exists() or target.is_symlink():
+                remove_existing(target)
+            if item.is_dir() and not item.is_symlink():
+                shutil.copytree(item, target)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(item, target, follow_symlinks=False)
+            restored.append(name)
+    finally:
+        shutil.rmtree(stash_root, ignore_errors=True)
+    return restored
 
 
 def utc_now_iso() -> str:
@@ -316,6 +359,7 @@ def install_one(
 ) -> dict[str, str]:
     target.root.mkdir(parents=True, exist_ok=True)
     destination = target.root / SKILL_NAME
+    stashed_overrides: Path | None = None
 
     if destination.exists() or destination.is_symlink():
         if same_link_install(destination) and not force:
@@ -345,6 +389,7 @@ def install_one(
             raise SystemExit(
                 f"Destination already exists: {destination}. Re-run with --force to replace it."
             )
+        stashed_overrides = stash_local_overrides(destination)
         remove_existing(destination)
 
     method_order = preferred_methods(target, mode)
@@ -352,6 +397,8 @@ def install_one(
     for method in method_order:
         try:
             installed_as = install_with_symlink(SOURCE_SKILL_DIR, destination) if method == "link" else install_with_copy(SOURCE_SKILL_DIR, destination)
+            restored = restore_local_overrides(destination, stashed_overrides)
+            stashed_overrides = None
             manifest = build_install_manifest(
                 destination=destination,
                 agent=target.agent,
@@ -363,7 +410,7 @@ def install_one(
                 linked_source_path=str(SOURCE_SKILL_DIR.resolve()) if installed_as == "linked" else "",
             )
             manifest_path = write_manifest(destination, manifest)
-            return {
+            result = {
                 "agent": target.agent,
                 "scope": target.scope,
                 "destination": str(destination),
@@ -371,13 +418,20 @@ def install_one(
                 "method": installed_as,
                 "manifest": str(manifest_path),
             }
+            if restored:
+                result["preserved_overrides"] = ",".join(restored)
+            return result
         except OSError as exc:
             last_error = exc
             if destination.exists() or destination.is_symlink():
                 remove_existing(destination)
             if mode != "auto" or len(method_order) == 1:
+                if stashed_overrides is not None:
+                    shutil.rmtree(stashed_overrides, ignore_errors=True)
                 raise
 
+    if stashed_overrides is not None:
+        shutil.rmtree(stashed_overrides, ignore_errors=True)
     if last_error is not None:
         raise SystemExit(f"Failed to install {target.agent} skill at {destination}: {last_error}")
     raise SystemExit(f"Failed to install {target.agent} skill at {destination}")

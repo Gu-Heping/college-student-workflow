@@ -6,6 +6,7 @@
 
 ### Added
 
+- 为 `student-os` 新增统一的 `token_loader.py`：按 CLI → 进程环境变量 → skill 根目录 `.env` → cwd `.env` 加载 `MINERU_TOKEN` / `MINERU_API_TOKEN`，并提供 `.env.example`；安装/更新时保留 skill 本地 `.env`（含 `--force` 重装），仓库与脚手架默认忽略真实 `.env`，并对已有 vault 的 `.gitignore` 追加缺失的密钥规则。
 - 为 `prepare_github_issue.py` 增加 `--stdin` / `--check-only` / `--stdin-format json` / `--allow-privacy-warnings` 独立脱敏管道，使任意 issue draft 在直接 `gh issue create` 前也能走同一套隐私检查与脱敏逻辑；JSON 模式会同时扫描并脱敏 `title` 字段，warning 草稿默认拦截需显式放行，文档统一固定 `--repo Gu-Heping/college-student-workflow`。
 - 为 `materials_convert.py` 的 MinerU API 路径增加大 PDF 自动拆分：超过 `--chunk-size`（默认 200 页）时分片转换并默认合并为一个 markdown sidecar；`--chunk-size` 会被裁剪到 MinerU 200 页上限，超过体积上限的 PDF 也会按体积拆分，分片图片按 part 前缀去重，`--no-merge` 会检查已存在分片避免覆盖并对每个分片执行 `--repair`，损坏 PDF 的探测失败会计入 errors 而非中断整个批次。
 - 为 `student-os` 新增 GitHub feedback 发布链路，支持从本地反馈条目生成隐私检查后的 issue draft，并可选通过 `gh issue create` 发布。

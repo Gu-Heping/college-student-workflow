@@ -135,7 +135,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Only repair existing markdown files instead of converting source documents.",
     )
-    parser.add_argument("--api-token", help="Optional MinerU precision API token. Defaults to MINERU_TOKEN or MINERU_API_TOKEN.")
+    parser.add_argument(
+        "--api-token",
+        help="Optional MinerU precision API token. Defaults to MINERU_TOKEN / MINERU_API_TOKEN from the environment or a skill/cwd .env file.",
+    )
     parser.add_argument(
         "--api-model",
         choices=["vlm", "pipeline"],
@@ -221,7 +224,17 @@ def build_output_path(source_file: Path, source_root: Path, output_root: Path | 
 
 
 def resolve_api_token(cli_token: str | None) -> str | None:
-    return cli_token or os.environ.get("MINERU_TOKEN") or os.environ.get("MINERU_API_TOKEN")
+    from token_loader import load_token
+
+    return load_token(cli_token)
+
+
+def should_resolve_api_token(method: str, repair_only: bool) -> bool:
+    # Local-only and repair-only paths never need MinerU credentials; skip .env reads
+    # so an unreadable cwd .env cannot abort those workflows.
+    if repair_only:
+        return False
+    return method in {"auto", "api"}
 
 
 def choose_local_plan(path: Path) -> ConversionPlan | None:
@@ -391,7 +404,10 @@ def get_mineru_client(ctx: ConversionContext) -> Any:
     if ctx.mineru_client is not None:
         return ctx.mineru_client
     if not ctx.api_token:
-        raise SystemExit("MinerU API mode requires a token via --api-token, MINERU_TOKEN, or MINERU_API_TOKEN.")
+        raise SystemExit(
+            "MinerU API mode requires a token via --api-token, MINERU_TOKEN / MINERU_API_TOKEN, "
+            "or a .env file in the skill root / current working directory."
+        )
     MinerU = load_mineru_client()
     ctx.mineru_client = MinerU(ctx.api_token)
     return ctx.mineru_client
@@ -883,7 +899,7 @@ def main() -> int:
         overwrite=args.overwrite,
         repair=args.repair,
         repair_only=args.repair_only,
-        api_token=resolve_api_token(args.api_token),
+        api_token=resolve_api_token(args.api_token) if should_resolve_api_token(args.method, args.repair_only) else None,
         api_model=args.api_model,
         language=args.language,
         ocr=args.ocr,

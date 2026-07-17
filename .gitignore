@@ -1,0 +1,22 @@
+# Local tooling / caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Skill / vault secrets — never commit real tokens
+.env
+*.env
+!.env.example
+student-os/.env
+**/.env
+!**/.env.example
