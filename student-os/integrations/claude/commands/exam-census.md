@@ -21,4 +21,6 @@ argument-hint: "vault=<path> course=<course> examScope=<scope>"
 
 缺少 `vault` / `course` / `examScope` 时先询问，不要猜测，不要默认当前工作目录。
 
+标注前先读 manifest 的 `papers` / `batches`：annotation 文件名用 `annotation` 字段（`annotations/<stem>.json`），`source` 用 `path` 字段。Init 可传 `--papers-dir`（支持自动发现 `文本/`）；Aggregate 不要传 `--papers-dir`。
+
 自然语言提到题型普查 / exam-census 时，同样加载并执行同一份 skill runbook。

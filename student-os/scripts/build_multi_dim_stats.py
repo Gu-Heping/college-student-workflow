@@ -17,7 +17,7 @@ from exam_census_utils import (
     course_slug_of,
     display_annotation_label,
     exam_scope_key,
-    load_annotations,
+    load_annotations_for_manifest,
     load_json,
     load_taxonomy,
     md_table_cell,
@@ -92,9 +92,11 @@ def main() -> int:
 
     manifest = load_json(manifest_path)
     taxonomy = load_taxonomy(taxonomy_path)
-    annotations = load_annotations(census_state / "annotations")
-    type_names = {str(item["id"]): str(item.get("name", item["id"])) for item in taxonomy.get("types", [])}
     papers = list(manifest.get("papers") or [])
+    annotations, _aliases, _errors = load_annotations_for_manifest(
+        census_state / "annotations", papers
+    )
+    type_names = {str(item["id"]): str(item.get("name", item["id"])) for item in taxonomy.get("types", [])}
     today = date.today().isoformat()
     analysis_dir = reviews_dir(course_dir, exam_scope) / "analysis"
 

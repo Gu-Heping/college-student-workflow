@@ -2496,6 +2496,171 @@ def exercise_exam_census(repo: Path) -> None:
         raise AssertionError("Expected Phase E to fail when prep guide has no type links")
     prep_guide.unlink()
 
+    # --- Issue #61 contracts: 文本/ discovery, annotation aliases, taxonomy dump, confidence ---
+    chinese_course = repo / "courses" / "线性代数"
+    scope_root = chinese_course / "reviews" / "期中"
+    text_dir = scope_root / "文本"
+    text_dir.mkdir(parents=True, exist_ok=True)
+    (text_dir / "2018-期中.pdf.md").write_text(
+        "\n".join(
+            [
+                "---",
+                'course: "线性代数"',
+                "---",
+                "",
+                "# 2018 期中",
+                "",
+                "1. 行列式",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    text_init = json.loads(
+        run_script(
+            "init_exam_census.py",
+            str(repo),
+            "--course",
+            "线性代数",
+            "--exam-scope",
+            "期中",
+            "--papers-dir",
+            "courses/线性代数/reviews/期中",
+            "--overwrite",
+        )
+    )
+    if text_init.get("papers_dir_fallback_subdir") != "文本":
+        raise AssertionError(f"Expected 文本/ fallback, got: {text_init}")
+    if "文本" not in str(text_init.get("papers_dir", "")):
+        raise AssertionError(f"Expected papers_dir under 文本/, got: {text_init}")
+    text_state = Path(text_init["state_dir"])
+    text_manifest = json.loads((text_state / "manifest.json").read_text(encoding="utf-8"))
+    text_paper = text_manifest["papers"][0]
+    text_stem = text_paper["stem"]
+    text_path = text_paper["path"]
+    if "文本/" not in text_path.replace("\\", "/"):
+        raise AssertionError(f"Manifest path should include 文本/: {text_path}")
+
+    # PyYAML-dump style taxonomy (id not first under list item).
+    (text_state / "taxonomy.yaml").write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "course: 线性代数",
+                "exam_scope: 期中",
+                "types:",
+                "- aliases: []",
+                "  id: determinant",
+                "  keywords: []",
+                "  name: 行列式",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    # Wrong filename + wrong source (missing 文本/) + medium confidence.
+    wrong_name = text_state / "annotations" / f"{text_stem}.pdf.md.json"
+    wrong_name.write_text(
+        json.dumps(
+            {
+                "source": "courses/线性代数/reviews/期中/2018-期中.pdf.md",
+                "exam_label": "2018 期中",
+                "types_present": ["determinant"],
+                "type_counts": {"determinant": 1},
+                "confidence": "medium",
+                "notes": "alias filename + stale source",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    text_stats = json.loads(
+        run_script(
+            "build_exam_type_stats.py",
+            str(repo),
+            "--course",
+            "线性代数",
+            "--exam-scope",
+            "期中",
+            "--papers-dir",
+            "courses/线性代数/reviews/期中/文本",
+            "--validate",
+            "--overwrite",
+        )
+    )
+    if text_stats.get("unknown_types"):
+        raise AssertionError(
+            f"PyYAML-style taxonomy must not yield unknown_types: {text_stats['unknown_types']}"
+        )
+    if not text_stats.get("annotation_aliases_used"):
+        raise AssertionError(f"Expected annotation_aliases_used, got: {text_stats}")
+    if not text_stats.get("source_mismatches"):
+        raise AssertionError(f"Expected source_mismatches, got: {text_stats}")
+    if not text_stats.get("medium_confidence"):
+        raise AssertionError(f"Expected medium_confidence diagnostics, got: {text_stats}")
+    if text_stats.get("low_confidence"):
+        raise AssertionError("medium must not be treated as low_confidence")
+    if "ignored" not in str(text_stats.get("papers_dir_warning", "")).lower():
+        raise AssertionError(f"Expected --papers-dir ignored warning, got: {text_stats}")
+    text_report = (
+        chinese_course / "reviews" / "期中" / "题型频率统计.md"
+    ).read_text(encoding="utf-8")
+    if "文本/2018-期中.pdf.md" not in text_report.replace("\\", "/"):
+        raise AssertionError(
+            "Frequency report links must use manifest path including 文本/"
+        )
+    if "reviews/期中/2018-期中.pdf.md)" in text_report.replace("\\", "/"):
+        raise AssertionError("Report must not link the stale annotation.source path")
+
+    # Invalid confidence fails --validate.
+    wrong_name.write_text(
+        json.dumps(
+            {
+                "source": text_path,
+                "exam_label": "2018 期中",
+                "types_present": ["determinant"],
+                "type_counts": {"determinant": 1},
+                "confidence": "kinda-sure",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    invalid_conf = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "build_exam_type_stats.py"),
+            str(repo),
+            "--course",
+            "线性代数",
+            "--exam-scope",
+            "期中",
+            "--validate",
+            "--overwrite",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if invalid_conf.returncode == 0:
+        raise AssertionError("Expected --validate failure for invalid confidence")
+    invalid_payload = json.loads(invalid_conf.stdout)
+    if not invalid_payload.get("invalid_confidence"):
+        raise AssertionError(f"Expected invalid_confidence list, got: {invalid_payload}")
+
     # Platform adapters install into the vault (not the skill dir).
     adapter_payload = json.loads(
         run_script(
@@ -2528,6 +2693,9 @@ def exercise_exam_census(repo: Path) -> None:
     ensure_contains(claude_skill, "--papers-dir")
     ensure_contains(claude_skill, "只有本脚本支持")
     ensure_contains(claude_skill, "暂停并询问")
+    ensure_contains(claude_skill, "annotations/<stem>.json")
+    ensure_contains(claude_skill, "high")
+    ensure_contains(claude_skill, "medium")
     skill_text = claude_skill.read_text(encoding="utf-8")
     if "disable-model-invocation: true" in skill_text:
         raise AssertionError(

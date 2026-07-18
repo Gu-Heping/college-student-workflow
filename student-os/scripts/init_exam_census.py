@@ -18,6 +18,7 @@ from exam_census_utils import (
     exam_scope_key,
     relative_posix,
     resolve_course,
+    resolve_papers_dir,
     reviews_dir,
     state_dir,
     write_json,
@@ -82,6 +83,7 @@ def main() -> int:
     else:
         papers_dir = course_dir / "references"
     papers_dir = papers_dir.resolve()
+    papers_dir, papers_subdir_fallback = resolve_papers_dir(papers_dir, args.pattern)
 
     papers = discover_papers(papers_dir, args.pattern)
     if not papers:
@@ -155,6 +157,8 @@ def main() -> int:
         "repo": str(repo),
         "course": course_key,
         "exam_scope": exam_scope,
+        "papers_dir": relative_posix(papers_dir, repo),
+        "papers_dir_fallback_subdir": papers_subdir_fallback,
         "state_dir": str(census_state),
         "manifest": str(manifest_path),
         "taxonomy": str(taxonomy_path),

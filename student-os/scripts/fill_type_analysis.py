@@ -11,7 +11,8 @@ from exam_census_quality import ENTRY_LAYER_MARKERS, REQUIRED_SECTION_HEADINGS
 from exam_census_utils import (
     course_slug_of,
     exam_scope_key,
-    load_annotations,
+    load_annotations_for_manifest,
+    load_json,
     relative_posix,
     resolve_course,
     reviews_dir,
@@ -104,7 +105,11 @@ def main() -> int:
     if not analysis_dir.exists():
         raise SystemExit(f"Missing type-analysis directory. Run build_exam_type_stats.py first: {analysis_dir}")
 
-    annotations = load_annotations(census_state / "annotations")
+    manifest_path = census_state / "manifest.json"
+    papers = list(load_json(manifest_path).get("papers") or []) if manifest_path.exists() else []
+    annotations, _aliases, _errors = load_annotations_for_manifest(
+        census_state / "annotations", papers
+    )
     items: list[dict] = []
     for path in sorted(analysis_dir.glob("*.md")):
         text = path.read_text(encoding="utf-8")

@@ -13,10 +13,11 @@ from typing import Any
 from course_layout import configure_stdout_utf8, slugify
 from exam_census_utils import (
     MUST_KNOW_RATE,
+    classify_confidence,
     course_slug_of,
     course_tag_slug,
     exam_scope_key,
-    load_annotations,
+    load_annotations_for_manifest,
     load_json,
     load_taxonomy,
     markdown_rel_link,
@@ -37,6 +38,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--course", required=True, help="Course slug or path under courses/")
     parser.add_argument("--exam-scope", required=True, help="Exam scope label such as 期中 or midterm")
     parser.add_argument("--semester", default="", help="Optional semester slug when resolving the course")
+    parser.add_argument(
+        "--papers-dir",
+        default="",
+        help=(
+            "Optional. Aggregate reads papers from the manifest; if provided, this is "
+            "compared to manifest.papers_dir and ignored for scanning."
+        ),
+    )
     parser.add_argument(
         "--validate",
         action="store_true",
@@ -99,6 +108,9 @@ def aggregate(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     type_meta = {str(item["id"]): item for item in taxonomy.get("types", [])}
     known_ids = set(type_meta)
@@ -117,19 +129,40 @@ def aggregate(
 
     missing: list[str] = []
     low_confidence: list[dict[str, Any]] = []
+    medium_confidence: list[dict[str, Any]] = []
+    invalid_confidence: list[dict[str, Any]] = []
     unknown_types: list[dict[str, Any]] = []
     unknown_count_keys: list[dict[str, Any]] = []
     invalid_count_values: list[dict[str, Any]] = []
+    source_mismatches: list[dict[str, Any]] = []
 
     for paper in papers:
         stem = str(paper["stem"])
+        manifest_path = str(paper.get("path") or "")
         annotation = annotations.get(stem)
         if annotation is None:
             missing.append(stem)
             continue
-        confidence = str(annotation.get("confidence", "high")).lower()
-        if confidence in {"low", "uncertain", "needs-review"}:
+        confidence, bucket = classify_confidence(annotation.get("confidence", "high"))
+        if bucket == "low":
             low_confidence.append({"stem": stem, "confidence": confidence})
+        elif bucket == "medium":
+            medium_confidence.append({"stem": stem, "confidence": confidence})
+        elif bucket == "invalid":
+            invalid_confidence.append({"stem": stem, "confidence": confidence})
+
+        annotation_source = str(annotation.get("source") or "")
+        if annotation_source and manifest_path:
+            norm_ann = annotation_source.replace("\\", "/").lstrip("./")
+            norm_man = manifest_path.replace("\\", "/").lstrip("./")
+            if norm_ann != norm_man:
+                source_mismatches.append(
+                    {
+                        "stem": stem,
+                        "annotation_source": annotation_source,
+                        "manifest_path": manifest_path,
+                    }
+                )
 
         raw_present = [str(item) for item in annotation.get("types_present") or []]
         present = list(dict.fromkeys(raw_present))
@@ -144,8 +177,8 @@ def aggregate(
             if type_id not in known_ids:
                 unknown_types.append({"stem": stem, "type_id": type_id})
                 continue
-            bucket = stats[type_id]
-            bucket["paper_count"] += 1
+            bucket_stats = stats[type_id]
+            bucket_stats["paper_count"] += 1
             if type_id in counts:
                 count_value = _positive_int_count(counts.get(type_id))
                 if count_value is None:
@@ -155,10 +188,11 @@ def aggregate(
                     count_value = 0
             else:
                 count_value = 1
-            bucket["question_count"] += count_value
-            source = annotation.get("source") or paper_by_stem.get(stem, {}).get("path") or stem
+            bucket_stats["question_count"] += count_value
+            # Canonical source for links is always the manifest paper path.
+            source = manifest_path or paper_by_stem.get(stem, {}).get("path") or stem
             label = annotation.get("exam_label") or stem
-            bucket["papers"].append({"stem": stem, "label": label, "source": source})
+            bucket_stats["papers"].append({"stem": stem, "label": label, "source": source})
 
         present_set = set(present)
         for count_key in counts:
@@ -168,17 +202,27 @@ def aggregate(
 
     annotated_count = len(papers) - len(missing)
     ranked: list[dict[str, Any]] = []
-    for type_id, bucket in stats.items():
-        rate = (bucket["paper_count"] / annotated_count) if annotated_count else 0.0
+    for type_id, bucket_stats in stats.items():
+        rate = (bucket_stats["paper_count"] / annotated_count) if annotated_count else 0.0
         ranked.append(
             {
-                **bucket,
+                **bucket_stats,
                 "appearance_rate": rate,
-                "must_know": rate >= must_know_rate and bucket["paper_count"] > 0,
+                "must_know": rate >= must_know_rate and bucket_stats["paper_count"] > 0,
             }
         )
     ranked.sort(key=lambda item: (-item["paper_count"], -item["question_count"], item["id"]))
-    return ranked, missing, low_confidence, unknown_types, unknown_count_keys, invalid_count_values
+    return (
+        ranked,
+        missing,
+        low_confidence,
+        medium_confidence,
+        invalid_confidence,
+        unknown_types,
+        unknown_count_keys,
+        invalid_count_values,
+        source_mismatches,
+    )
 
 
 def render_frequency_report(
@@ -192,9 +236,13 @@ def render_frequency_report(
     ranked: list[dict[str, Any]],
     missing: list[str],
     low_confidence: list[dict[str, Any]],
+    medium_confidence: list[dict[str, Any]],
+    invalid_confidence: list[dict[str, Any]],
     unknown_types: list[dict[str, Any]],
     unknown_count_keys: list[dict[str, Any]],
     invalid_count_values: list[dict[str, Any]],
+    source_mismatches: list[dict[str, Any]],
+    annotation_aliases_used: list[dict[str, str]],
     report_path: Path,
     repo: Path,
     today: str,
@@ -264,6 +312,42 @@ def render_frequency_report(
         lines.append("")
     else:
         lines.extend(["### Low-confidence annotations", "", "- None", ""])
+
+    if medium_confidence:
+        lines.append("### Medium-confidence annotations")
+        lines.extend([f"- `{item['stem']}` ({item['confidence']})" for item in medium_confidence])
+        lines.append("")
+    else:
+        lines.extend(["### Medium-confidence annotations", "", "- None", ""])
+
+    if invalid_confidence:
+        lines.append("### Invalid confidence values")
+        lines.extend([f"- `{item['stem']}` ({item['confidence']})" for item in invalid_confidence])
+        lines.append("")
+    else:
+        lines.extend(["### Invalid confidence values", "", "- None", ""])
+
+    if source_mismatches:
+        lines.append("### Annotation source vs manifest path mismatches")
+        for item in source_mismatches:
+            lines.append(
+                f"- `{item['stem']}`: annotation=`{item['annotation_source']}` "
+                f"manifest=`{item['manifest_path']}` (links use manifest path)"
+            )
+        lines.append("")
+    else:
+        lines.extend(["### Annotation source vs manifest path mismatches", "", "- None", ""])
+
+    if annotation_aliases_used:
+        lines.append("### Annotation filename aliases used")
+        for item in annotation_aliases_used:
+            lines.append(
+                f"- `{item['stem']}`: expected `{item['expected']}`, "
+                f"read `{item['actual']}` ({item['match']})"
+            )
+        lines.append("")
+    else:
+        lines.extend(["### Annotation filename aliases used", "", "- None", ""])
 
     if unknown_types:
         lines.append("### Unknown type ids in types_present")
@@ -831,8 +915,17 @@ def has_validation_errors(
     unknown_types: list[dict[str, Any]],
     unknown_count_keys: list[dict[str, Any]],
     invalid_count_values: list[dict[str, Any]],
+    invalid_confidence: list[dict[str, Any]] | None = None,
+    annotation_load_errors: list[dict[str, Any]] | None = None,
 ) -> bool:
-    return bool(missing or unknown_types or unknown_count_keys or invalid_count_values)
+    return bool(
+        missing
+        or unknown_types
+        or unknown_count_keys
+        or invalid_count_values
+        or invalid_confidence
+        or annotation_load_errors
+    )
 
 
 def main() -> int:
@@ -865,11 +958,40 @@ def main() -> int:
 
     manifest = load_json(manifest_path)
     taxonomy = load_taxonomy(taxonomy_path)
-    annotations = load_annotations(annotations_dir)
     papers = list(manifest.get("papers") or [])
+    annotations, annotation_aliases_used, annotation_load_errors = load_annotations_for_manifest(
+        annotations_dir, papers
+    )
     course_name = str(taxonomy.get("course") or course_key)
 
-    ranked, missing, low_confidence, unknown_types, unknown_count_keys, invalid_count_values = aggregate(
+    papers_dir_warning = ""
+    if args.papers_dir:
+        requested = Path(args.papers_dir)
+        requested_path = requested if requested.is_absolute() else (repo / requested)
+        requested_rel = relative_posix(requested_path.resolve(), repo)
+        manifest_papers_dir = str(manifest.get("papers_dir") or "").replace("\\", "/")
+        if requested_rel.replace("\\", "/") == manifest_papers_dir:
+            papers_dir_warning = (
+                "aggregate reads papers from manifest; --papers-dir ignored "
+                f"(matches manifest.papers_dir={manifest_papers_dir!r})"
+            )
+        else:
+            papers_dir_warning = (
+                "aggregate reads papers from manifest; --papers-dir ignored "
+                f"(requested={requested_rel!r}, manifest.papers_dir={manifest_papers_dir!r})"
+            )
+
+    (
+        ranked,
+        missing,
+        low_confidence,
+        medium_confidence,
+        invalid_confidence,
+        unknown_types,
+        unknown_count_keys,
+        invalid_count_values,
+        source_mismatches,
+    ) = aggregate(
         taxonomy=taxonomy,
         annotations=annotations,
         papers=papers,
@@ -878,7 +1000,12 @@ def main() -> int:
     annotated_count = len(papers) - len(missing)
     today = date.today().isoformat()
     validation_failed = has_validation_errors(
-        missing, unknown_types, unknown_count_keys, invalid_count_values
+        missing,
+        unknown_types,
+        unknown_count_keys,
+        invalid_count_values,
+        invalid_confidence=invalid_confidence,
+        annotation_load_errors=annotation_load_errors,
     )
 
     report = render_frequency_report(
@@ -891,9 +1018,13 @@ def main() -> int:
         ranked=ranked,
         missing=missing,
         low_confidence=low_confidence,
+        medium_confidence=medium_confidence,
+        invalid_confidence=invalid_confidence,
         unknown_types=unknown_types,
         unknown_count_keys=unknown_count_keys,
         invalid_count_values=invalid_count_values,
+        source_mismatches=source_mismatches,
+        annotation_aliases_used=annotation_aliases_used,
         report_path=report_path,
         repo=repo,
         today=today,
@@ -979,6 +1110,7 @@ def main() -> int:
         "annotated_count": annotated_count,
         "paper_count": len(papers),
         "coverage": (annotated_count / len(papers)) if papers else 0.0,
+        "papers_dir_warning": papers_dir_warning,
         "ranked_types": [
             {
                 "id": item["id"],
@@ -997,9 +1129,14 @@ def main() -> int:
         "skeletons_skipped_due_to_validate": skip_skeletons,
         "missing_annotations": missing,
         "low_confidence": low_confidence,
+        "medium_confidence": medium_confidence,
+        "invalid_confidence": invalid_confidence,
         "unknown_types": unknown_types,
         "unknown_count_keys": unknown_count_keys,
         "invalid_count_values": invalid_count_values,
+        "source_mismatches": source_mismatches,
+        "annotation_aliases_used": annotation_aliases_used,
+        "annotation_load_errors": annotation_load_errors,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

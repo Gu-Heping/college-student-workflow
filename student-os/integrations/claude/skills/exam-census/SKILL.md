@@ -110,13 +110,15 @@ python "$SCRIPTS/ensure_frontmatter.py" "$sidecar_abs" --apply
 
 ### 2. Init
 
+`init` 的 `--papers-dir` 可以指向 scope 根目录（如 `reviews/期中/`）。若该目录本身没有 `.pdf.md`，但存在 `文本/` / `text/` / `markdown/` / `md/` 子目录且其中有 sidecar，会自动使用该子目录，并在 JSON 的 `papers_dir` / `papers_dir_fallback_subdir` 中写明。
+
 ```bash
 python "$SCRIPTS/init_exam_census.py" "${BASE[@]}"
 # 仅当用户提供了 papersDir 时追加（只有本脚本支持）：
 #   --papers-dir "$papersDir"
 ```
 
-确认出现 `manifest.json` 与 `taxonomy.yaml` stub。后续阶段**不要**再传 `--papers-dir`。
+确认出现 `manifest.json` 与 `taxonomy.yaml` stub。**后续阶段不要再传 `--papers-dir`**（aggregate 若收到该参数只会与 manifest 对比并 warning，不会重新扫描）。
 
 ### 3. Taxonomy
 
@@ -127,11 +129,19 @@ python "$SCRIPTS/init_exam_census.py" "${BASE[@]}"
 
 ### 4. Annotate
 
-按 `manifest.batches` 分批；**一批一个 agent**，只写该批 `annotations/*.json`：
+**先读** `manifest.json` 的 `papers` / `batches`，不要凭文件名猜路径。
+
+对每个 paper：
+
+- 标注文件必须写成 manifest 的 `annotation` 字段，通常是 `annotations/<stem>.json`（**不要**写成 `<stem>.pdf.md.json`）。
+- JSON 内 `source` 必须等于 manifest 的 `path`（含 `文本/` 等子目录）。
+- `confidence` 只能是：`high` | `medium` | `low` | `uncertain` | `needs-review`。
+
+按 `manifest.batches` 分批；**一批一个 agent**，只写该批文件：
 
 ```json
 {
-  "source": "courses/.../paper.pdf.md",
+  "source": "courses/.../reviews/期中/文本/paper.pdf.md",
   "exam_label": "2019 期中 A",
   "types_present": ["matrix-rank"],
   "type_counts": {"matrix-rank": 2},
@@ -140,15 +150,18 @@ python "$SCRIPTS/init_exam_census.py" "${BASE[@]}"
 }
 ```
 
-已有 annotation 文件默认跳过。不确定时 `"confidence": "low"`，勿发明 taxonomy id。
+已有 annotation 文件默认跳过。不确定时用 `"confidence": "low"` 或 `"uncertain"`，勿发明 taxonomy id。
 
 ### 5. Aggregate
 
+Aggregate **只读 manifest** 中的试卷列表与 `papers_dir`，不重新扫描目录：
+
 ```bash
 python "$SCRIPTS/build_exam_type_stats.py" "${BASE[@]}" --validate --overwrite
+# 不要传 --papers-dir；若误传，JSON 会给出 papers_dir_warning 并忽略
 ```
 
-非零退出 → **停止**。成功则得到 `题型频率统计.md` 与 `题型解析/` 骨架。
+非零退出 → **停止**。成功则得到 `题型频率统计.md` 与 `题型解析/` 骨架。链接一律使用 manifest `path`；若 annotation `source` 不一致会出现 source mismatch 诊断。
 
 ### 6. Phase A — Fill
 
