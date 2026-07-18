@@ -15,7 +15,7 @@ export const meta = {
  *   skillScripts?: string // optional absolute path to student-os/scripts
  * }
  */
-return await (async () => {
+async function runExamCensus() {
 const input = typeof args === 'undefined' || args === null ? {} : args
 
 const resolved = await agent(
@@ -437,4 +437,6 @@ return {
   aggregate: aggregate.summary,
   crossValidation: cross.summary,
 }
-})()
+}
+
+export default await runExamCensus()
