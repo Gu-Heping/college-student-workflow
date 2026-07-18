@@ -2627,6 +2627,9 @@ def exercise_exam_census(repo: Path) -> None:
     ensure_contains(skill_bak, "USER-SKILL-CONTENT")
     ensure_contains(cmd_bak, "USER-COMMAND-CONTENT")
     ensure_contains(claude_skill, "name: exam-census")
+    ensure_contains(claude_cmd, "/exam-census")
+    if "USER-COMMAND-CONTENT" in claude_cmd.read_text(encoding="utf-8"):
+        raise AssertionError("Force reinstall must restore command template, not keep sentinel")
 
     if not adapter_mod.find_dangerous_control_chars("safe\rhidden"):
         raise AssertionError("Bare CR must be reported as dangerous")

@@ -1,7 +1,7 @@
 ---
 name: exam-census
 description: Run student-os exam-census for past-paper type analysis and exam-prep pack generation. Use when the user asks to analyze past papers, classify exam question types, build type-frequency reports, or generate exam prep materials.
-argument-hint: "[vault=<path>] course=<course> examScope=<scope> [papersDir=<path>]"
+argument-hint: "vault=<path> course=<course> examScope=<scope> [papersDir=<path>]"
 disable-model-invocation: true
 ---
 
@@ -17,24 +17,24 @@ disable-model-invocation: true
 /exam-census vault="/path/to/vault" course="linear-algebra" examScope="期中"
 ```
 
-或自然语言：
+或自然语言（仍须显式给出 vault）：
 
 ```text
-/exam-census 请对线性代数期中真题做题型普查，先检查 Git，输出所有产物路径
+/exam-census vault="/path/to/vault" 请对线性代数期中真题做题型普查，先检查 Git，输出所有产物路径
 ```
 
 ## 参数
 
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
-| `vault` | 建议 | 学习 vault 的绝对路径（git root） |
+| `vault` | 是 | 学习 vault 的绝对路径（git root）；不要把 skill 源码仓库或当前 checkout 当 vault |
 | `course` | 是 | 课程 slug 或 `courses/` 下路径 |
 | `examScope` | 是 | 如 `期中` / `midterm` |
 | `semester` | 否 | 学期 slug |
 | `papersDir` | 否 | 试卷目录（相对 vault）；默认走脚本在课程 `references/` 下的约定 |
 | `skillScripts` | 否 | `student-os/scripts` 的绝对路径提示 |
 
-缺少 `course` / `examScope`（以及无法从上下文确定的 `vault`）时：**先询问用户，不要猜测**。
+缺少 `vault` / `course` / `examScope` 时：**先询问用户，不要猜测，不要默认当前工作目录**。
 
 ## 安全边界
 

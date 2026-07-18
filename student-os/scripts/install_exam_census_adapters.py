@@ -368,6 +368,17 @@ def install_file(
         }
 
     try:
+        control_hits = scan_integration_template(source)
+    except (OSError, UnicodeError) as exc:
+        return {**base, "status": "error", "error": f"invalid source template: {exc}"}
+    if control_hits:
+        return {
+            **base,
+            "status": "error",
+            "error": f"dangerous control characters in source template: {control_hits[:5]}",
+        }
+
+    try:
         assert_safe_destination(vault, dest)
     except SystemExit as exc:
         return {**base, "status": "error", "error": str(exc)}

@@ -1,6 +1,6 @@
 ---
 description: Run student-os exam-census (past-paper type census and exam-prep pack). Prefer this over Workflow tool custom JS.
-argument-hint: "[vault=<path>] course=<course> examScope=<scope>"
+argument-hint: "vault=<path> course=<course> examScope=<scope>"
 ---
 
 # /exam-census
@@ -21,9 +21,9 @@ Workflow({scriptPath: ".claude/workflows/exam-census.js"})
 ```
 
 ```text
-/exam-census 请对线性代数期中真题做题型普查，先检查 Git，输出所有产物路径
+/exam-census vault="D:\vault-test" 请对线性代数期中真题做题型普查，先检查 Git，输出所有产物路径
 ```
 
-缺少 `course` / `examScope`（以及无法确定的 `vault`）时先询问，不要猜测。
+缺少 `vault` / `course` / `examScope` 时先询问，不要猜测，不要默认当前工作目录。
 
 安全边界与阶段顺序见 `.claude/skills/exam-census/SKILL.md`；权威细节在已安装 student-os 的 `references/exam-census-workflow.md`。
