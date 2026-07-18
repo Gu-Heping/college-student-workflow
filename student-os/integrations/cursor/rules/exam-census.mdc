@@ -1,0 +1,63 @@
+---
+description: Run student-os exam-census on a learning vault — past-paper taxonomy, annotation batches, frequency stats, Phase A–E type-analysis quality fill, deep-dive, and prep pack. Use when the user asks for exam-census, 题型频率, 试卷普查, midterm/final prep pack generation, or @exam-census.
+alwaysApply: false
+---
+
+# exam-census (Cursor / Codex orchestration)
+
+You are orchestrating the **student-os exam-census** workflow against a **learning vault** (never against the skill repo itself).
+
+## Install adapters once (optional)
+
+If this vault is missing `.cursor/rules/exam-census.mdc`, run:
+
+```bash
+python <student-os>/scripts/install_exam_census_adapters.py /path/to/vault --platforms cursor
+```
+
+## Required inputs
+
+Ask once if missing:
+
+- `vault` — absolute path to the vault git root
+- `course` — course slug / path under `courses/`
+- `examScope` — e.g. `期中` / `midterm`
+- optional `semester`, `papersDir`
+
+## Script location
+
+Prefer installed skill scripts:
+
+- `~/.codex/skills/student-os/scripts/`
+- `~/.claude/skills/student-os/scripts/`
+- `~/.config/opencode/skills/student-os/scripts/`
+
+Fall back to a local checkout’s `student-os/scripts/`.
+
+## Phase order (do not skip validate)
+
+1. **Prepare** — `materials_convert.py --repair` only if `.pdf.md` sidecars are missing/poor.
+2. **Init** — `init_exam_census.py`
+3. **Taxonomy** — draft `taxonomy.yaml` (append-only ids) using `references/exam-census-workflow.md`
+4. **Annotate** — parallel by `manifest.batches` (one agent per batch); write `annotations/*.json` only
+5. **Aggregate** — `build_exam_type_stats.py --validate --overwrite` — **stop if nonzero**
+6. **Fill (A)** — `fill_type_analysis.py` then fill each queue item per `references/exam-census-quality.md` (parallel OK)
+7. **Quality (B)** — run `review_type_analysis.py` **once globally** after all fills; revise ≤2 rounds or set `quality: needs-review`
+8. **Multi-dim (C)** — `build_multi_dim_stats.py --overwrite`
+9. **Deep-dive (D)** — `init_exam_deep_dive.py --limit 2` then fill scaffolds
+10. **Prep pack** — 备考指南 / 公式总卡 / 答题模板 / 考前清单 with real links to `题型解析/`
+11. **Cross-val (E)** — `cross_validate_exam_census.py`
+
+## Parallelism
+
+- Annotation: one agent per batch; never two writers on the same annotation file
+- Fill: one agent per type-analysis page; do **not** run `review_type_analysis.py` inside fill workers
+- Quality: one serial global review after fills, then optional revision agents
+- Do not invent taxonomy ids during aggregate
+
+## References inside the skill
+
+- `commands/exam-census.md`
+- `references/exam-census-workflow.md`
+- `references/exam-census-quality.md`
+- `companions/review-coach.md`

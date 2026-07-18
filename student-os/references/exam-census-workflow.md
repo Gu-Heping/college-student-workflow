@@ -2,6 +2,26 @@
 
 Use this reference for large-scale past-paper censuses: question-type taxonomy, parallel annotation, frequency aggregation, and exam-prep pack generation.
 
+## Platform entry points
+
+Orchestration adapters live under `integrations/` in the skill and must be **installed into the learning vault** (not into the skill directory):
+
+```bash
+python student-os/scripts/install_exam_census_adapters.py /path/to/vault \
+  --platforms claude,cursor,opencode,github
+```
+
+| Platform | Vault path | Invoke |
+| --- | --- | --- |
+| Claude Code | `.claude/workflows/exam-census.js` | `/exam-census` — pass `args`: `{ "vault", "course", "examScope", "semester?", "papersDir?" }` |
+| Cursor | `.cursor/rules/exam-census.mdc` | Natural language exam-census request or `@exam-census` |
+| OpenCode | `.opencode/exam-census.md` | Ask OpenCode to run exam-census with vault/course/scope |
+| GitHub Copilot | `.github/copilot-exam-census.md` | Optional merge into `.github/copilot-instructions.md` |
+
+Adapters only orchestrate; all durable work still goes through the Python scripts below and `references/exam-census-quality.md`.
+
+Without adapters, follow the Phases in this document (or `commands/exam-census.md`) and run the scripts manually / via the skill command.
+
 ## Preconditions
 
 - Papers already exist as markdown sidecars (usually `*.pdf.md`) under a course `references/` tree or another explicit papers directory.

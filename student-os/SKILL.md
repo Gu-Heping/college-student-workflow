@@ -54,6 +54,7 @@ Use these scripts when helpful:
 - `scripts/build_multi_dim_stats.py` for Phase C multi-dimensional analysis drafts.
 - `scripts/init_exam_deep_dive.py` for Phase D representative paper deep-dive scaffolds.
 - `scripts/cross_validate_exam_census.py` for Phase E coverage / traceability checks.
+- `scripts/install_exam_census_adapters.py` for copying Claude/Cursor/OpenCode/GitHub exam-census adapters into a vault.
 - `scripts/group_git_changes.py` for student-task change grouping and commit prefix suggestions.
 - `scripts/rebuild_indexes.py` for regenerating course/project/task/activity indexes.
 - `scripts/summarize_activity.py` for weekly summaries and recent activity reports.
@@ -203,6 +204,8 @@ When a request targets one of the seed courses, read the matching course pack be
 - `references/pptx-workflow.md`
 - `references/exam-census-workflow.md`
 - `references/exam-census-quality.md`
+- `integrations/claude/workflows/exam-census.js` (Claude Code workflow template)
+- `integrations/cursor/rules/exam-census.mdc` (Cursor rule template)
 
 If the course is not covered yet, follow the generic workflow and note that a course pack may be needed later.
 

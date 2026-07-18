@@ -2177,6 +2177,85 @@ def exercise_exam_census(repo: Path) -> None:
         raise AssertionError("Expected Phase E to fail when prep guide has no type links")
     prep_guide.unlink()
 
+    # Platform adapters install into the vault (not the skill dir).
+    adapter_payload = json.loads(
+        run_script(
+            "install_exam_census_adapters.py",
+            str(repo),
+            "--platforms",
+            "claude,cursor,opencode,github",
+            "--json",
+        )
+    )
+    if adapter_payload.get("installed") != 4:
+        raise AssertionError(f"Expected 4 adapters installed, got: {adapter_payload}")
+    claude_wf = repo / ".claude" / "workflows" / "exam-census.js"
+    cursor_rule = repo / ".cursor" / "rules" / "exam-census.mdc"
+    ensure_exists(claude_wf)
+    ensure_exists(cursor_rule)
+    ensure_exists(repo / ".opencode" / "exam-census.md")
+    ensure_exists(repo / ".github" / "copilot-exam-census.md")
+    ensure_contains(claude_wf, "name: 'exam-census'")
+    ensure_contains(claude_wf, "export const meta")
+    ensure_contains(cursor_rule, "alwaysApply: false")
+    ensure_contains(cursor_rule, "exam-census")
+    # Second install without --force should skip.
+    skip_payload = json.loads(
+        run_script(
+            "install_exam_census_adapters.py",
+            str(repo),
+            "--platforms",
+            "claude",
+            "--json",
+        )
+    )
+    if skip_payload.get("skipped") != 1:
+        raise AssertionError(f"Expected claude adapter skip on reinstall, got: {skip_payload}")
+
+    # Symlink/junction escape: pre-planted .claude pointing outside the vault must be refused.
+    outside = repo.parent / "adapter-escape-target"
+    outside.mkdir(parents=True, exist_ok=True)
+    escape_vault = repo.parent / "adapter-symlink-vault"
+    escape_vault.mkdir(parents=True, exist_ok=True)
+    claude_link = escape_vault / ".claude"
+    try:
+        claude_link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        # Windows without SeCreateSymbolicLinkPrivilege: directory junction still escapes.
+        junction = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(claude_link), str(outside)],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if junction.returncode != 0 or not claude_link.exists():
+            raise AssertionError(
+                f"Unable to create symlink or junction for adapter escape smoke: {junction.stderr or junction.stdout}"
+            )
+    symlink_out = run_script_failure(
+        "install_exam_census_adapters.py",
+        str(escape_vault),
+        "--platforms",
+        "claude",
+        "--json",
+    )
+    symlink_payload = json.loads(symlink_out)
+    if symlink_payload.get("errors") != 1:
+        raise AssertionError(
+            f"Expected symlink destination refusal, got: {symlink_payload}"
+        )
+    claude_result = symlink_payload["results"][0]
+    err_text = str(claude_result.get("error", "")).lower()
+    if claude_result.get("status") != "error" or (
+        "symlink" not in err_text
+        and "outside vault" not in err_text
+        and "escaping vault" not in err_text
+    ):
+        raise AssertionError(f"Expected symlink/escape error for claude adapter, got: {claude_result}")
+    if any(outside.iterdir()):
+        raise AssertionError("Installer must not write through a symlinked .claude directory")
+
 
 def exercise_feedback_lifecycle(repo: Path) -> None:
     feedback_day = date.today()
