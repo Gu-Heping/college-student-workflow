@@ -26,14 +26,14 @@ When the draft does not come from a local feedback entry, sanitize then post thr
 
 ```bash
 python scripts/sanitize_and_post.py -- \
-  gh issue create --repo Gu-Heping/college-student-workflow -F -
+  gh issue create --repo Gu-Heping/college-student-workflow -F - < draft.md
 ```
 
-For PR reviews or comments, use the same wrapper:
+For PR reviews or comments, use the same wrapper (feed the draft on stdin):
 
 ```bash
-python scripts/sanitize_and_post.py -- gh pr review <n> --comment -F -
-python scripts/sanitize_and_post.py -- gh issue comment <n> --body-file -
+python scripts/sanitize_and_post.py -- gh pr review <n> --comment -F - < draft.md
+python scripts/sanitize_and_post.py -- gh issue comment <n> --body-file - < draft.md
 ```
 
 - `--check-stdin` / `--stdin` on `prepare_github_issue.py` hold the draft back (non-zero exit, no stdout) when privacy warnings are present; re-run with `--allow-privacy-warnings` only after explicit user confirmation.

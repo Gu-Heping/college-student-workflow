@@ -3,7 +3,8 @@
 ## 这是什么
 
 `college-student-workflow` 是一个给大学生学习资料库用的 agent workflow 仓库。  
-它的核心是 [`student-os`](./student-os/)——一套装给 `Codex`、`Claude Code`、`OpenCode`、`Cursor` 等 agent 用的 **skill**（可理解为：告诉 AI 怎么在你的笔记库里安全干活的说明书 + 脚本）。
+它的核心是 [`student-os`](./student-os/)——一套装给 agent 用的 **skill**（可理解为：告诉 AI 怎么在你的笔记库里安全干活的说明书 + 脚本）。  
+安装脚本目前支持 `Codex`、`Claude Code`、`OpenCode`（`--agent codex|claude|opencode|all`）。`Cursor` 没有完整 skill 安装目标，可用仓库内 exam-census 等适配说明，或把本仓库 / 已安装 skill 当作规则与脚本参考。
 
 你可以把学习资料放在 Obsidian vault、普通 Markdown 文件夹，或任何以文本笔记为主的目录里。`student-os` 的核心价值是：
 
@@ -29,7 +30,7 @@
 - 检查或初始化一个学习 vault（笔记库）
 - 新建课程空间：课堂笔记、作业、复习、实验报告等目录
 - 整理周计划、deadline、考试倒计时
-- 把 PDF / DOCX / PPTX / XLSX（以及图片、旧 Office）转成可读的 Markdown 资料
+- 把 PDF / DOCX / PPTX / XLSX 转成可读的 Markdown 资料（图片与旧版 `.doc`/`.ppt`/`.xls` 在配置 MinerU token 时可读转换；无 token 时通常只生成索引占位，不会本地 OCR）
 - 对导入后的 markdown 做保守修复（repair）
 - 对历年试卷做 **exam-census**（题型普查 → 频率统计 → 题型解析 → 备考资料包）
 - 把使用中的问题记到 `feedback/`，并准备/发布隐私检查后的 GitHub Issue
@@ -44,7 +45,7 @@
 普通用户不必先学会所有脚本。把下面这句话复制发给你的 agent 即可：
 
 ```text
-请从 GitHub 仓库 Gu-Heping/college-student-workflow 安装 student-os skill。先只读检查 README 和安装脚本，确认只会安装到当前 agent 的 skills 目录、不修改我的学习 vault，然后运行对应平台的安装脚本。安装完成后告诉我安装位置、manifest 路径和如何更新。
+请从 GitHub 仓库 Gu-Heping/college-student-workflow 安装 student-os skill。先只读检查 README 和安装脚本，使用用户级 scope（--scope user），确认只会安装到当前 agent 的 skills 目录、不修改我的学习 vault，然后运行对应平台的安装脚本。安装完成后告诉我安装位置、manifest 路径和如何更新。
 ```
 
 ## 不会命令行？直接把这些话发给 agent
@@ -54,7 +55,7 @@
 安装：
 
 ```text
-请从 GitHub 仓库 Gu-Heping/college-student-workflow 安装 student-os skill。先只读检查 README 和安装脚本，确认只会安装到当前 agent 的 skills 目录、不修改我的学习 vault，然后运行对应平台的安装脚本。安装完成后告诉我安装位置、manifest 路径和如何更新。
+请从 GitHub 仓库 Gu-Heping/college-student-workflow 安装 student-os skill。先只读检查 README 和安装脚本，使用用户级 scope（--scope user），确认只会安装到当前 agent 的 skills 目录、不修改我的学习 vault，然后运行对应平台的安装脚本。安装完成后告诉我安装位置、manifest 路径和如何更新。
 ```
 
 接管学习 vault：
@@ -139,7 +140,8 @@ python scripts/install_student_os.py --agent all --json
 说明：
 
 - `--agent`：装给谁（`codex` / `claude` / `opencode` 等）
-- `--scope user`：用户目录；`--scope project`：当前项目
+- `--scope user`：装到用户级 agent skills 目录（普通用户推荐；与上文「发给 agent」示例一致）
+- `--scope project`：装到当前项目下的 agent skills 目录（可能写入 vault 内的 `.codex/skills` 等；这是安装 skill，不是改笔记）
 - 默认尽量用 symlink，失败再回退到 copy
 - 安装后会生成 `.student-os-install.json`，供后续自更新使用
 
@@ -196,12 +198,15 @@ python student-os/scripts/prepare_github_issue.py /path/to/vault feedback/triage
 python student-os/scripts/publish_github_issue.py /path/to/vault feedback/triaged/example.md --json
 ```
 
-对任意要公开发布的正文（Issue / PR review / comment），应先走脱敏：
+对任意要公开发布的正文（Issue / PR review / comment），应先走脱敏。有隐私告警或检查失败时默认停在 draft，不要继续调用 `gh`：
 
 ```bash
+# 预检（有 blocker / warning 时非零退出）
 python student-os/scripts/prepare_github_issue.py --check-stdin --check-only < draft.md
+
+# 脱敏后发布：把 draft 喂给包装脚本（不要拆成两条互不相关的管道）
 python student-os/scripts/sanitize_and_post.py -- \
-  gh issue create --repo Gu-Heping/college-student-workflow -F -
+  gh issue create --repo Gu-Heping/college-student-workflow -F - < draft.md
 ```
 
 ## 如何更新 student-os

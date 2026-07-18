@@ -22,8 +22,8 @@
 
 1. **本仓库 ≠ 用户学习 vault。** CLI 的目标目录是用户传入的 vault 路径；永远不要把本仓库当成 vault 去改笔记、跑 scaffold、写 feedback。
 2. **会改文件的 workflow，先检查 Git 状态**（`inspect_repo.py` / `group_git_changes.py`），并区分「任务产生的改动」与「预先已有的脏文件」。
-3. **安装 / 更新 skill 只动 skill 目录**，不碰用户 vault。
-4. **公开发布**（GitHub Issue / PR review / comment）前必须脱敏；有隐私告警时默认停在 draft。
+3. **安装 / 更新 skill** 只动 skill 目录（用户级，或项目内 `.codex/skills` 等），不改 vault 笔记内容。普通用户优先 `--scope user`。
+4. **公开发布**（GitHub Issue / PR review / comment）前必须脱敏；有隐私告警或检查失败时默认停在 draft，禁止继续调用 `gh`，除非用户显式确认。
 5. **不要提交**真实 vault、课本原文、token、`.env`、大文件到本公开仓库。
 
 ## 意图 → workflow 路由

@@ -15,4 +15,4 @@ Default route:
 - primary role: `feedback-operator`
 - coordinator remains responsible for the final summary
 
-If the user wants a **public** GitHub Issue, continue with `commands/report-issue.md` and `references/github-feedback.md` (privacy check before any `gh` call). Local `feedback/` entries alone are not public.
+If the user wants a **public** GitHub Issue, continue with `commands/report-issue.md` and `references/github-feedback.md`. Always privacy-check before any `gh` call. If the check fails or raises a privacy warning, **stop at draft** — do not publish until content is redacted and the user explicitly confirms. Local `feedback/` entries alone are not public.

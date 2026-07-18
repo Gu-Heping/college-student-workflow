@@ -13,7 +13,7 @@
 | **GitHub issue publishing** | `prepare_github_issue.py` + `publish_github_issue.py`；需 `gh` 认证，否则 draft 降级 |
 | **privacy redaction** | `--stdin` / `--check-stdin` / `--check-only`；`sanitize_and_post.py` 包装 `gh`；有 warning 默认拦截 |
 | **materials_convert** | 批量 PDF/DOCX/PPTX/XLSX/图片/旧 Office → markdown sidecar；positional 为 source，非 vault |
-| **MinerU API** | `--method auto|api`；token 来自 CLI / env / `.env`；大 PDF 可自动拆分合并 |
+| **MinerU API** | `--method auto` / `--method api`；token 来自 CLI / env / `.env`；大 PDF 可自动拆分合并 |
 | **markdown repair** | `repair_markdown_import.py`；`materials_convert --repair` / `--repair-only` |
 | **exam-census** | Init → taxonomy → annotate → aggregate；Phase A–E（fill / quality / multi-dim / deep-dive / cross-val）；备考包模板；多平台 adapters |
 | **smoke tests / CI** | `scripts/run_smoke_tests.py`；`.github/workflows/smoke.yml` |
