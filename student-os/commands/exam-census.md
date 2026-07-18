@@ -56,7 +56,7 @@ If adapters are not installed, follow this command’s stage checklist and call 
 5. **Aggregate** — `build_exam_type_stats.py --validate` writes `题型频率统计.md` + `题型解析/` skeletons; stop if validation fails.
 6. **Fill (A)** — `fill_type_analysis.py` then agents fill pages per `exam-census-quality.md` (parallel per type).
 7. **Quality gate (B)** — run `review_type_analysis.py` once; revise ≤2 rounds or mark `quality: needs-review`. Gate also rejects bulky frontmatter、裸 `|` 拆表、面向用户文档中的英文残留。
-8. **Multi-dim (C)** — `build_multi_dim_stats.py --overwrite` drafts under `analysis/`（中文表头/枚举显示）；完成后**再跑一次** `review_type_analysis.py` 专门检查 `analysis_needs_revision`。
+8. **Multi-dim (C)** — `build_multi_dim_stats.py --overwrite` drafts under `analysis/`（中文表头/枚举显示）；完成后**再跑一次** `review_type_analysis.py` 专门检查 `analysis_needs_revision`；修订后再跑一次确认清空。
 
 9. **Deep-dive (D)** — `init_exam_deep_dive.py` scaffolds 1–2 representative paper walkthroughs.
 10. **Prep pack** — 备考指南 / 公式总卡 / 答题模板 / 考前清单（含到 `题型解析/` 的真实链接）。

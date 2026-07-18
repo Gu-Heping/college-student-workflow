@@ -540,6 +540,170 @@ def remove_or_archive_skeleton(
     return "archived"
 
 
+def _owns_type(text: str, type_id: str) -> bool:
+    actual = extract_exam_type_id(text)
+    return actual is None or actual == type_id
+
+
+def park_skeletons_for_overwrite(
+    analysis_dir: Path,
+    fingerprint_store: dict[str, str],
+) -> tuple[dict[str, dict[str, Any]], Path]:
+    """Phase 1: move every type-analysis page into staging, keyed by exam_type_id.
+
+    This avoids rename cycles when ranks swap (A wants B's path and vice versa).
+    Prefer a user-edited page over a generated one when duplicates share a type id.
+    """
+    staging = analysis_dir / "_reconcile_staging"
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True, exist_ok=True)
+    parked: dict[str, dict[str, Any]] = {}
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+
+    for path in sorted(analysis_dir.glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        type_id = extract_exam_type_id(text)
+        if not type_id:
+            # Unscoped pages: archive rather than invent a type key.
+            remove_or_archive_skeleton(analysis_dir, path, store=fingerprint_store)
+            continue
+        was_generated = is_generated_skeleton(text, type_id=type_id, store=fingerprint_store)
+        dest = staging / f"{slugify(type_id, fallback='type')}__{path.name}"
+        # Avoid collisions inside staging.
+        if dest.exists():
+            index = 1
+            while True:
+                candidate = staging / f"{slugify(type_id, fallback='type')}__{path.stem}-{index}{path.suffix}"
+                if not candidate.exists():
+                    dest = candidate
+                    break
+                index += 1
+        shutil.move(str(path), str(dest))
+        entry = {
+            "type_id": type_id,
+            "text": text,
+            "was_generated": was_generated,
+            "staging_path": dest,
+            "original_name": path.name,
+        }
+        previous = parked.get(type_id)
+        if previous is None:
+            parked[type_id] = entry
+            continue
+        keep_new = previous["was_generated"] and not was_generated
+        keep_old = (not previous["was_generated"]) and was_generated
+        if keep_new:
+            prev_path = Path(previous["staging_path"])
+            if prev_path.exists():
+                if previous["was_generated"]:
+                    prev_path.unlink(missing_ok=True)
+                else:
+                    archive_dest = _archive_path(analysis_dir, Path(previous["original_name"]))
+                    shutil.move(str(prev_path), str(archive_dest))
+            parked[type_id] = entry
+        elif keep_old:
+            if was_generated:
+                dest.unlink(missing_ok=True)
+            else:
+                archive_dest = _archive_path(analysis_dir, path)
+                shutil.move(str(dest), str(archive_dest))
+        else:
+            # Same class: keep the later file, archive/delete the earlier staging copy.
+            prev_path = Path(previous["staging_path"])
+            if prev_path.exists():
+                if previous["was_generated"]:
+                    prev_path.unlink(missing_ok=True)
+                else:
+                    archive_dest = _archive_path(analysis_dir, Path(previous["original_name"]))
+                    shutil.move(str(prev_path), str(archive_dest))
+            parked[type_id] = entry
+    return parked, staging
+
+
+def place_parked_skeletons(
+    *,
+    analysis_dir: Path,
+    parked: dict[str, dict[str, Any]],
+    staging: Path,
+    ranked: list[dict[str, Any]],
+    fingerprint_store: dict[str, str],
+    course_name: str,
+    course_tag: str,
+    exam_scope: str,
+    today: str,
+    repo: Path,
+) -> tuple[list[str], list[str], list[str], set[str]]:
+    """Phase 2: write each kept type to its ranked path from parked user text or a fresh skeleton."""
+    written: list[str] = []
+    migrated: list[str] = []
+    retired: list[str] = []
+    keep_type_ids: set[str] = set()
+
+    for index, item in enumerate(ranked, start=1):
+        if item["paper_count"] <= 0:
+            continue
+        type_id = str(item["id"])
+        keep_type_ids.add(type_id)
+        filename = f"{index:02d}-{slugify(item['id'], fallback='type')}.md"
+        target = analysis_dir / filename
+        body = render_type_skeleton(
+            course_name=course_name,
+            course_tag=course_tag,
+            exam_scope=exam_scope,
+            item=item,
+            rank=index,
+            today=today,
+            target_path=target,
+            repo=repo,
+        )
+        entry = parked.pop(type_id, None)
+        if entry is not None and not entry["was_generated"]:
+            migrated_text = update_census_metadata_in_text(
+                str(entry["text"]),
+                rank=index,
+                item=item,
+                course_name=course_name,
+                exam_scope=exam_scope,
+            )
+            write_text(target, migrated_text, overwrite=True)
+            fingerprint_store.pop(type_id, None)
+            migrated.append(str(target))
+            staging_path = Path(entry["staging_path"])
+            staging_path.unlink(missing_ok=True)
+        else:
+            write_text(target, body, overwrite=True)
+            fingerprint_store[type_id] = fingerprint_skeleton_body(body)
+            written.append(str(target))
+            if entry is not None:
+                Path(entry["staging_path"]).unlink(missing_ok=True)
+
+    for type_id, entry in list(parked.items()):
+        staging_path = Path(entry["staging_path"])
+        if not staging_path.exists():
+            fingerprint_store.pop(type_id, None)
+            continue
+        if entry["was_generated"]:
+            staging_path.unlink(missing_ok=True)
+            retired.append(f"deleted:{entry['original_name']}")
+        else:
+            archive_dest = _archive_path(analysis_dir, Path(entry["original_name"]))
+            shutil.move(str(staging_path), str(archive_dest))
+            retired.append(f"archived:{archive_dest}")
+        fingerprint_store.pop(type_id, None)
+
+    if staging.exists():
+        # Remove empty staging tree; ignore leftover unknown files by archiving.
+        for leftover in staging.glob("*"):
+            if leftover.is_file():
+                archive_dest = _archive_path(analysis_dir, Path(leftover.name))
+                shutil.move(str(leftover), str(archive_dest))
+                retired.append(f"archived:{archive_dest}")
+        shutil.rmtree(staging, ignore_errors=True)
+
+    return written, migrated, retired, keep_type_ids
+
+
 def reconcile_skeleton(
     *,
     analysis_dir: Path,
@@ -554,92 +718,34 @@ def reconcile_skeleton(
     course_name: str,
     exam_scope: str,
 ) -> tuple[str, str | None]:
-    """Write/reconcile one skeleton. Returns (action, path)."""
+    """Write/reconcile one skeleton without --overwrite (safe skip/migrate-in-place only)."""
     analysis_dir.mkdir(parents=True, exist_ok=True)
     existing = list(existing_by_type.get(type_id, []))
     others = [path for path in existing if path.resolve() != target.resolve()]
 
-    def _is_user(path: Path) -> bool:
-        return not is_generated_skeleton(
-            path.read_text(encoding="utf-8"), type_id=type_id, store=fingerprint_store
-        )
+    def _is_user_owned(path: Path) -> bool:
+        text = path.read_text(encoding="utf-8")
+        if not _owns_type(text, type_id):
+            return False
+        return not is_generated_skeleton(text, type_id=type_id, store=fingerprint_store)
 
-    if not overwrite and others:
-        # Alternate path already holds this type id — do not migrate or delete.
+    if others:
+        # Alternate path already holds this type id — do not migrate or delete without --overwrite.
         if target.exists():
             return "skipped", str(target)
         return "skipped", str(others[-1])
 
-    if overwrite and others:
-        user_sources = [path for path in others if _is_user(path)]
-        target_is_user = target.exists() and _is_user(target)
-
-        if target_is_user:
-            # Protect the existing target; archive alternate paths first.
-            for path in others:
-                remove_or_archive_skeleton(
-                    analysis_dir, path, type_id=type_id, store=fingerprint_store
-                )
-            migrated = update_census_metadata_in_text(
-                target.read_text(encoding="utf-8"),
-                rank=rank,
-                item=item,
-                course_name=course_name,
-                exam_scope=exam_scope,
-            )
-            write_text(target, migrated, overwrite=True)
-            fingerprint_store.pop(type_id, None)
-            return "migrated", str(target)
-
-        if user_sources:
-            # Prefer a single user source; archive every other alternate first.
-            source = user_sources[-1]
-            for path in others:
-                if path.resolve() == source.resolve():
-                    continue
-                remove_or_archive_skeleton(
-                    analysis_dir, path, type_id=type_id, store=fingerprint_store
-                )
-            migrated = update_census_metadata_in_text(
-                source.read_text(encoding="utf-8"),
-                rank=rank,
-                item=item,
-                course_name=course_name,
-                exam_scope=exam_scope,
-            )
-            remove_or_archive_skeleton(
-                analysis_dir, source, type_id=type_id, store=fingerprint_store
-            )
-            write_text(target, migrated, overwrite=True)
-            fingerprint_store.pop(type_id, None)
-            return "migrated", str(target)
-
-        for path in others:
-            remove_or_archive_skeleton(
-                analysis_dir, path, type_id=type_id, store=fingerprint_store
-            )
-
     target_exists = target.exists()
     target_text = target.read_text(encoding="utf-8") if target_exists else ""
+    if target_exists and not _owns_type(target_text, type_id):
+        # Another type currently occupies this ranked path; leave it alone without --overwrite.
+        return "skipped", str(target)
+
     target_is_generated = (not target_exists) or is_generated_skeleton(
         target_text, type_id=type_id, store=fingerprint_store
     )
 
     if target_exists and not target_is_generated:
-        if overwrite:
-            write_text(
-                target,
-                update_census_metadata_in_text(
-                    target_text,
-                    rank=rank,
-                    item=item,
-                    course_name=course_name,
-                    exam_scope=exam_scope,
-                ),
-                overwrite=True,
-            )
-            fingerprint_store.pop(type_id, None)
-            return "migrated", str(target)
         return "skipped", str(target)
 
     if target_exists and not overwrite:
@@ -757,54 +863,63 @@ def main() -> int:
     fingerprint_store = load_fingerprint_store(census_state)
 
     if not skip_skeletons:
-        existing_by_type = find_skeletons_by_type_id(analysis_dir)
-        for index, item in enumerate(ranked, start=1):
-            if item["paper_count"] <= 0:
-                continue
-            keep_type_ids.add(str(item["id"]))
-            filename = f"{index:02d}-{slugify(item['id'], fallback='type')}.md"
-            target = analysis_dir / filename
-            body = render_type_skeleton(
+        if args.overwrite:
+            parked, staging = park_skeletons_for_overwrite(analysis_dir, fingerprint_store)
+            written_paths, migrated_paths, retired_entries, keep_type_ids = place_parked_skeletons(
+                analysis_dir=analysis_dir,
+                parked=parked,
+                staging=staging,
+                ranked=ranked,
+                fingerprint_store=fingerprint_store,
                 course_name=course_name,
                 course_tag=course_tag,
                 exam_scope=exam_scope,
-                item=item,
-                rank=index,
                 today=today,
-                target_path=target,
                 repo=repo,
             )
-            action, path = reconcile_skeleton(
-                analysis_dir=analysis_dir,
-                target=target,
-                type_id=str(item["id"]),
-                rank=index,
-                body=body,
-                overwrite=args.overwrite,
-                existing_by_type=existing_by_type,
-                fingerprint_store=fingerprint_store,
-                item=item,
-                course_name=course_name,
-                exam_scope=exam_scope,
-            )
-            if action == "written" and path:
-                written_skeletons.append(relative_posix(Path(path), repo))
-            elif action == "migrated" and path:
-                migrated_skeletons.append(relative_posix(Path(path), repo))
-            elif action == "skipped" and path:
-                skipped_skeletons.append(relative_posix(Path(path), repo))
-
-        if args.overwrite:
-            existing_by_type = find_skeletons_by_type_id(analysis_dir)
+            written_skeletons = [relative_posix(Path(path), repo) for path in written_paths]
+            migrated_skeletons = [relative_posix(Path(path), repo) for path in migrated_paths]
             retired = []
-            for entry in retire_obsolete_generated(
-                analysis_dir=analysis_dir,
-                keep_type_ids=keep_type_ids,
-                existing_by_type=existing_by_type,
-                fingerprint_store=fingerprint_store,
-            ):
+            for entry in retired_entries:
                 _action, _, path_text = entry.partition(":")
                 retired.append(relative_posix(Path(path_text or entry), repo))
+        else:
+            existing_by_type = find_skeletons_by_type_id(analysis_dir)
+            for index, item in enumerate(ranked, start=1):
+                if item["paper_count"] <= 0:
+                    continue
+                keep_type_ids.add(str(item["id"]))
+                filename = f"{index:02d}-{slugify(item['id'], fallback='type')}.md"
+                target = analysis_dir / filename
+                body = render_type_skeleton(
+                    course_name=course_name,
+                    course_tag=course_tag,
+                    exam_scope=exam_scope,
+                    item=item,
+                    rank=index,
+                    today=today,
+                    target_path=target,
+                    repo=repo,
+                )
+                action, path = reconcile_skeleton(
+                    analysis_dir=analysis_dir,
+                    target=target,
+                    type_id=str(item["id"]),
+                    rank=index,
+                    body=body,
+                    overwrite=False,
+                    existing_by_type=existing_by_type,
+                    fingerprint_store=fingerprint_store,
+                    item=item,
+                    course_name=course_name,
+                    exam_scope=exam_scope,
+                )
+                if action == "written" and path:
+                    written_skeletons.append(relative_posix(Path(path), repo))
+                elif action == "migrated" and path:
+                    migrated_skeletons.append(relative_posix(Path(path), repo))
+                elif action == "skipped" and path:
+                    skipped_skeletons.append(relative_posix(Path(path), repo))
         save_fingerprint_store(census_state, fingerprint_store)
 
     result = {

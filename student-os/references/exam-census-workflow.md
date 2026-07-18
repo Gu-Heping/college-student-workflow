@@ -210,7 +210,7 @@ python student-os/scripts/build_multi_dim_stats.py /path/to/vault \
 
 Writes drafts under `reviews/<exam-scope-key>/analysis/` (co-occurrence, format roll-up, difficulty/reliability). User-facing Markdown is Chinese-first（表头「试卷 / 可靠性」等；枚举显示为「答案卷 / 复习版 / 回忆版 / 未标注」）。Agents refine difficulty stars and 选择/填空/计算 buckets.
 
-After writing analysis drafts, re-run `review_type_analysis.py` and fix any `analysis_needs_revision` entries.
+After writing analysis drafts, re-run `review_type_analysis.py` and fix any `analysis_needs_revision` entries. After those revisions, run the gate once more and stop if analysis failures remain.
 
 ### Phase 4d — Deep-dive papers (Phase D)
 

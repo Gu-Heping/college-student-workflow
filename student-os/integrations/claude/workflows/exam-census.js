@@ -344,6 +344,15 @@ if (analysisGate.analysis_needs_revision.length) {
       { label: `revise-analysis-${String(item.path).split('/').pop()}` },
     ),
   )
+
+  await agent(
+    [
+      'Phase C analysis re-check: run review_type_analysis.py once more after analysis revisions.',
+      `Command: python -B ${script('review_type_analysis.py')} ${baseFlags}`,
+      'Confirm analysis_needs_revision is empty. If any remain, report them and stop before Phase D (do not silently continue).',
+    ].join('\n'),
+    { label: 'phase-analysis-quality-recheck' },
+  )
 }
 
 await agent(
