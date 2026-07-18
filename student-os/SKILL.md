@@ -193,7 +193,7 @@ When the request involves scanned PDFs, image-heavy materials, or legacy `.doc` 
 Use `references/exam-census-workflow.md` and `references/exam-census-quality.md`.
 Command entry: `commands/exam-census.md`.
 
-Claude Code vault adapters (recommended): install with `install_exam_census_adapters.py --platforms claude`, then run `/exam-census` via `.claude/skills/exam-census/SKILL.md` / `.claude/commands/exam-census.md`. Do **not** rely on `Workflow({name})` / `Workflow({scriptPath})` for custom `.claude/workflows/*.js` (experimental opt-in only).
+Claude Code vault adapters (recommended): install with `install_exam_census_adapters.py --platforms claude`, then run `/exam-census` or ask in natural language. The installed `.claude/skills/exam-census/SKILL.md` is a full runbook the model executes directly — do **not** use the Workflow tool or custom `.claude/workflows/*.js` (experimental opt-in only).
 
 Short phase map (details in the reference):
 - **Prepare** — convert papers to `.pdf.md` sidecars (+ repair)

@@ -2522,9 +2522,28 @@ def exercise_exam_census(repo: Path) -> None:
         raise AssertionError("Default Claude install must not copy experimental workflow JS")
     ensure_contains(claude_skill, "name: exam-census")
     ensure_contains(claude_skill, "/exam-census")
-    ensure_contains(claude_skill, "不要")
+    ensure_contains(claude_skill, "init_exam_census.py")
+    ensure_contains(claude_skill, "build_exam_type_stats.py")
+    ensure_contains(claude_skill, "Runbook")
+    ensure_contains(claude_skill, "--papers-dir")
+    ensure_contains(claude_skill, "只有本脚本支持")
+    ensure_contains(claude_skill, "暂停并询问")
+    skill_text = claude_skill.read_text(encoding="utf-8")
+    if "disable-model-invocation: true" in skill_text:
+        raise AssertionError(
+            "Claude exam-census skill must allow model/natural-language invocation"
+        )
+    if "Workflow(" in skill_text:
+        raise AssertionError(
+            "Claude exam-census SKILL.md must not mention Workflow(…) calls"
+        )
     ensure_contains(claude_cmd, "/exam-census")
-    ensure_contains(claude_cmd, "Workflow({name")
+    ensure_contains(claude_cmd, "runbook")
+    cmd_text = claude_cmd.read_text(encoding="utf-8")
+    if "Workflow(" in cmd_text:
+        raise AssertionError(
+            "Claude exam-census command must not mention Workflow(…) calls"
+        )
     ensure_contains(cursor_rule, "alwaysApply: false")
     ensure_contains(cursor_rule, "exam-census")
 
@@ -2541,27 +2560,43 @@ def exercise_exam_census(repo: Path) -> None:
 
     student_os = ROOT / "student-os"
 
-    # Docs must not recommend Workflow({name: "exam-census"}) as the primary entry.
+    # Claude skill/command adapters must be self-contained runbooks (no Workflow tool).
     for doc_rel in (
-        Path("commands") / "exam-census.md",
-        Path("references") / "exam-census-workflow.md",
         Path("integrations") / "claude" / "skills" / "exam-census" / "SKILL.md",
         Path("integrations") / "claude" / "commands" / "exam-census.md",
     ):
         doc_text = (student_os / doc_rel).read_text(encoding="utf-8")
-        if 'Workflow({name: "exam-census"})' in doc_text and "不要" not in doc_text:
-            # Mentions are only OK when discouraging the Workflow tool.
+        if "Workflow(" in doc_text:
             raise AssertionError(
-                f"{doc_rel} mentions Workflow({{name}}) without discouraging it"
+                f"{doc_rel} must not mention Workflow(…) (Issue #59)"
             )
+        for line in doc_text.splitlines():
+            lowered = line.lower()
+            if "invoke:" in lowered and "workflow" in lowered:
+                raise AssertionError(
+                    f"{doc_rel} must not instruct Invoke Workflow on same line: {line!r}"
+                )
+
+    # Broader docs must not recommend Workflow name/scriptPath as the primary entry.
+    for doc_rel in (
+        Path("commands") / "exam-census.md",
+        Path("references") / "exam-census-workflow.md",
+    ):
+        doc_text = (student_os / doc_rel).read_text(encoding="utf-8")
         recommend_patterns = (
             "推荐使用 Workflow({name",
             'use Workflow({name: "exam-census"})',
             "Invoke via Workflow({name",
+            "Invoke: Workflow(",
+            "Workflow({name:",
+            "Workflow({ name:",
+            "Workflow({scriptPath:",
+            "Workflow({ scriptPath:",
+            'Workflow({scriptPath: ".claude/workflows/exam-census.js"})',
         )
         for pattern in recommend_patterns:
             if pattern in doc_text:
-                raise AssertionError(f"{doc_rel} still recommends Workflow name entry: {pattern}")
+                raise AssertionError(f"{doc_rel} still recommends Workflow entry: {pattern}")
 
     # Claude integration templates must not contain dangerous control characters.
     adapter_spec = importlib.util.spec_from_file_location(

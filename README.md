@@ -94,7 +94,7 @@ Git 安全检查：
 请用 student-os 对这门课的历年试卷做 exam-census：先扫描试卷 markdown sidecar，建立题型 taxonomy，再统计高频题型，生成题型解析和备考资料包。每一步都先说明产物位置。
 ```
 
-Claude Code 推荐先安装 vault adapter，再用 `/exam-census`（skill/command 入口，不要依赖自定义 Workflow JS）：
+Claude Code 推荐先安装 vault adapter，再用 `/exam-census` 或自然语言触发 skill runbook（不要使用 Workflow 工具）：
 
 ```bash
 python student-os/scripts/install_exam_census_adapters.py /path/to/vault --platforms claude
