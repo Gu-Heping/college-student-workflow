@@ -40,11 +40,11 @@ If adapters are not installed, follow this command’s stage checklist and call 
 3. **Taxonomy** — review-coach drafts `taxonomy.yaml` from 2–3 sample papers.
 4. **Annotate** — coordinator splits batches; agents write `annotations/*.json` (one agent per batch).
 5. **Aggregate** — `build_exam_type_stats.py --validate` writes `题型频率统计.md` + `题型解析/` skeletons; stop if validation fails.
-6. **Fill (A)** — `fill_type_analysis.py` then agents fill pages per `exam-census-quality.md` (parallel per type; fill→review pipeline preferred).
-7. **Quality gate (B)** — `review_type_analysis.py`; revise ≤2 rounds or mark `quality: needs-review`.
+6. **Fill (A)** — `fill_type_analysis.py` then agents fill pages per `exam-census-quality.md` (parallel per type).
+7. **Quality gate (B)** — run `review_type_analysis.py` once; revise ≤2 rounds or mark `quality: needs-review`.
 8. **Multi-dim (C)** — `build_multi_dim_stats.py --overwrite` drafts under `analysis/`.
 9. **Deep-dive (D)** — `init_exam_deep_dive.py` scaffolds 1–2 representative paper walkthroughs.
-10. **Cross-val (E)** — `cross_validate_exam_census.py` coverage report.
-11. **Prep pack** — 备考指南 / 公式总卡 / 答题模板 / 考前清单；re-run E if needed.
+10. **Prep pack** — 备考指南 / 公式总卡 / 答题模板 / 考前清单（含到 `题型解析/` 的真实链接）。
+11. **Cross-val (E)** — `cross_validate_exam_census.py` coverage report（prep pack 之后再跑）。
 
 See `references/exam-census-workflow.md` and `references/exam-census-quality.md`.

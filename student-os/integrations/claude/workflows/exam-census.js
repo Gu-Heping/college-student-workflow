@@ -73,6 +73,7 @@ const py = await agent(
 )
 
 const scriptsDir = py.scriptsDir
+const script = (name) => JSON.stringify(`${scriptsDir.replace(/[\\/]+$/, '')}/${name}`)
 const semesterFlag = semester ? ` --semester ${JSON.stringify(semester)}` : ''
 const papersFlag = papersDir ? ` --papers-dir ${JSON.stringify(papersDir)}` : ''
 const baseFlags = `${JSON.stringify(vault)} --course ${JSON.stringify(course)} --exam-scope ${JSON.stringify(examScope)}${semesterFlag}`
@@ -80,11 +81,11 @@ const baseFlags = `${JSON.stringify(vault)} --course ${JSON.stringify(course)} -
 await agent(
   [
     'Phase Prepare (optional): if midterm/final PDFs under the course still lack usable .pdf.md sidecars,',
-    'run materials_convert.py with --repair on the papers directory. Skip if sidecars already look good.',
+    `run python -B ${script('materials_convert.py')} with --repair on the papers directory. Skip if sidecars already look good.`,
     `Vault: ${vault}`,
     `Course: ${course}`,
     `Exam scope: ${examScope}`,
-    `Scripts dir: ${scriptsDir}`,
+    `Scripts dir: ${JSON.stringify(scriptsDir)}`,
   ].join('\n'),
   { label: 'phase-prepare' },
 )
@@ -93,7 +94,7 @@ await agent(
   [
     'Phase Init: run init_exam_census.py with overwrite only if the user already has a broken manifest.',
     'Prefer creating a fresh census when missing; do not wipe good annotations.',
-    `Command shape: python -B ${scriptsDir}/init_exam_census.py ${baseFlags}${papersFlag}`,
+    `Command shape: python -B ${script('init_exam_census.py')} ${baseFlags}${papersFlag}`,
     'Confirm manifest.json and taxonomy.yaml exist under .student-os/state/exam-census/.',
   ].join('\n'),
   { label: 'phase-init' },
@@ -104,7 +105,7 @@ await agent(
     'Phase Taxonomy: draft or expand taxonomy.yaml from 2–3 representative paper sidecars.',
     'Use student-os templates/exam-type-taxonomy.md and references/exam-census-workflow.md.',
     'Keep existing type ids append-only. Prefer English-ish ids; names in course language.',
-    `Vault: ${vault}; course: ${course}; examScope: ${examScope}; scripts: ${scriptsDir}`,
+    `Vault: ${vault}; course: ${course}; examScope: ${examScope}; scripts: ${JSON.stringify(scriptsDir)}`,
   ].join('\n'),
   { label: 'phase-taxonomy' },
 )
@@ -112,7 +113,7 @@ await agent(
 const batches = await agent(
   [
     'Read the exam-census manifest.json for this course/scope and return annotation batches.',
-    `Vault: ${vault}; course: ${course}; examScope: ${examScope}; scripts: ${scriptsDir}`,
+    `Vault: ${vault}; course: ${course}; examScope: ${examScope}; scripts: ${JSON.stringify(scriptsDir)}`,
     'Each batch item must include batch_id and papers (array of {stem, path}).',
     'If no batches field exists, split papers into groups of up to 6.',
   ].join('\n'),
@@ -165,7 +166,7 @@ await pipeline(batches.batches, (batch) =>
 const aggregate = await agent(
   [
     'Phase Aggregate: run build_exam_type_stats.py with --validate --overwrite.',
-    `Command shape: python -B ${scriptsDir}/build_exam_type_stats.py ${baseFlags} --validate --overwrite`,
+    `Command shape: python -B ${script('build_exam_type_stats.py')} ${baseFlags} --validate --overwrite`,
     'If the command exits non-zero, stop the census and summarize Validation failures.',
     'Return ok=true only when validate succeeded.',
   ].join('\n'),
@@ -195,8 +196,8 @@ if (!aggregate.ok) {
 
 const fillQueue = await agent(
   [
-    'Phase A: run fill_type_analysis.py and return the fill-queue items.',
-    `Command shape: python -B ${scriptsDir}/fill_type_analysis.py ${baseFlags}`,
+    'Phase A queue: run fill_type_analysis.py and return the fill-queue items.',
+    `Command shape: python -B ${script('fill_type_analysis.py')} ${baseFlags}`,
     'Return items as {path, exam_type_id, source_papers} arrays from fill-queue.json.',
   ].join('\n'),
   {
@@ -225,22 +226,75 @@ const fillQueue = await agent(
 await pipeline(fillQueue.items, (item) =>
   agent(
     [
-      `Phase A→B pipeline for type ${item.exam_type_id}.`,
+      `Phase A fill only for type ${item.exam_type_id}.`,
       `Fill ${item.path} to content-standard v2 (references/exam-census-quality.md).`,
       'Include zero-foundation entry four questions, badge, examples with 【方法引用】, self-tests with answers, verification steps.',
       `Source papers: ${JSON.stringify(item.source_papers || [])}`,
-      'After filling, run review_type_analysis.py for this course/scope.',
-      'If this file is needs-revision, revise at most twice; else set quality: needs-review in frontmatter.',
-      `Vault: ${vault}; scripts: ${scriptsDir}; flags: ${baseFlags}`,
+      'Do NOT run review_type_analysis.py here (global gate runs once after all fills).',
+      `Vault: ${vault}; scripts: ${JSON.stringify(scriptsDir)}`,
     ].join('\n'),
-    { label: `fill-review-${item.exam_type_id}` },
+    { label: `fill-${item.exam_type_id}` },
   ),
 )
+
+const gate = await agent(
+  [
+    'Phase B: run review_type_analysis.py once for the whole course/scope.',
+    `Command: python -B ${script('review_type_analysis.py')} ${baseFlags}`,
+    'Return needs_revision paths from quality-reviews.json (files with verdict needs-revision).',
+  ].join('\n'),
+  {
+    label: 'phase-quality-gate',
+    schema: {
+      type: 'object',
+      required: ['needs_revision'],
+      properties: {
+        needs_revision: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['path', 'exam_type_id'],
+            properties: {
+              path: { type: 'string' },
+              exam_type_id: { type: 'string' },
+              failed_checks: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+      },
+    },
+  },
+)
+
+if (gate.needs_revision.length) {
+  await pipeline(gate.needs_revision, (item) =>
+    agent(
+      [
+        `Phase B revision for ${item.exam_type_id} at ${item.path}.`,
+        `Failed checks: ${JSON.stringify(item.failed_checks || [])}`,
+        'Revise the page against exam-census-quality.md. At most two revision attempts total for this file.',
+        'If still failing structural requirements, set frontmatter quality: needs-review and stop revising.',
+        'Do NOT run review_type_analysis.py from this worker.',
+        `Vault: ${vault}`,
+      ].join('\n'),
+      { label: `revise-${item.exam_type_id}` },
+    ),
+  )
+
+  await agent(
+    [
+      'Phase B re-check: run review_type_analysis.py once more after revisions.',
+      `Command: python -B ${script('review_type_analysis.py')} ${baseFlags}`,
+      'Summarize remaining needs-revision files.',
+    ].join('\n'),
+    { label: 'phase-quality-recheck' },
+  )
+}
 
 await agent(
   [
     'Phase C: run build_multi_dim_stats.py with --overwrite.',
-    `Command: python -B ${scriptsDir}/build_multi_dim_stats.py ${baseFlags} --overwrite`,
+    `Command: python -B ${script('build_multi_dim_stats.py')} ${baseFlags} --overwrite`,
     'Then refine analysis drafts under reviews/<scope>/analysis/ if annotations include useful format/difficulty fields.',
   ].join('\n'),
   { label: 'phase-multi-dim' },
@@ -249,7 +303,7 @@ await agent(
 await agent(
   [
     'Phase D: run init_exam_deep_dive.py --limit 2 --overwrite, then fill the scaffolded 真题精析 pages.',
-    `Command: python -B ${scriptsDir}/init_exam_deep_dive.py ${baseFlags} --limit 2 --overwrite`,
+    `Command: python -B ${script('init_exam_deep_dive.py')} ${baseFlags} --limit 2 --overwrite`,
     'Each question must link back to a type-analysis page.',
   ].join('\n'),
   { label: 'phase-deep-dive' },
@@ -269,7 +323,7 @@ await agent(
 const cross = await agent(
   [
     'Phase E: run cross_validate_exam_census.py and report ok/failures.',
-    `Command: python -B ${scriptsDir}/cross_validate_exam_census.py ${baseFlags}`,
+    `Command: python -B ${script('cross_validate_exam_census.py')} ${baseFlags}`,
     'Return ok and a short summary of any gaps.',
   ].join('\n'),
   {

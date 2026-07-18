@@ -41,8 +41,8 @@ Fall back to a local checkout’s `student-os/scripts/`.
 3. **Taxonomy** — draft `taxonomy.yaml` (append-only ids) using `references/exam-census-workflow.md`
 4. **Annotate** — parallel by `manifest.batches` (one agent per batch); write `annotations/*.json` only
 5. **Aggregate** — `build_exam_type_stats.py --validate --overwrite` — **stop if nonzero**
-6. **Fill (A)** — `fill_type_analysis.py` then fill each queue item per `references/exam-census-quality.md`
-7. **Quality (B)** — `review_type_analysis.py`; revise ≤2 rounds or set `quality: needs-review`
+6. **Fill (A)** — `fill_type_analysis.py` then fill each queue item per `references/exam-census-quality.md` (parallel OK)
+7. **Quality (B)** — run `review_type_analysis.py` **once globally** after all fills; revise ≤2 rounds or set `quality: needs-review`
 8. **Multi-dim (C)** — `build_multi_dim_stats.py --overwrite`
 9. **Deep-dive (D)** — `init_exam_deep_dive.py --limit 2` then fill scaffolds
 10. **Prep pack** — 备考指南 / 公式总卡 / 答题模板 / 考前清单 with real links to `题型解析/`
@@ -51,7 +51,8 @@ Fall back to a local checkout’s `student-os/scripts/`.
 ## Parallelism
 
 - Annotation: one agent per batch; never two writers on the same annotation file
-- Fill: one agent per type-analysis page; prefer fill→review pipeline per type
+- Fill: one agent per type-analysis page; do **not** run `review_type_analysis.py` inside fill workers
+- Quality: one serial global review after fills, then optional revision agents
 - Do not invent taxonomy ids during aggregate
 
 ## References inside the skill
