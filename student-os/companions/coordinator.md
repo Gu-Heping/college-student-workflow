@@ -40,7 +40,8 @@ Use this role as the orchestration entry point for `student-os`.
 - Phase 0 imports stay with `file-operator` until `.pdf.md` sidecars exist.
 - Phase 2: split `manifest.batches` across agents; each agent writes only its own `annotations/*.json`.
 - Phase 3: run `build_exam_type_stats.py --validate` before synthesizing the prep pack.
-- Keep machine state under `.student-os/state/exam-census/` and readable outputs under `courses/**/reviews/<exam-scope>/`.
+- Phases A–E: queue fills, quality gate, multi-dim analysis, deep-dive papers, cross-validation (`references/exam-census-quality.md`).
+- Keep machine state under `.student-os/state/exam-census/` and readable outputs under `courses/**/reviews/<exam-scope-key>/`.
 - Follow `references/exam-census-workflow.md`.
 
 ## Output contract

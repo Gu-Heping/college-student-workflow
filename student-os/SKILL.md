@@ -49,6 +49,11 @@ Use these scripts when helpful:
 - `scripts/build_review_indexes.py` for homework and review indexes.
 - `scripts/init_exam_census.py` for scanning paper sidecars and writing exam-census manifests.
 - `scripts/build_exam_type_stats.py` for question-type frequency reports and ranked analysis skeletons.
+- `scripts/fill_type_analysis.py` for Phase A fill queues after Aggregate.
+- `scripts/review_type_analysis.py` for Phase B structural quality gates.
+- `scripts/build_multi_dim_stats.py` for Phase C multi-dimensional analysis drafts.
+- `scripts/init_exam_deep_dive.py` for Phase D representative paper deep-dive scaffolds.
+- `scripts/cross_validate_exam_census.py` for Phase E coverage / traceability checks.
 - `scripts/group_git_changes.py` for student-task change grouping and commit prefix suggestions.
 - `scripts/rebuild_indexes.py` for regenerating course/project/task/activity indexes.
 - `scripts/summarize_activity.py` for weekly summaries and recent activity reports.
@@ -197,6 +202,7 @@ When a request targets one of the seed courses, read the matching course pack be
 - `references/xlsx-workflow.md`
 - `references/pptx-workflow.md`
 - `references/exam-census-workflow.md`
+- `references/exam-census-quality.md`
 
 If the course is not covered yet, follow the generic workflow and note that a course pack may be needed later.
 

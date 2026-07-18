@@ -17,6 +17,13 @@ courses/<course-key>/reviews/<exam-scope-key>/
 ├── 题型解析/
 │   ├── 01-<type-id>.md
 │   └── ...
+├── analysis/
+│   ├── 题型关联分析.md
+│   ├── 分题型频率统计.md
+│   ├── 题型难度分级.md
+│   ├── 卷源可靠性分级.md
+│   ├── 质量门禁.md
+│   └── 覆盖率检查.md
 ├── 备考指南.md
 ├── 公式总卡.md
 ├── 答题模板速查.md
@@ -25,8 +32,11 @@ courses/<course-key>/reviews/<exam-scope-key>/
 .student-os/state/exam-census/<course-key>/<exam-scope-key>/
 ├── taxonomy.yaml
 ├── manifest.json
-└── annotations/
-    └── <relative-paper-id>.json
+├── annotations/
+│   └── <relative-paper-id>.json
+├── fill-queue.json
+├── quality-reviews.json
+└── cross-validation.json
 ```
 
 `<course-key>` is the course path under `courses/` (for example `linear-algebra` or `2026-fall/cs-101`), so semester-nested courses do not collide.
@@ -124,21 +134,63 @@ Produces:
 
 `--validate` exits nonzero when annotations are missing, reference unknown type ids, have unknown/unmatched `type_counts` keys, or have invalid `type_counts` values (non-object, non-positive integer). On validation failure the frequency report is still refreshed, but skeleton write/reconcile/retire is skipped.
 
-### Phase 4 — Fill type analyses
+### Phase 4 — Fill type analyses (Phase A)
 
-1. Work in frequency order (filename rank).
-2. Prefer `templates/exam-type-analysis.md`.
-3. Link back to source sidecars listed in frontmatter / census signal.
+1. Run `fill_type_analysis.py` to write `fill-queue.json` (ranked skeletons + source papers + required sections).
+2. Assign one agent per type analysis (pipeline with Phase B preferred: fill → review immediately).
+3. Fill using `templates/exam-type-analysis.md` and `references/exam-census-quality.md` (content standard v2 + zero-foundation entry).
+4. Assign every annotated past-paper instance of the type to 例题精讲 or 自测题.
+
+### Phase 4b — Quality gate (Phase B)
+
+```bash
+python student-os/scripts/review_type_analysis.py /path/to/vault \
+  --course linear-algebra \
+  --exam-scope 期中
+```
+
+Writes `quality-reviews.json` and `analysis/质量门禁.md`. Exit code 1 means at least one file needs revision (max 2 agent rounds, then `quality: needs-review`).
+
+### Phase 4c — Multi-dimensional analysis (Phase C)
+
+```bash
+python student-os/scripts/build_multi_dim_stats.py /path/to/vault \
+  --course linear-algebra \
+  --exam-scope 期中
+```
+
+Writes drafts under `reviews/<exam-scope-key>/analysis/` (co-occurrence, format roll-up, difficulty/reliability seeds). Agents refine difficulty stars and 选择/填空/计算 buckets.
+
+### Phase 4d — Deep-dive papers (Phase D)
+
+```bash
+python student-os/scripts/init_exam_deep_dive.py /path/to/vault \
+  --course linear-algebra \
+  --exam-scope 期中 \
+  --limit 2
+```
+
+Scaffolds 1–2 representative paper walkthroughs under `reviews/<exam-scope-key>/真题精析/` (links each annotated type back to `题型解析/`). Agents then fill prompts and solutions; template: `templates/exam-paper-deep-dive.md`.
+
+### Phase 4e — Cross-validation (Phase E)
+
+```bash
+python student-os/scripts/cross_validate_exam_census.py /path/to/vault \
+  --course linear-algebra \
+  --exam-scope 期中
+```
+
+Writes `cross-validation.json` and `analysis/覆盖率检查.md` (missing skeletons, empty type lists, prep-guide link gaps).
 
 ### Phase 5 — Exam prep pack
 
 Create or update:
 - `备考指南.md` ← `templates/exam-prep-guide.md`
-- `公式总卡.md` ← `templates/formula-cheat-sheet.md`
-- `答题模板速查.md` ← `templates/answer-template-quickref.md`
+- `公式总卡.md` ← `templates/formula-cheat-sheet.md` (prefer extracting from type-analysis formula tables)
+- `答题模板速查.md` ← `templates/answer-template-quickref.md` (prefer extracting from 2分钟下笔模板)
 - `考前1小时清单.md` ← `templates/pre-exam-one-hour-checklist.md`
 
-Planning-assistant may help with day sequencing; review-coach owns content quality.
+Planning-assistant may help with day sequencing; review-coach owns content quality. Re-run Phase E after the prep pack exists.
 
 ## Parallelism and failure handling
 
