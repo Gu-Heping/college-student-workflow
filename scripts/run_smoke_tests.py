@@ -2500,6 +2500,71 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     if stdin_check.stdout.strip():
         raise AssertionError("prepare_github_issue.py --stdin --check-only should not rewrite the draft")
 
+    stdin_check_warning = run_script_with_stdin(
+        "prepare_github_issue.py",
+        "Saw a failure while reading C:\\Users\\Alice\\notes.md during import.\n",
+        "--check-stdin",
+        "--check-only",
+        check=False,
+    )
+    if stdin_check_warning.returncode == 0:
+        raise AssertionError("prepare_github_issue.py --check-stdin --check-only should exit non-zero for warnings")
+    if "WARN:" not in stdin_check_warning.stderr:
+        raise AssertionError("prepare_github_issue.py --check-stdin --check-only should report warnings on stderr")
+    if stdin_check_warning.stdout.strip():
+        raise AssertionError("prepare_github_issue.py --check-stdin --check-only should not rewrite the draft")
+
+    check_stdin_safe = run_script_with_stdin(
+        "prepare_github_issue.py",
+        "Safe PR review body without secrets or local paths.\n",
+        "--check-stdin",
+    )
+    if "Safe PR review body without secrets or local paths." not in check_stdin_safe.stdout:
+        raise AssertionError("prepare_github_issue.py --check-stdin should emit sanitized safe text")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        marker = Path(tmp) / "posted.txt"
+        safe_post = run_script_with_stdin(
+            "sanitize_and_post.py",
+            "Safe review comment for the sanitize wrapper.\n",
+            "--",
+            sys.executable,
+            "-c",
+            "import sys; from pathlib import Path; Path(sys.argv[1]).write_text(sys.stdin.read(), encoding='utf-8')",
+            str(marker),
+        )
+        if safe_post.returncode != 0:
+            raise AssertionError("sanitize_and_post.py should invoke the follow-up command for safe text")
+        if not marker.exists() or "Safe review comment for the sanitize wrapper." not in marker.read_text(encoding="utf-8"):
+            raise AssertionError("sanitize_and_post.py should feed sanitized stdin to the follow-up command")
+
+        held_marker = Path(tmp) / "should-not-exist.txt"
+        held_post = run_script_with_stdin(
+            "sanitize_and_post.py",
+            "Saw a failure while reading C:\\Users\\Alice\\notes.md during import.\n",
+            "--",
+            sys.executable,
+            "-c",
+            "import sys; from pathlib import Path; Path(sys.argv[1]).write_text(sys.stdin.read(), encoding='utf-8')",
+            str(held_marker),
+            check=False,
+        )
+        if held_post.returncode == 0:
+            raise AssertionError("sanitize_and_post.py should hold back warning-bearing drafts")
+        if held_marker.exists():
+            raise AssertionError("sanitize_and_post.py must not invoke gh/follow-up when privacy warnings are held back")
+        if held_post.stdout.strip():
+            raise AssertionError("sanitize_and_post.py should not emit stdout when holding back a draft")
+
+    sanitize_check = run_script_with_stdin(
+        "sanitize_and_post.py",
+        "Saw a failure while reading C:\\Users\\Alice\\notes.md during import.\n",
+        "--check",
+        "--allow-privacy-warnings",
+    )
+    if "[REDACTED_WINDOWS_PATH]" not in sanitize_check.stdout:
+        raise AssertionError("sanitize_and_post.py --check --allow-privacy-warnings should redact paths")
+
     stdin_json = run_script_with_stdin(
         "prepare_github_issue.py",
         json.dumps({"body": "Contact me at alice@example.com about the vault at /Users/alice/My Vault/notes.md\n"}),

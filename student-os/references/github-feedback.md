@@ -79,26 +79,57 @@ Once the issue is published:
 ## Command path
 
 Useful scripts:
-- `scripts/prepare_github_issue.py` for issue draft generation
+- `scripts/prepare_github_issue.py` for issue draft generation and stdin sanitization
+- `scripts/sanitize_and_post.py` for sanitize-then-post (safe wrapper around `gh`)
 - `scripts/publish_github_issue.py` for optional `gh issue create` publishing
   - default behavior: refuse direct publish when privacy warnings exist
   - use `--allow-privacy-warnings` only after explicit user confirmation
 
-Standalone sanitize pipe (for drafts that do not go through a local feedback entry):
+### Standalone sanitize (any GitHub body)
+
+Use `--stdin` / `--check-stdin` for issue drafts, PR reviews, issue comments, and comment edits:
 
 ```bash
-python scripts/prepare_github_issue.py --stdin --allow-privacy-warnings < draft.md \
-  | gh issue create --repo Gu-Heping/college-student-workflow -F -
-python scripts/prepare_github_issue.py --stdin --check-only < draft.md
+# Pre-flight check (non-zero on blockers OR warnings; no rewrite)
+python scripts/prepare_github_issue.py --check-stdin --check-only < draft.md
+
+# Emit sanitized text (held back on warnings unless overridden)
+python scripts/prepare_github_issue.py --check-stdin < draft.md
 python scripts/prepare_github_issue.py --stdin --stdin-format json < payload.json
 ```
 
-- `--stdin` reads arbitrary issue text, prints privacy `BLOCK:` / `WARN:` lines to stderr, and writes sanitized text to stdout
-- blockers abort the pipe with a non-zero exit code so unsafe drafts are not published
-- warnings also hold the draft back (non-zero exit, no stdout); pass `--allow-privacy-warnings` only after explicit user confirmation to emit the sanitized draft
-- `--check-only` reports findings without rewriting the draft
+- `--stdin` / `--check-stdin` read arbitrary text, print privacy `BLOCK:` / `WARN:` lines to stderr, and write sanitized text to stdout
+- blockers and warnings hold the draft back (non-zero exit, **no stdout**); pass `--allow-privacy-warnings` only after explicit user confirmation to emit the sanitized draft
+- `--check-only` reports findings without rewriting; exits non-zero on blockers or warnings
 - `--stdin-format json` accepts `gh`-style JSON payloads that include `body` (and optional `title`) fields; both are scanned and the sanitized result is emitted as a JSON object when a title is present
-- always pin `--repo Gu-Heping/college-student-workflow` on `gh issue create` so drafts land on the student-os tracker, not the student's current/private repo
+
+### Safe post wrapper (preferred)
+
+Do **not** rely on bare shell pipes such as `prepare ... | gh ...`. Without `set -o pipefail`, a held-back sanitize step still leaves `gh` running with an empty body (this created empty issues such as #40). Prefer `sanitize_and_post.py`, which only invokes the follow-up command when sanitization succeeds:
+
+```bash
+# Issue create
+python scripts/sanitize_and_post.py --allow-privacy-warnings -- \
+  gh issue create --repo Gu-Heping/college-student-workflow -F -
+
+# PR review comment
+python scripts/sanitize_and_post.py -- \
+  gh pr review 39 --comment -F -
+
+# Issue comment
+python scripts/sanitize_and_post.py -- \
+  gh issue comment 40 --body-file -
+
+# Edit an existing comment (body via stdin to gh api)
+python scripts/sanitize_and_post.py -- \
+  gh api -X PATCH /repos/Gu-Heping/college-student-workflow/issues/comments/COMMENT_ID \
+  -F body=@-
+
+# Sanitize-only (same hold-back rules; no gh invocation)
+python scripts/sanitize_and_post.py --check < draft.md
+```
+
+Feed draft text on stdin (or redirect a file). Always pin `--repo Gu-Heping/college-student-workflow` on issue create so drafts land on the student-os tracker, not the student's current/private repo.
 
 Default behavior:
 - Prepare first
