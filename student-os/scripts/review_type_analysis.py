@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from course_layout import configure_stdout_utf8
-from exam_census_quality import structural_review
+from exam_census_quality import analysis_report_review, structural_review
 from exam_census_utils import (
     course_slug_of,
     exam_scope_key,
@@ -55,7 +55,8 @@ def main() -> int:
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
-    analysis_dir = reviews_dir(course_dir, exam_scope) / "题型解析"
+    review_root = reviews_dir(course_dir, exam_scope)
+    analysis_dir = review_root / "题型解析"
     if not analysis_dir.exists():
         raise SystemExit(f"Missing type-analysis directory: {analysis_dir}")
 
@@ -63,6 +64,15 @@ def main() -> int:
     for path in sorted(analysis_dir.glob("*.md")):
         text = path.read_text(encoding="utf-8")
         reviews.append(structural_review(relative_posix(path, repo), text))
+
+    analysis_reports_dir = review_root / "analysis"
+    if analysis_reports_dir.exists():
+        for path in sorted(analysis_reports_dir.glob("*.md")):
+            # Gate only machine-seeded multi-dim reports; skip quality/coverage digests.
+            if path.name in {"质量门禁.md", "覆盖率检查.md"}:
+                continue
+            text = path.read_text(encoding="utf-8")
+            reviews.append(analysis_report_review(relative_posix(path, repo), text))
 
     passed = [item for item in reviews if item["verdict"] == "pass"]
     failed = [item for item in reviews if item["verdict"] != "pass"]
@@ -84,7 +94,7 @@ def main() -> int:
     out_path = state_dir(repo, course_key, exam_scope) / "quality-reviews.json"
     write_json(out_path, report)
 
-    human_dir = reviews_dir(course_dir, exam_scope) / "analysis"
+    human_dir = analysis_reports_dir
     human_dir.mkdir(parents=True, exist_ok=True)
     lines = [
         "---",
@@ -97,16 +107,16 @@ def main() -> int:
         "",
         f"# {course_key} · {exam_scope} · 题型解析质量门禁",
         "",
-        f"- Files reviewed: {len(reviews)}",
-        f"- Pass: {len(passed)}",
-        f"- Needs revision: {len(failed)}",
-        f"- Max agent revision rounds: {args.max_rounds}",
+        f"- 检查文件数：{len(reviews)}",
+        f"- 通过：{len(passed)}",
+        f"- 需修订：{len(failed)}",
+        f"- Agent 最多修订轮数：{args.max_rounds}",
         "",
-        "## Failures",
+        "## 失败项",
         "",
     ]
     if not failed:
-        lines.append("- None")
+        lines.append("- 无")
     else:
         for item in failed:
             lines.append(f"- `{item['file']}` — {', '.join(item['failed_checks'])}")

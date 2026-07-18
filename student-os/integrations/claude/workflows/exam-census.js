@@ -273,6 +273,8 @@ if (gate.needs_revision.length) {
         `Phase B revision for ${item.exam_type_id} at ${item.path}.`,
         `Failed checks: ${JSON.stringify(item.failed_checks || [])}`,
         'Revise the page against exam-census-quality.md. At most two revision attempts total for this file.',
+        'Chinese-first user text; short frontmatter only (no bulky source_artifacts / generated_fingerprint); table cells use $\\lvert A\\rvert$ not bare |A|.',
+        'If evidence is thin, write 证据不足，需人工补充 and set quality: needs-review rather than leaving empty template sections.',
         'If still failing structural requirements, set frontmatter quality: needs-review and stop revising.',
         'Do NOT run review_type_analysis.py from this worker.',
         `Vault: ${vault}`,

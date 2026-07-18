@@ -1548,8 +1548,26 @@ def exercise_exam_census(repo: Path) -> None:
     ensure_exists(first_skeleton)
     ensure_contains(first_skeleton, "type: exam-type-analysis")
     ensure_contains(first_skeleton, "exam_type_id: \"matrix-rank\"")
-    ensure_contains(first_skeleton, "Must-know tier: yes")
+    ensure_contains(first_skeleton, "exam_type_name:")
+    ensure_contains(first_skeleton, "quality: draft")
+    ensure_contains(first_skeleton, "必掌握：是")
     ensure_contains(first_skeleton, "](../../../references/exams/2019-期中-A.pdf.md)")
+    first_fm = first_skeleton.read_text(encoding="utf-8").split("---", 2)[1]
+    if "source_artifacts: [" in first_fm:
+        raise AssertionError("题型解析 frontmatter must not contain bulky source_artifacts arrays")
+    if "generated_fingerprint" in first_fm:
+        raise AssertionError("题型解析 frontmatter must not contain generated_fingerprint")
+    for required_field in (
+        "exam_type_name:",
+        "rank:",
+        "paper_count:",
+        "must_know:",
+        "quality:",
+        "status:",
+        "source_summary:",
+    ):
+        if required_field not in first_fm:
+            raise AssertionError(f"Missing unified frontmatter field {required_field!r} in {first_skeleton}")
 
     second_skeleton = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型解析" / "02-eigen-decomp.md"
     ensure_exists(second_skeleton)
@@ -1575,6 +1593,51 @@ def exercise_exam_census(repo: Path) -> None:
         "--overwrite",
     )
     ensure_contains(report_path, "矩阵的秩 P(A\\|B)")
+
+    # Determinant / absolute-value pipes must stay in one Markdown table cell.
+    utils_spec = importlib.util.spec_from_file_location(
+        "exam_census_utils_issue51", STUDENT_OS_SCRIPTS / "exam_census_utils.py"
+    )
+    if utils_spec is None or utils_spec.loader is None:
+        raise RuntimeError("Unable to load exam_census_utils for pipe-escape check")
+    exam_census_utils = importlib.util.module_from_spec(utils_spec)
+    sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
+    try:
+        utils_spec.loader.exec_module(exam_census_utils)
+    finally:
+        if sys.path and sys.path[0] == str(STUDENT_OS_SCRIPTS):
+            sys.path.pop(0)
+    for raw, expected_fragment in (
+        ("|A|", r"\lvert A\rvert"),
+        ("$|A|$", r"\lvert A\rvert"),
+        ("|λE-A|", r"\lvert λE-A\rvert"),
+    ):
+        escaped = exam_census_utils.md_table_cell(raw)
+        if expected_fragment not in escaped:
+            raise AssertionError(f"md_table_cell({raw!r}) missing {expected_fragment!r}: {escaped!r}")
+        residual = escaped.replace("\\|", "").replace(r"\lvert", "").replace(r"\rvert", "")
+        if "|" in residual:
+            raise AssertionError(f"md_table_cell left bare pipe in {escaped!r}")
+    sample_table = "\n".join(
+        [
+            "| 公式 | 说明 |",
+            "| --- | --- |",
+            f"| {exam_census_utils.md_table_cell('|A|')} | det |",
+            f"| {exam_census_utils.md_table_cell('$|A|$')} | abs |",
+            f"| {exam_census_utils.md_table_cell('|λE-A|')} | char |",
+        ]
+    )
+    if exam_census_utils.markdown_table_pipe_issues(sample_table):
+        raise AssertionError(f"escaped determinant table should be clean: {sample_table}")
+    broken_table = "\n".join(
+        [
+            "| 公式 | 说明 |",
+            "| --- | --- |",
+            "| $|A|$ | det |",
+        ]
+    )
+    if not exam_census_utils.markdown_table_pipe_issues(broken_table):
+        raise AssertionError("expected bare $|A|$ table cell to be flagged as column mismatch")
 
     # Unknown types_present / type_counts keys must appear in the durable report and fail --validate.
     bad_annotation = dict(annotations["2021-期中-C"])
@@ -2099,6 +2162,100 @@ def exercise_exam_census(repo: Path) -> None:
     ensure_exists(repo / "courses" / "linear-algebra" / "reviews" / "期中" / "analysis" / "题型关联分析.md")
     if multi.get("format_labels", {}).get("unspecified", 0) < 1:
         raise AssertionError(f"Expected unspecified format labels when annotations omit format: {multi}")
+    reliability_report = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "analysis" / "卷源可靠性分级.md"
+    ensure_exists(reliability_report)
+    reliability_text = reliability_report.read_text(encoding="utf-8")
+    for banned in ("Seeded from", "Paper | Reliability", "unspecified"):
+        if banned in reliability_text:
+            raise AssertionError(f"analysis/卷源可靠性分级.md must not contain {banned!r}")
+    ensure_contains(reliability_report, "| 试卷 | 可靠性 |")
+    ensure_contains(reliability_report, "未标注")
+
+    # Phase B must catch Issue #51 defects (unescaped pipe / English residue) and pass after fix.
+    quality_spec = importlib.util.spec_from_file_location(
+        "exam_census_quality_issue51", STUDENT_OS_SCRIPTS / "exam_census_quality.py"
+    )
+    if quality_spec is None or quality_spec.loader is None:
+        raise RuntimeError("Unable to load exam_census_quality for Issue #51 gate check")
+    quality_mod = importlib.util.module_from_spec(quality_spec)
+    sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
+    try:
+        quality_spec.loader.exec_module(quality_mod)
+    finally:
+        if sys.path and sys.path[0] == str(STUDENT_OS_SCRIPTS):
+            sys.path.pop(0)
+    bad_analysis = "\n".join(
+        [
+            "---",
+            "type: exam-paper-reliability",
+            'course: "Linear Algebra"',
+            "status: draft",
+            "---",
+            "",
+            "# bad seed",
+            "",
+            "Seeded from optional annotation.",
+            "",
+            "| Paper | Reliability |",
+            "| --- | --- |",
+            "| demo | unspecified |",
+            "",
+        ]
+    )
+    bad_review = quality_mod.analysis_report_review("analysis/bad.md", bad_analysis)
+    if bad_review["verdict"] != "needs-revision" or "chinese_user_facing" not in bad_review["failed_checks"]:
+        raise AssertionError(f"Expected Phase B to fail English residue fixture, got: {bad_review}")
+    bad_table_doc = "\n".join(
+        [
+            "---",
+            "type: exam-type-analysis",
+            'course: "Linear Algebra"',
+            'exam_scope: "期中"',
+            'exam_type_id: "matrix-rank"',
+            'exam_type_name: "矩阵的秩"',
+            "rank: 1",
+            "paper_count: 1",
+            "must_know: true",
+            "quality: draft",
+            "status: active",
+            "---",
+            "",
+            "| 公式 | 说明 |",
+            "| --- | --- |",
+            "| $|A|$ | det |",
+            "",
+        ]
+    )
+    bad_table_review = quality_mod.structural_review("题型解析/bad-table.md", bad_table_doc)
+    if "markdown_tables" not in bad_table_review["failed_checks"]:
+        raise AssertionError(f"Expected Phase B to flag unescaped table pipe, got: {bad_table_review}")
+    fixed_table_doc = bad_table_doc.replace(
+        "| $|A|$ |",
+        f"| {exam_census_utils.md_table_cell('$|A|$')} |",
+    )
+    # structural_review still fails content checks; only assert markdown_tables passes after escape.
+    fixed_table_review = quality_mod.structural_review("题型解析/fixed-table.md", fixed_table_doc)
+    if not fixed_table_review["checks"]["markdown_tables"]["pass"]:
+        raise AssertionError(f"Expected escaped table to pass markdown_tables check: {fixed_table_review}")
+    fixed_analysis = "\n".join(
+        [
+            "---",
+            "type: exam-paper-reliability",
+            'course: "Linear Algebra"',
+            "status: draft",
+            "---",
+            "",
+            "# 卷源可靠性",
+            "",
+            "| 试卷 | 可靠性 |",
+            "| --- | --- |",
+            "| demo | 未标注 |",
+            "",
+        ]
+    )
+    fixed_analysis_review = quality_mod.analysis_report_review("analysis/fixed.md", fixed_analysis)
+    if fixed_analysis_review["verdict"] != "pass":
+        raise AssertionError(f"Expected fixed Chinese analysis report to pass, got: {fixed_analysis_review}")
 
     deep = json.loads(
         run_script(

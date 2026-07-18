@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- 修复 exam-census 生成产物的可读性与质量门禁问题：精简题型解析 frontmatter、统一字段、中文化分析报告，并避免表格中的行列式 pipe 破坏 Markdown 表格。
+
 ### Changed
 
 - 整理人类入口、agent 路由和维护记录文档，补充“一句话发给 agent”的安装/使用示例、安全提醒、当前能力状态与维护规则。

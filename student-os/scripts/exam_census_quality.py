@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from exam_census_utils import markdown_table_pipe_issues
+
 # Required top-level sections in filled type-analysis pages (content standard v2).
 REQUIRED_SECTION_HEADINGS = [
     "元信息",
@@ -25,11 +27,33 @@ ENTRY_LAYER_MARKERS = [
     "不会做时先写什么拿步骤分",
 ]
 
+# Canonical short frontmatter for 题型解析 pages (Issue #51).
+REQUIRED_TYPE_ANALYSIS_FRONTMATTER = [
+    "type",
+    "course",
+    "exam_scope",
+    "exam_type_id",
+    "exam_type_name",
+    "rank",
+    "paper_count",
+    "must_know",
+    "quality",
+    "status",
+]
+
 PLACEHOLDER_PATTERNS = (
     re.compile(r"\{\{[^}]+\}\}"),
     re.compile(r"_\(fill by review-coach\)_"),
     re.compile(r"(?i)\bTODO\b"),
     re.compile(r"(?i)\bTBD\b"),
+)
+
+ENGLISH_RESIDUE_PATTERNS = (
+    (re.compile(r"Seeded from"), "English residue: Seeded from"),
+    (re.compile(r"(?m)^\|\s*Paper\s*\|\s*Reliability\s*\|"), "English table header: Paper | Reliability"),
+    (re.compile(r"(?m)^\|\s*Paper\s*\|\s*Difficulty\s*\|"), "English table header: Paper | Difficulty"),
+    (re.compile(r"(?m)^\|\s*Paper\s*\|\s*Format\s*\|"), "English table header: Paper | Format"),
+    (re.compile(r"(?m)^\|\s*[^|\n]*\|\s*unspecified\s*\|"), "English value: unspecified"),
 )
 
 QUALITY_CHECK_LABELS = {
@@ -46,7 +70,48 @@ QUALITY_CHECK_LABELS = {
     "method_reference": "例题解析含【方法引用】",
     "verification_steps": "含验证相关步骤/小节",
     "no_placeholders": "无未替换模板占位符",
+    "frontmatter_shape": "题型解析 frontmatter 精简且字段齐全",
+    "markdown_tables": "Markdown 表格列数未被裸 | 破坏",
+    "chinese_user_facing": "面向用户文档无英文残留",
 }
+
+
+def extract_frontmatter_block(text: str) -> str:
+    if not text.startswith("---"):
+        return ""
+    match = re.match(r"^---\r?\n(.*?)\r?\n---\s*(?:\r?\n|$)", text, flags=re.S)
+    if not match:
+        return ""
+    return match.group(1)
+
+
+def frontmatter_field_names(frontmatter: str) -> set[str]:
+    names: set[str] = set()
+    for line in frontmatter.splitlines():
+        match = re.match(r"^([A-Za-z_][\w]*)\s*:", line)
+        if match:
+            names.add(match.group(1))
+    return names
+
+
+def frontmatter_shape_issues(text: str) -> list[str]:
+    issues: list[str] = []
+    block = extract_frontmatter_block(text)
+    if not block:
+        return ["missing YAML frontmatter"]
+    if re.search(r"(?m)^source_artifacts:\s*\[", block):
+        issues.append("frontmatter still has bulky source_artifacts array")
+    if re.search(r"(?m)^generated_fingerprint:\s*", block):
+        issues.append("frontmatter still has machine-only generated_fingerprint")
+    present = frontmatter_field_names(block)
+    missing = [name for name in REQUIRED_TYPE_ANALYSIS_FRONTMATTER if name not in present]
+    if missing:
+        issues.append("missing required frontmatter fields: " + ", ".join(missing))
+    return issues
+
+
+def english_residue_issues(text: str) -> list[str]:
+    return [label for pattern, label in ENGLISH_RESIDUE_PATTERNS if pattern.search(text)]
 
 
 def extract_headings(text: str) -> list[str]:
@@ -171,10 +236,17 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
         "\n".join(line for line in text.splitlines() if re.search(r"(验证|校验|验算|verify)", line, re.I)),
         min_chars=4,
     )
+    fm_issues = frontmatter_shape_issues(text)
+    table_issues = markdown_table_pipe_issues(text)
+    residue_issues = english_residue_issues(text)
 
     quick_body = section_body_after(text, "一眼先记住")
     symbol_body = section_body_after(text, "符号") + "\n" + section_body_after(text, "术语")
-    pitfall_body = section_body_after(text, "最容易混") or section_body_after(text, "Common Pitfalls")
+    pitfall_body = (
+        section_body_after(text, "最容易混")
+        or section_body_after(text, "Common Pitfalls")
+        or section_body_after(text, "易错点")
+    )
     formula_body = section_body_after(text, "最少必须记住的公式") or section_body_after(text, "本篇最少")
     decision_body = section_body_after(text, "方法选择") or section_body_after(text, "决策")
     if "├" in text and not decision_body:
@@ -225,9 +297,13 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
             else ["missing filled symbol/term table"],
         },
         "pitfalls": {
-            "pass": (("最容易混" in text) or ("Common Pitfalls" in text)) and has_substance(pitfall_body, min_chars=8),
+            "pass": (("最容易混" in text) or ("Common Pitfalls" in text) or ("易错点" in text))
+            and has_substance(pitfall_body, min_chars=8),
             "issues": []
-            if ((("最容易混" in text) or ("Common Pitfalls" in text)) and has_substance(pitfall_body, min_chars=8))
+            if (
+                (("最容易混" in text) or ("Common Pitfalls" in text) or ("易错点" in text))
+                and has_substance(pitfall_body, min_chars=8)
+            )
             else ["missing filled pitfalls block"],
         },
         "decision_tree": {
@@ -253,6 +329,42 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
         "no_placeholders": {
             "pass": not placeholder_issues,
             "issues": placeholder_issues,
+        },
+        "frontmatter_shape": {
+            "pass": not fm_issues,
+            "issues": fm_issues,
+        },
+        "markdown_tables": {
+            "pass": not table_issues,
+            "issues": table_issues,
+        },
+        "chinese_user_facing": {
+            "pass": not residue_issues,
+            "issues": residue_issues,
+        },
+    }
+    failed = [name for name, payload in checks.items() if not payload["pass"]]
+    verdict = "pass" if not failed else "needs-revision"
+    return {
+        "file": path_label,
+        "verdict": verdict,
+        "checks": checks,
+        "failed_checks": failed,
+    }
+
+
+def analysis_report_review(path_label: str, text: str) -> dict[str, Any]:
+    """Lighter gate for analysis/*.md user-facing reports (Issue #51)."""
+    table_issues = markdown_table_pipe_issues(text)
+    residue_issues = english_residue_issues(text)
+    checks = {
+        "markdown_tables": {
+            "pass": not table_issues,
+            "issues": table_issues,
+        },
+        "chinese_user_facing": {
+            "pass": not residue_issues,
+            "issues": residue_issues,
         },
     }
     failed = [name for name, payload in checks.items() if not payload["pass"]]

@@ -48,27 +48,30 @@ def extract_exam_type_id(text: str) -> str | None:
 
 
 def extract_sources(text: str) -> list[str]:
+    """Legacy helper: prefer annotations; only read short summary from frontmatter."""
     match = re.search(r"(?m)^source_artifacts:\s*(\[.*\])\s*$", text)
-    if not match:
-        return []
-    raw = match.group(1).strip()
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError:
-        # Legacy / mixed quoting: recover quoted segments first.
-        quoted = re.findall(r'"((?:\\.|[^"\\])*)"|\'((?:\\.|[^\'\\])*)\'', raw)
-        if quoted:
-            return [item[0] or item[1] for item in quoted]
-        inner = raw.strip("[]").strip()
-        if not inner:
+    if match:
+        raw = match.group(1).strip()
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            # Legacy / mixed quoting: recover quoted segments first.
+            quoted = re.findall(r'"((?:\\.|[^"\\])*)"|\'((?:\\.|[^\'\\])*)\'', raw)
+            if quoted:
+                return [item[0] or item[1] for item in quoted]
+            inner = raw.strip("[]").strip()
+            if not inner:
+                return []
+            return [part.strip().strip('"').strip("'") for part in inner.split(",") if part.strip()]
+        if isinstance(value, list):
+            return [str(item) for item in value]
+        if value in ("", None):
             return []
-        return [part.strip().strip('"').strip("'") for part in inner.split(",") if part.strip()]
-    if isinstance(value, list):
-        return [str(item) for item in value]
-    if value in ("", None):
-        return []
-    return [str(value)]
-
+        return [str(value)]
+    summary = re.search(r'(?m)^source_summary:\s*"?(.*?)"?\s*$', text)
+    if summary:
+        return [summary.group(1).strip()]
+    return []
 
 def papers_for_type(annotations: dict[str, dict], type_id: str) -> list[str]:
     paths: list[str] = []
@@ -118,6 +121,9 @@ def main() -> int:
                 "entry_layer_markers": ENTRY_LAYER_MARKERS,
                 "instructions": [
                     "Fill this page to content-standard v2 (see references/exam-census-quality.md).",
+                    "题型解析面向中文学生：正文与表格中文优先；表格中行列式写 $\\lvert A\\rvert$，勿裸写 |A|。",
+                    "frontmatter 只保留短元数据（含 quality），不要写入 source_artifacts 长路径数组或 generated_fingerprint。",
+                    "低频题型若证据不足：写「证据不足，需人工补充」，并设 quality: needs-review；不要留空模板段。",
                     "Answer the zero-foundation entry four questions before deeper theory.",
                     "Assign every annotated past-paper instance of this type to 例题精讲 or 自测题.",
                     "Use blockquote patterns for badge / 关键 / 注意 / 技巧总结 / 填空式答题模板.",
