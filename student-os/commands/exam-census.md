@@ -39,10 +39,12 @@ python student-os/scripts/install_exam_census_adapters.py /path/to/vault \
 
 | Platform | After adapters install | How to run |
 | --- | --- | --- |
-| Claude Code | `.claude/workflows/exam-census.js` | `/exam-census` with args `{vault, course, examScope, …}` |
+| Claude Code | `.claude/skills/exam-census/SKILL.md` + `.claude/commands/exam-census.md` | `/exam-census vault="…" course="…" examScope="…"` |
 | Cursor / Codex | `.cursor/rules/exam-census.mdc` | Ask for exam-census or `@exam-census` |
 | OpenCode | `.opencode/exam-census.md` | Ask to run exam-census with vault/course/scope |
 | GitHub Copilot | `.github/copilot-exam-census.md` | Merge into `copilot-instructions.md` if desired |
+
+Claude 端默认使用 skill/command 入口；`.claude/workflows/exam-census.js` 仅作为实验性适配（需 `--include-experimental-claude-workflow`），不作为推荐入口。不要用 `Workflow({name})` / `Workflow({scriptPath})` 加载自定义 workflow。
 
 If adapters are not installed, follow this command’s stage checklist and call the Python scripts directly (same order).
 

@@ -2506,19 +2506,91 @@ def exercise_exam_census(repo: Path) -> None:
             "--json",
         )
     )
-    if adapter_payload.get("installed") != 4:
-        raise AssertionError(f"Expected 4 adapters installed, got: {adapter_payload}")
+    # Default Claude installs skill + command (2 files); plus cursor/opencode/github = 5.
+    if adapter_payload.get("installed") != 5:
+        raise AssertionError(f"Expected 5 adapter files installed, got: {adapter_payload}")
+    claude_skill = repo / ".claude" / "skills" / "exam-census" / "SKILL.md"
+    claude_cmd = repo / ".claude" / "commands" / "exam-census.md"
     claude_wf = repo / ".claude" / "workflows" / "exam-census.js"
     cursor_rule = repo / ".cursor" / "rules" / "exam-census.mdc"
-    ensure_exists(claude_wf)
+    ensure_exists(claude_skill)
+    ensure_exists(claude_cmd)
     ensure_exists(cursor_rule)
     ensure_exists(repo / ".opencode" / "exam-census.md")
     ensure_exists(repo / ".github" / "copilot-exam-census.md")
-    ensure_contains(claude_wf, "name: 'exam-census'")
-    ensure_contains(claude_wf, "export const meta")
+    if claude_wf.exists():
+        raise AssertionError("Default Claude install must not copy experimental workflow JS")
+    ensure_contains(claude_skill, "name: exam-census")
+    ensure_contains(claude_skill, "/exam-census")
+    ensure_contains(claude_skill, "不要")
+    ensure_contains(claude_cmd, "/exam-census")
+    ensure_contains(claude_cmd, "Workflow({name")
     ensure_contains(cursor_rule, "alwaysApply: false")
     ensure_contains(cursor_rule, "exam-census")
-    # Second install without --force should skip.
+
+    claude_result = next(
+        item for item in adapter_payload["results"] if item["platform"] == "claude"
+    )
+    claude_dests = {Path(d).name for d in claude_result.get("destinations", [])}
+    if claude_dests != {"SKILL.md", "exam-census.md"}:
+        raise AssertionError(
+            f"Expected Claude destinations SKILL.md + exam-census.md, got: {claude_result}"
+        )
+    if len(claude_result.get("files", [])) != 2:
+        raise AssertionError(f"Expected 2 Claude file results, got: {claude_result}")
+
+    student_os = ROOT / "student-os"
+
+    # Docs must not recommend Workflow({name: "exam-census"}) as the primary entry.
+    for doc_rel in (
+        Path("commands") / "exam-census.md",
+        Path("references") / "exam-census-workflow.md",
+        Path("integrations") / "claude" / "skills" / "exam-census" / "SKILL.md",
+        Path("integrations") / "claude" / "commands" / "exam-census.md",
+    ):
+        doc_text = (student_os / doc_rel).read_text(encoding="utf-8")
+        if 'Workflow({name: "exam-census"})' in doc_text and "不要" not in doc_text:
+            # Mentions are only OK when discouraging the Workflow tool.
+            raise AssertionError(
+                f"{doc_rel} mentions Workflow({{name}}) without discouraging it"
+            )
+        recommend_patterns = (
+            "推荐使用 Workflow({name",
+            'use Workflow({name: "exam-census"})',
+            "Invoke via Workflow({name",
+        )
+        for pattern in recommend_patterns:
+            if pattern in doc_text:
+                raise AssertionError(f"{doc_rel} still recommends Workflow name entry: {pattern}")
+
+    # Claude integration templates must not contain dangerous control characters.
+    adapter_spec = importlib.util.spec_from_file_location(
+        "install_exam_census_adapters_smoke",
+        STUDENT_OS_SCRIPTS / "install_exam_census_adapters.py",
+    )
+    if adapter_spec is None or adapter_spec.loader is None:
+        raise RuntimeError("Unable to load install_exam_census_adapters for control-char scan")
+    adapter_mod = importlib.util.module_from_spec(adapter_spec)
+    sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
+    try:
+        adapter_spec.loader.exec_module(adapter_mod)
+    finally:
+        if sys.path and sys.path[0] == str(STUDENT_OS_SCRIPTS):
+            sys.path.pop(0)
+
+    claude_templates = [
+        student_os / "integrations" / "claude" / "skills" / "exam-census" / "SKILL.md",
+        student_os / "integrations" / "claude" / "commands" / "exam-census.md",
+        student_os / "integrations" / "claude" / "workflows" / "exam-census.js",
+    ]
+    for template in claude_templates:
+        hits = adapter_mod.scan_integration_template(template)
+        if hits:
+            raise AssertionError(
+                f"Dangerous control characters in {template}: {hits[:5]}"
+            )
+
+    # Second install without --force should skip both Claude files.
     skip_payload = json.loads(
         run_script(
             "install_exam_census_adapters.py",
@@ -2528,8 +2600,45 @@ def exercise_exam_census(repo: Path) -> None:
             "--json",
         )
     )
-    if skip_payload.get("skipped") != 1:
+    if skip_payload.get("skipped") != 2 or skip_payload.get("installed") != 0:
         raise AssertionError(f"Expected claude adapter skip on reinstall, got: {skip_payload}")
+
+    # --force backs up existing skill/command files.
+    force_payload = json.loads(
+        run_script(
+            "install_exam_census_adapters.py",
+            str(repo),
+            "--platforms",
+            "claude",
+            "--force",
+            "--json",
+        )
+    )
+    if force_payload.get("installed") != 2:
+        raise AssertionError(f"Expected force reinstall of 2 Claude files, got: {force_payload}")
+    ensure_exists(claude_skill.with_suffix(claude_skill.suffix + ".bak"))
+    ensure_exists(claude_cmd.with_suffix(claude_cmd.suffix + ".bak"))
+
+    # Experimental workflow JS only with explicit flag.
+    exp_payload = json.loads(
+        run_script(
+            "install_exam_census_adapters.py",
+            str(repo),
+            "--platforms",
+            "claude",
+            "--include-experimental-claude-workflow",
+            "--json",
+        )
+    )
+    # skill+command skipped, workflow newly installed → installed=1, skipped=2
+    if exp_payload.get("installed") != 1 or exp_payload.get("skipped") != 2:
+        raise AssertionError(
+            f"Expected experimental workflow install only, got: {exp_payload}"
+        )
+    ensure_exists(claude_wf)
+    ensure_contains(claude_wf, "name: 'exam-census'")
+    ensure_contains(claude_wf, "export const meta")
+    ensure_contains(claude_wf, "EXPERIMENTAL")
 
     # Symlink/junction escape: pre-planted .claude pointing outside the vault must be refused.
     outside = repo.parent / "adapter-escape-target"
@@ -2560,18 +2669,26 @@ def exercise_exam_census(repo: Path) -> None:
         "--json",
     )
     symlink_payload = json.loads(symlink_out)
-    if symlink_payload.get("errors") != 1:
+    if symlink_payload.get("errors", 0) < 1:
         raise AssertionError(
             f"Expected symlink destination refusal, got: {symlink_payload}"
         )
-    claude_result = symlink_payload["results"][0]
-    err_text = str(claude_result.get("error", "")).lower()
-    if claude_result.get("status") != "error" or (
-        "symlink" not in err_text
-        and "outside vault" not in err_text
-        and "escaping vault" not in err_text
+    symlink_claude = next(
+        item for item in symlink_payload["results"] if item["platform"] == "claude"
+    )
+    if symlink_claude.get("status") != "error":
+        raise AssertionError(f"Expected claude platform error, got: {symlink_claude}")
+    err_texts = " ".join(
+        str(file_item.get("error", "")).lower() for file_item in symlink_claude["files"]
+    )
+    if (
+        "symlink" not in err_texts
+        and "outside vault" not in err_texts
+        and "escaping vault" not in err_texts
     ):
-        raise AssertionError(f"Expected symlink/escape error for claude adapter, got: {claude_result}")
+        raise AssertionError(
+            f"Expected symlink/escape error for claude adapter, got: {symlink_claude}"
+        )
     if any(outside.iterdir()):
         raise AssertionError("Installer must not write through a symlinked .claude directory")
 
