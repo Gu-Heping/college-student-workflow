@@ -23,7 +23,7 @@ argument-hint: "vault=<path> course=<course> examScope=<scope> [papersDir=<path>
 | `course` | 是 | 课程 slug 或 `courses/` 下路径 |
 | `examScope` | 是 | 如 `期中` / `midterm` |
 | `semester` | 否 | 学期 slug |
-| `papersDir` | 否 | 试卷目录（相对 vault）；默认由脚本在课程 `references/` 下解析 |
+| `papersDir` | 否 | 试卷目录（相对 vault）；**仅**传给 `init_exam_census.py --papers-dir`，后续阶段不要传 |
 | `skillScripts` | 否 | `student-os/scripts` 绝对路径提示 |
 
 缺少 `vault` / `course` / `examScope` 时：**先询问，不要猜测，不要默认 cwd**。
@@ -42,13 +42,15 @@ argument-hint: "vault=<path> course=<course> examScope=<scope> [papersDir=<path>
 
 下文用 `python "$SCRIPTS/<name>.py"`；Windows 上把路径换成实际绝对路径即可。
 
-通用 flag（按需追加）：
+先拼好公共参数（**不要**把 `--papers-dir` 加进公共参数——只有 Init 支持它）：
 
-```text
-"$vault" --course "$course" --exam-scope "$examScope"
+```bash
+BASE=("$vault" --course "$course" --exam-scope "$examScope")
+# 若有 semester：
+BASE+=(--semester "$semester")
 ```
 
-若有 `semester`：加 `--semester "$semester"`。若有 `papersDir`：加 `--papers-dir "$papersDir"`。
+后续阶段一律：`python "$SCRIPTS/<script>.py" "${BASE[@]}" ...`
 
 ## 安全边界
 
@@ -57,6 +59,7 @@ argument-hint: "vault=<path> course=<course> examScope=<scope> [papersDir=<path>
 - **不自动 commit**。
 - **不删除**原始试卷 PDF / 源文件。
 - **不覆盖**已有 `annotations/` 或 `taxonomy.yaml`，除非用户明确允许。
+- 导入/补 frontmatter 的路径必须先解析为 **vault 内绝对路径**；拒绝 vault 外路径，禁止用 cwd / skill 源码仓当写入目标。
 - 每阶段开始前告知产物路径；阶段失败则停止并报告，勿跳过 validate。
 
 ## 产物目录
@@ -86,38 +89,41 @@ courses/<course-key>/reviews/<exam-scope-key>/
 ### 0. Prepare
 
 1. 在 `vault` 检查 Git。
-2. 若缺 `.pdf.md` sidecar 或质量差：运行
+2. 若缺 `.pdf.md` sidecar 或质量差：先把试卷路径解析为 vault 内绝对路径（相对路径相对 `vault` 展开），确认落在 vault 内后再运行：
 
 ```bash
-python "$SCRIPTS/materials_convert.py" <papers-or-dir> --repair --method local
+# papers_abs 必须是 vault 下的绝对路径
+python "$SCRIPTS/materials_convert.py" "$papers_abs" --repair --method local
 ```
 
 （或用户指定的 method；有 MinerU token 时可用 auto/api。）
 
 ### 1. Frontmatter
 
-若 sidecar 缺 YAML frontmatter：
+若 sidecar 缺 YAML frontmatter：同样先解析为 vault 内绝对路径，再：
 
 ```bash
-python "$SCRIPTS/ensure_frontmatter.py" <path> --dry-run
+python "$SCRIPTS/ensure_frontmatter.py" "$sidecar_abs" --dry-run
 # 用户确认后：
-python "$SCRIPTS/ensure_frontmatter.py" <path> --apply
+python "$SCRIPTS/ensure_frontmatter.py" "$sidecar_abs" --apply
 ```
 
 ### 2. Init
 
 ```bash
-python "$SCRIPTS/init_exam_census.py" "$vault" --course "$course" --exam-scope "$examScope"
+python "$SCRIPTS/init_exam_census.py" "${BASE[@]}"
+# 仅当用户提供了 papersDir 时追加（只有本脚本支持）：
+#   --papers-dir "$papersDir"
 ```
 
-确认出现 `manifest.json` 与 `taxonomy.yaml` stub。
+确认出现 `manifest.json` 与 `taxonomy.yaml` stub。后续阶段**不要**再传 `--papers-dir`。
 
 ### 3. Taxonomy
 
-阅读 2–3 份代表卷 sidecar，起草 / 修订 `taxonomy.yaml`：
-
-- `id` 在已有 annotations 后只增不改语义
-- 显示名用课程语言（中文优先）
+1. 定位 state 下的 `taxonomy.yaml`。
+2. 若文件**已存在**且含非空 `types`：先报告路径与摘要，**暂停并询问**用户是否允许修订；未确认前不改。
+3. 若仅是 init 生成的空 stub / 不存在：可起草。
+4. 阅读 2–3 份代表卷 sidecar 后编写；已有 `id` 在 annotations 存在后只增不改语义；显示名中文优先。
 
 ### 4. Annotate
 
@@ -139,8 +145,7 @@ python "$SCRIPTS/init_exam_census.py" "$vault" --course "$course" --exam-scope "
 ### 5. Aggregate
 
 ```bash
-python "$SCRIPTS/build_exam_type_stats.py" "$vault" \
-  --course "$course" --exam-scope "$examScope" --validate --overwrite
+python "$SCRIPTS/build_exam_type_stats.py" "${BASE[@]}" --validate --overwrite
 ```
 
 非零退出 → **停止**。成功则得到 `题型频率统计.md` 与 `题型解析/` 骨架。
@@ -148,7 +153,7 @@ python "$SCRIPTS/build_exam_type_stats.py" "$vault" \
 ### 6. Phase A — Fill
 
 ```bash
-python "$SCRIPTS/fill_type_analysis.py" "$vault" --course "$course" --exam-scope "$examScope"
+python "$SCRIPTS/fill_type_analysis.py" "${BASE[@]}"
 ```
 
 按 `fill-queue.json` 填写每页 `题型解析/`（可并行，一页一 agent）。质量标准见下方「质量要求」。
@@ -156,7 +161,7 @@ python "$SCRIPTS/fill_type_analysis.py" "$vault" --course "$course" --exam-scope
 ### 7. Phase B — Quality gate
 
 ```bash
-python "$SCRIPTS/review_type_analysis.py" "$vault" --course "$course" --exam-scope "$examScope"
+python "$SCRIPTS/review_type_analysis.py" "${BASE[@]}"
 ```
 
 只处理 `type_needs_revision`；修订 ≤2 轮，否则 `quality: needs-review`。**不要**在 fill worker 内跑此脚本。
@@ -164,17 +169,15 @@ python "$SCRIPTS/review_type_analysis.py" "$vault" --course "$course" --exam-sco
 ### 8. Phase C — Multi-dim
 
 ```bash
-python "$SCRIPTS/build_multi_dim_stats.py" "$vault" \
-  --course "$course" --exam-scope "$examScope" --overwrite
+python "$SCRIPTS/build_multi_dim_stats.py" "${BASE[@]}" --overwrite
 ```
 
-再跑 `review_type_analysis.py` 处理 `analysis_needs_revision`；修订后**再跑一次**确认清空。仍失败则停止，勿进入 D。
+再跑 `review_type_analysis.py "${BASE[@]}"` 处理 `analysis_needs_revision`；修订后**再跑一次**确认清空。仍失败则停止，勿进入 D。
 
 ### 9. Phase D — Deep-dive
 
 ```bash
-python "$SCRIPTS/init_exam_deep_dive.py" "$vault" \
-  --course "$course" --exam-scope "$examScope" --limit 2
+python "$SCRIPTS/init_exam_deep_dive.py" "${BASE[@]}" --limit 2
 ```
 
 填写 `真题精析/` 骨架。
@@ -193,8 +196,7 @@ python "$SCRIPTS/init_exam_deep_dive.py" "$vault" \
 ### 11. Phase E — Cross-val
 
 ```bash
-python "$SCRIPTS/cross_validate_exam_census.py" "$vault" \
-  --course "$course" --exam-scope "$examScope"
+python "$SCRIPTS/cross_validate_exam_census.py" "${BASE[@]}"
 ```
 
 ## 质量要求

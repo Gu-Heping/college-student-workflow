@@ -2525,6 +2525,9 @@ def exercise_exam_census(repo: Path) -> None:
     ensure_contains(claude_skill, "init_exam_census.py")
     ensure_contains(claude_skill, "build_exam_type_stats.py")
     ensure_contains(claude_skill, "Runbook")
+    ensure_contains(claude_skill, "--papers-dir")
+    ensure_contains(claude_skill, "只有本脚本支持")
+    ensure_contains(claude_skill, "暂停并询问")
     skill_text = claude_skill.read_text(encoding="utf-8")
     if "disable-model-invocation: true" in skill_text:
         raise AssertionError(
@@ -2567,8 +2570,12 @@ def exercise_exam_census(repo: Path) -> None:
             raise AssertionError(
                 f"{doc_rel} must not mention Workflow(…) (Issue #59)"
             )
-        if "Invoke:" in doc_text and "Workflow" in doc_text:
-            raise AssertionError(f"{doc_rel} must not instruct Invoke Workflow")
+        for line in doc_text.splitlines():
+            lowered = line.lower()
+            if "invoke:" in lowered and "workflow" in lowered:
+                raise AssertionError(
+                    f"{doc_rel} must not instruct Invoke Workflow on same line: {line!r}"
+                )
 
     # Broader docs must not recommend Workflow name/scriptPath as the primary entry.
     for doc_rel in (
@@ -2581,6 +2588,11 @@ def exercise_exam_census(repo: Path) -> None:
             'use Workflow({name: "exam-census"})',
             "Invoke via Workflow({name",
             "Invoke: Workflow(",
+            "Workflow({name:",
+            "Workflow({ name:",
+            "Workflow({scriptPath:",
+            "Workflow({ scriptPath:",
+            'Workflow({scriptPath: ".claude/workflows/exam-census.js"})',
         )
         for pattern in recommend_patterns:
             if pattern in doc_text:
