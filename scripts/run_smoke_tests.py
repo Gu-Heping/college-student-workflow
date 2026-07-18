@@ -2603,7 +2603,9 @@ def exercise_exam_census(repo: Path) -> None:
     if skip_payload.get("skipped") != 2 or skip_payload.get("installed") != 0:
         raise AssertionError(f"Expected claude adapter skip on reinstall, got: {skip_payload}")
 
-    # --force backs up existing skill/command files.
+    # --force backs up existing skill/command files (verify backup content).
+    claude_skill.write_text("USER-SKILL-CONTENT\n", encoding="utf-8")
+    claude_cmd.write_text("USER-COMMAND-CONTENT\n", encoding="utf-8")
     force_payload = json.loads(
         run_script(
             "install_exam_census_adapters.py",
@@ -2616,8 +2618,20 @@ def exercise_exam_census(repo: Path) -> None:
     )
     if force_payload.get("installed") != 2:
         raise AssertionError(f"Expected force reinstall of 2 Claude files, got: {force_payload}")
-    ensure_exists(claude_skill.with_suffix(claude_skill.suffix + ".bak"))
-    ensure_exists(claude_cmd.with_suffix(claude_cmd.suffix + ".bak"))
+    if "git_baseline" not in force_payload:
+        raise AssertionError(f"Expected git_baseline in installer JSON, got: {force_payload}")
+    skill_bak = claude_skill.with_suffix(claude_skill.suffix + ".bak")
+    cmd_bak = claude_cmd.with_suffix(claude_cmd.suffix + ".bak")
+    ensure_exists(skill_bak)
+    ensure_exists(cmd_bak)
+    ensure_contains(skill_bak, "USER-SKILL-CONTENT")
+    ensure_contains(cmd_bak, "USER-COMMAND-CONTENT")
+    ensure_contains(claude_skill, "name: exam-census")
+
+    if not adapter_mod.find_dangerous_control_chars("safe\rhidden"):
+        raise AssertionError("Bare CR must be reported as dangerous")
+    if adapter_mod.find_dangerous_control_chars("safe\r\nok"):
+        raise AssertionError("CRLF-normalized text must not report bare CR")
 
     # Experimental workflow JS only with explicit flag.
     exp_payload = json.loads(
@@ -2639,6 +2653,24 @@ def exercise_exam_census(repo: Path) -> None:
     ensure_contains(claude_wf, "name: 'exam-census'")
     ensure_contains(claude_wf, "export const meta")
     ensure_contains(claude_wf, "EXPERIMENTAL")
+
+    # Default reinstall without experimental flag must retire legacy workflow JS.
+    retire_payload = json.loads(
+        run_script(
+            "install_exam_census_adapters.py",
+            str(repo),
+            "--platforms",
+            "claude",
+            "--json",
+        )
+    )
+    if retire_payload.get("retired") != 1:
+        raise AssertionError(
+            f"Expected legacy Claude workflow retirement, got: {retire_payload}"
+        )
+    if claude_wf.exists():
+        raise AssertionError("Legacy workflow JS must be retired after default reinstall")
+    ensure_exists(claude_wf.with_suffix(claude_wf.suffix + ".bak"))
 
     # Symlink/junction escape: pre-planted .claude pointing outside the vault must be refused.
     outside = repo.parent / "adapter-escape-target"

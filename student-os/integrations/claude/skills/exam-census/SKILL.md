@@ -66,7 +66,7 @@ disable-model-invocation: true
 6. **Aggregate** — `build_exam_type_stats.py --validate --overwrite`（非零退出则停止）
 7. **Phase A** — `fill_type_analysis.py`，再按 `exam-census-quality.md` 填写 `题型解析/`
 8. **Phase B** — `review_type_analysis.py`（全局一次；修订 ≤2 轮或标 `quality: needs-review`）
-9. **Phase C** — `build_multi_dim_stats.py --overwrite`，再跑质量门禁处理 `analysis_needs_revision`
+9. **Phase C** — `build_multi_dim_stats.py --overwrite`，再跑质量门禁处理 `analysis_needs_revision`；修订后**再跑一次** `review_type_analysis.py` 确认清空，若仍失败则停止，勿进入 Phase D
 10. **Phase D** — `init_exam_deep_dive.py`（代表卷精读骨架）
 11. **Prep pack** — 备考指南 / 公式总卡 / 答题模板 / 考前清单（含到 `题型解析/` 的真实链接）
 12. **Phase E** — `cross_validate_exam_census.py`

@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
+import subprocess
+import tempfile
 import unicodedata
 from pathlib import Path
 
@@ -12,9 +15,9 @@ from course_layout import configure_stdout_utf8
 
 INTEGRATIONS_ROOT = Path(__file__).resolve().parents[1] / "integrations"
 
-# Allowed ASCII controls in templates: TAB, LF. CR is tolerated when reading
-# Windows CRLF, but repository templates should be LF-only.
-_ALLOWED_CONTROLS = frozenset({"\t", "\n", "\r"})
+# Allowed ASCII controls in templates after CRLF normalization: TAB, LF only.
+# Bare CR is rejected (can hide text in terminals / approval UIs).
+_ALLOWED_CONTROLS = frozenset({"\t", "\n"})
 
 # Bidirectional / zero-width / BOM-like characters that can hide in approval UIs.
 _DANGEROUS_NAMED = frozenset(
@@ -38,6 +41,8 @@ _DANGEROUS_NAMED = frozenset(
     }
 )
 
+LEGACY_CLAUDE_WORKFLOW_REL = Path(".claude") / "workflows" / "exam-census.js"
+
 
 PLATFORM_MAP: dict[str, dict[str, list[dict[str, Path]]]] = {
     "claude": {
@@ -58,7 +63,7 @@ PLATFORM_MAP: dict[str, dict[str, list[dict[str, Path]]]] = {
         "experimental_files": [
             {
                 "source": INTEGRATIONS_ROOT / "claude" / "workflows" / "exam-census.js",
-                "dest_rel": Path(".claude") / "workflows" / "exam-census.js",
+                "dest_rel": LEGACY_CLAUDE_WORKFLOW_REL,
             },
         ],
     },
@@ -204,9 +209,14 @@ def is_dangerous_control_char(ch: str) -> bool:
 
 
 def find_dangerous_control_chars(text: str) -> list[dict[str, object]]:
-    """Scan text for dangerous control characters. Returns list of hit dicts."""
+    """Scan text for dangerous control characters.
+
+    CRLF pairs are normalized to LF first so Windows line endings do not trip
+    the scanner; any remaining bare CR is reported.
+    """
+    normalized = text.replace("\r\n", "\n")
     hits: list[dict[str, object]] = []
-    for index, ch in enumerate(text):
+    for index, ch in enumerate(normalized):
         if is_dangerous_control_char(ch):
             hits.append(
                 {
@@ -235,6 +245,107 @@ def platform_file_specs(
     return files
 
 
+def collect_planned_destinations(
+    vault: Path,
+    platforms: list[str],
+    *,
+    include_experimental_claude_workflow: bool,
+) -> list[str]:
+    planned: list[str] = []
+    for platform in platforms:
+        for file_spec in platform_file_specs(
+            platform,
+            include_experimental_claude_workflow=include_experimental_claude_workflow,
+        ):
+            planned.append(str(vault / file_spec["dest_rel"]))
+        if platform == "claude" and not include_experimental_claude_workflow:
+            planned.append(str(vault / LEGACY_CLAUDE_WORKFLOW_REL))
+    # Preserve order, drop duplicates.
+    seen: set[str] = set()
+    unique: list[str] = []
+    for path in planned:
+        if path not in seen:
+            seen.add(path)
+            unique.append(path)
+    return unique
+
+
+def collect_git_baseline(vault: Path, planned_destinations: list[str]) -> dict[str, object]:
+    """Report pre-existing dirty paths that overlap planned adapter writes."""
+    baseline: dict[str, object] = {
+        "is_git_repo": False,
+        "planned_destinations": planned_destinations,
+        "preexisting_dirty": [],
+        "note": "",
+    }
+    git_dir = vault / ".git"
+    if not git_dir.exists():
+        baseline["note"] = "vault is not a git repository; skipped dirty-worktree check"
+        return baseline
+
+    baseline["is_git_repo"] = True
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "-uall", "--", "."],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=vault,
+        )
+    except OSError as exc:
+        baseline["note"] = f"git status unavailable: {exc}"
+        return baseline
+
+    if result.returncode != 0:
+        baseline["note"] = (
+            f"git status failed (exit {result.returncode}): "
+            f"{(result.stderr or result.stdout).strip()}"
+        )
+        return baseline
+
+    dirty_relpaths: set[str] = set()
+    for line in result.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        path_part = line[3:]
+        if " -> " in path_part:
+            path_part = path_part.split(" -> ", 1)[1]
+        dirty_relpaths.add(path_part.replace("\\", "/"))
+
+    planned_rel = {
+        str(Path(path).relative_to(vault)).replace("\\", "/")
+        for path in planned_destinations
+    }
+    overlap = sorted(path for path in dirty_relpaths if path in planned_rel)
+    baseline["preexisting_dirty"] = overlap
+    if overlap:
+        baseline["note"] = (
+            "planned adapter destinations already dirty in git; "
+            "installer changes are distinct from these pre-existing paths"
+        )
+    else:
+        baseline["note"] = "no pre-existing dirty overlap with planned adapter destinations"
+    return baseline
+
+
+def atomic_copy2(source: Path, dest: Path) -> None:
+    """Copy source to dest via a same-directory temp file, then os.replace."""
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{dest.name}.",
+        suffix=".tmp",
+        dir=str(dest.parent),
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        shutil.copy2(source, tmp_path)
+        os.replace(tmp_path, dest)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
 def install_file(
     vault: Path,
     platform: str,
@@ -261,34 +372,69 @@ def install_file(
     except SystemExit as exc:
         return {**base, "status": "error", "error": str(exc)}
 
-    dest.parent.mkdir(parents=True, exist_ok=True)
     try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
         assert_safe_destination(vault, dest)
+
+        if dest.exists() and not force:
+            return {
+                **base,
+                "status": "skipped",
+                "reason": "exists (pass --force to overwrite)",
+            }
+
+        backup = ""
+        if dest.exists() and force:
+            backup_path = dest.with_suffix(dest.suffix + ".bak")
+            assert_safe_destination(vault, backup_path)
+            atomic_copy2(dest, backup_path)
+            backup = str(backup_path)
+
+        atomic_copy2(source, dest)
     except SystemExit as exc:
         return {**base, "status": "error", "error": str(exc)}
+    except OSError as exc:
+        return {**base, "status": "error", "error": f"filesystem error: {exc}"}
 
-    if dest.exists() and not force:
-        return {
-            **base,
-            "status": "skipped",
-            "reason": "exists (pass --force to overwrite)",
-        }
-
-    backup = ""
-    if dest.exists() and force:
-        backup_path = dest.with_suffix(dest.suffix + ".bak")
-        try:
-            assert_safe_destination(vault, backup_path)
-        except SystemExit as exc:
-            return {**base, "status": "error", "error": str(exc)}
-        shutil.copy2(dest, backup_path)
-        backup = str(backup_path)
-
-    shutil.copy2(source, dest)
     return {
         **base,
         "status": "installed",
         "backup": backup,
+    }
+
+
+def retire_legacy_claude_workflow(vault: Path) -> dict[str, object] | None:
+    """Back up and remove a previously default-installed workflow JS file."""
+    dest = vault / LEGACY_CLAUDE_WORKFLOW_REL
+    base: dict[str, object] = {
+        "platform": "claude",
+        "source": "",
+        "destination": str(dest),
+        "action": "retire_legacy_workflow",
+    }
+    if not dest.exists() and not dest.is_symlink():
+        return None
+
+    try:
+        assert_safe_destination(vault, dest)
+        backup_path = dest.with_suffix(dest.suffix + ".bak")
+        assert_safe_destination(vault, backup_path)
+        atomic_copy2(dest, backup_path)
+        dest.unlink()
+    except SystemExit as exc:
+        return {**base, "status": "error", "error": str(exc)}
+    except OSError as exc:
+        return {**base, "status": "error", "error": f"filesystem error: {exc}"}
+
+    return {
+        **base,
+        "status": "retired",
+        "backup": str(backup_path),
+        "reason": (
+            "legacy .claude/workflows/exam-census.js is no longer installed by "
+            "default; prefer /exam-census skill/command "
+            "(pass --include-experimental-claude-workflow to keep/install it)"
+        ),
     }
 
 
@@ -306,10 +452,16 @@ def install_platform(
     file_results = [
         install_file(vault, platform, file_spec, force=force) for file_spec in file_specs
     ]
+
+    if platform == "claude" and not include_experimental_claude_workflow:
+        retired = retire_legacy_claude_workflow(vault)
+        if retired is not None:
+            file_results.append(retired)
+
     statuses = [str(item["status"]) for item in file_results]
     if any(status == "error" for status in statuses):
         aggregate = "error"
-    elif any(status == "installed" for status in statuses):
+    elif any(status in {"installed", "retired"} for status in statuses):
         aggregate = "installed"
     elif statuses and all(status == "skipped" for status in statuses):
         aggregate = "skipped"
@@ -334,6 +486,13 @@ def main() -> int:
         raise SystemExit(f"Refusing symlinked vault root: {vault}")
 
     platforms = parse_platforms(args.platforms)
+    planned = collect_planned_destinations(
+        vault,
+        platforms,
+        include_experimental_claude_workflow=args.include_experimental_claude_workflow,
+    )
+    git_baseline = collect_git_baseline(vault, planned)
+
     results = [
         install_platform(
             vault,
@@ -346,9 +505,11 @@ def main() -> int:
     file_items = [file_item for item in results for file_item in item["files"]]
     payload = {
         "vault": str(vault),
+        "git_baseline": git_baseline,
         "results": results,
         "installed": sum(1 for item in file_items if item["status"] == "installed"),
         "skipped": sum(1 for item in file_items if item["status"] == "skipped"),
+        "retired": sum(1 for item in file_items if item["status"] == "retired"),
         "errors": sum(1 for item in file_items if item["status"] == "error"),
         "include_experimental_claude_workflow": bool(
             args.include_experimental_claude_workflow
@@ -359,17 +520,30 @@ def main() -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         print(f"Vault: {vault}")
+        if git_baseline.get("preexisting_dirty"):
+            print("  preexisting dirty (planned destinations):")
+            for path in git_baseline["preexisting_dirty"]:
+                print(f"    - {path}")
+        elif git_baseline.get("note"):
+            print(f"  git: {git_baseline['note']}")
         for item in results:
             print(f"  [{item['status']}] {item['platform']}")
             for file_item in item["files"]:
                 status = file_item["status"]
-                dest = file_item.get("destination") or file_item.get("error")
-                print(f"    [{status}] {dest}")
+                detail = (
+                    file_item.get("error")
+                    if status == "error"
+                    else file_item.get("destination")
+                )
+                print(f"    [{status}] {detail}")
                 if file_item.get("backup"):
                     print(f"      backup: {file_item['backup']}")
+                if file_item.get("reason") and status == "retired":
+                    print(f"      reason: {file_item['reason']}")
         print(
             f"Summary: installed={payload['installed']} "
-            f"skipped={payload['skipped']} errors={payload['errors']}"
+            f"skipped={payload['skipped']} retired={payload['retired']} "
+            f"errors={payload['errors']}"
         )
 
     return 1 if payload["errors"] else 0
