@@ -1379,6 +1379,655 @@ def exercise_import_workflows(repo: Path) -> None:
     binary_path.unlink()
 
 
+def exercise_exam_census(repo: Path) -> None:
+    exams_dir = repo / "courses" / "linear-algebra" / "references" / "exams"
+    exams_dir.mkdir(parents=True, exist_ok=True)
+
+    papers = {
+        "2019-期中-A.pdf.md": "\n".join(
+            [
+                "---",
+                "type: pdf-import-note",
+                'course: "Linear Algebra"',
+                "status: active",
+                "tags: [import, pdf, exam]",
+                "---",
+                "",
+                "# 2019 Midterm A",
+                "",
+                "1. Compute the rank of a matrix.",
+                "2. Diagonalize a symmetric matrix via eigenvalues.",
+                "",
+            ]
+        ),
+        "2020-期中-B.pdf.md": "\n".join(
+            [
+                "---",
+                "type: pdf-import-note",
+                'course: "Linear Algebra"',
+                "status: active",
+                "tags: [import, pdf, exam]",
+                "---",
+                "",
+                "# 2020 Midterm B",
+                "",
+                "1. Find the rank and nullity.",
+                "2. Solve a linear system with Gaussian elimination.",
+                "",
+            ]
+        ),
+        "2021-期中-C.pdf.md": "\n".join(
+            [
+                "---",
+                "type: pdf-import-note",
+                'course: "Linear Algebra"',
+                "status: active",
+                "tags: [import, pdf, exam]",
+                "---",
+                "",
+                "# 2021 Midterm C",
+                "",
+                "1. Eigenvalues and diagonalization.",
+                "2. Rank of an augmented matrix.",
+                "",
+            ]
+        ),
+    }
+    for name, body in papers.items():
+        (exams_dir / name).write_text(body + "\n", encoding="utf-8", newline="\n")
+
+    init_payload = json.loads(
+        run_script(
+            "init_exam_census.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+            "--papers-dir",
+            "courses/linear-algebra/references/exams",
+            "--pattern",
+            "**/*.pdf.md",
+            "--batch-size",
+            "2",
+        )
+    )
+    if init_payload.get("paper_count") != 3 or init_payload.get("batch_count") != 2:
+        raise AssertionError(f"Unexpected exam-census init payload: {init_payload}")
+
+    state_dir = repo / ".student-os" / "state" / "exam-census" / "linear-algebra" / "期中"
+    taxonomy_path = state_dir / "taxonomy.yaml"
+    taxonomy_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                'course: "Linear Algebra"',
+                "exam_scope: 期中",
+                "types:",
+                "  - id: matrix-rank",
+                "    name: 矩阵的秩",
+                "    aliases: [秩, rank]",
+                "    keywords: [秩, 行阶梯]",
+                "  - id: eigen-decomp",
+                "    name: 特征值与对角化",
+                "    aliases: [特征值, diagonalize]",
+                "    keywords: [特征值, 对角化]",
+                "  - id: gaussian-elim",
+                "    name: 高斯消元",
+                "    aliases: [消元]",
+                "    keywords: [高斯, 行变换]",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    annotations = {
+        "2019-期中-A": {
+            "source": "courses/linear-algebra/references/exams/2019-期中-A.pdf.md",
+            "exam_label": "2019 期中 A",
+            "types_present": ["matrix-rank", "eigen-decomp"],
+            "type_counts": {"matrix-rank": 1, "eigen-decomp": 1},
+            "confidence": "high",
+            "notes": "classic pair",
+        },
+        "2020-期中-B": {
+            "source": "courses/linear-algebra/references/exams/2020-期中-B.pdf.md",
+            "exam_label": "2020 期中 B",
+            "types_present": ["matrix-rank", "gaussian-elim"],
+            "type_counts": {"matrix-rank": 1, "gaussian-elim": 1},
+            "confidence": "high",
+            "notes": "",
+        },
+        "2021-期中-C": {
+            "source": "courses/linear-algebra/references/exams/2021-期中-C.pdf.md",
+            "exam_label": "2021 期中 C",
+            "types_present": ["matrix-rank", "eigen-decomp"],
+            "type_counts": {"matrix-rank": 1, "eigen-decomp": 1},
+            "confidence": "low",
+            "notes": "OCR a bit noisy",
+        },
+    }
+    annotations_dir = state_dir / "annotations"
+    for stem, payload in annotations.items():
+        (annotations_dir / f"{stem}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+
+    stats_payload = json.loads(
+        run_script(
+            "build_exam_type_stats.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+            "--overwrite",
+        )
+    )
+    ranked_ids = [item["id"] for item in stats_payload.get("ranked_types", [])]
+    if ranked_ids[:2] != ["matrix-rank", "eigen-decomp"]:
+        raise AssertionError(f"Expected matrix-rank then eigen-decomp by appearance, got: {ranked_ids}")
+    if stats_payload["ranked_types"][0]["paper_count"] != 3:
+        raise AssertionError(f"matrix-rank should appear in all 3 papers: {stats_payload}")
+    if not stats_payload["ranked_types"][0]["must_know"]:
+        raise AssertionError("matrix-rank should be must-know at 100% appearance")
+
+    report_path = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型频率统计.md"
+    ensure_exists(report_path)
+    ensure_contains(report_path, "type: exam-type-frequency-report")
+    ensure_contains(report_path, "matrix-rank")
+    ensure_contains(report_path, "Low-confidence annotations")
+    ensure_contains(report_path, "`2021-期中-C`")
+    ensure_contains(report_path, "](../../references/exams/2019-期中-A.pdf.md)")
+
+    first_skeleton = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型解析" / "01-matrix-rank.md"
+    ensure_exists(first_skeleton)
+    ensure_contains(first_skeleton, "type: exam-type-analysis")
+    ensure_contains(first_skeleton, "exam_type_id: \"matrix-rank\"")
+    ensure_contains(first_skeleton, "Must-know tier: yes")
+    ensure_contains(first_skeleton, "](../../../references/exams/2019-期中-A.pdf.md)")
+
+    second_skeleton = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型解析" / "02-eigen-decomp.md"
+    ensure_exists(second_skeleton)
+    third_skeleton = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型解析" / "03-gaussian-elim.md"
+    ensure_exists(third_skeleton)
+
+    # Pipe characters in type names must not break the Markdown table.
+    taxonomy_path.write_text(
+        taxonomy_path.read_text(encoding="utf-8").replace(
+            "    name: 矩阵的秩\n",
+            "    name: \"矩阵的秩 P(A|B)\"\n",
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    run_script(
+        "build_exam_type_stats.py",
+        str(repo),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期中",
+        "--overwrite",
+    )
+    ensure_contains(report_path, "矩阵的秩 P(A\\|B)")
+
+    # Unknown types_present / type_counts keys must appear in the durable report and fail --validate.
+    bad_annotation = dict(annotations["2021-期中-C"])
+    bad_annotation["types_present"] = ["matrix-rank", "not-a-real-type"]
+    bad_annotation["type_counts"] = {"matrix-rank": 1, "ghost-count": 2}
+    (annotations_dir / "2021-期中-C.json").write_text(
+        json.dumps(bad_annotation, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    bad_validate = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "build_exam_type_stats.py"),
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+            "--validate",
+            "--overwrite",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if bad_validate.returncode == 0:
+        raise AssertionError("Expected --validate to fail on unknown type ids / count keys")
+    ensure_contains(report_path, "Unknown type ids in types_present")
+    ensure_contains(report_path, "not-a-real-type")
+    ensure_contains(report_path, "ghost-count")
+    bad_payload = json.loads(bad_validate.stdout)
+    if not bad_payload.get("skeletons_skipped_due_to_validate"):
+        raise AssertionError("Expected skeleton reconcile to be skipped when --validate fails")
+
+    # Invalid type_counts must not silently become 1.
+    invalid_annotation = dict(annotations["2021-期中-C"])
+    invalid_annotation["types_present"] = ["matrix-rank", "eigen-decomp"]
+    invalid_annotation["type_counts"] = {"matrix-rank": "many", "eigen-decomp": -2}
+    (annotations_dir / "2021-期中-C.json").write_text(
+        json.dumps(invalid_annotation, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    skeleton_before = first_skeleton.read_text(encoding="utf-8")
+    invalid_validate = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "build_exam_type_stats.py"),
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+            "--validate",
+            "--overwrite",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if invalid_validate.returncode == 0:
+        raise AssertionError("Expected --validate to fail on invalid type_counts values")
+    ensure_contains(report_path, "Invalid type_counts values")
+    if first_skeleton.read_text(encoding="utf-8") != skeleton_before:
+        raise AssertionError("Skeleton must not change when --validate fails")
+
+    # Restore clean annotations after validation failure cases.
+    for stem, payload in annotations.items():
+        (annotations_dir / f"{stem}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+
+    # Nested papers with the same basename must get distinct annotation ids.
+    nested_root = exams_dir / "nested"
+    (nested_root / "2019").mkdir(parents=True, exist_ok=True)
+    (nested_root / "2020").mkdir(parents=True, exist_ok=True)
+    (nested_root / "2019" / "paper.pdf.md").write_text("# nested 2019\n", encoding="utf-8", newline="\n")
+    (nested_root / "2020" / "paper.pdf.md").write_text("# nested 2020\n", encoding="utf-8", newline="\n")
+    nested_init = json.loads(
+        run_script(
+            "init_exam_census.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "nested-midterm",
+            "--papers-dir",
+            "courses/linear-algebra/references/exams/nested",
+            "--pattern",
+            "**/*.pdf.md",
+            "--overwrite",
+        )
+    )
+    nested_manifest = Path(nested_init["manifest"])
+    nested_stems = {item["stem"] for item in json.loads(nested_manifest.read_text(encoding="utf-8"))["papers"]}
+    if nested_stems != {"2019__paper", "2020__paper"}:
+        raise AssertionError(f"Expected path-namespaced annotation ids, got: {nested_stems}")
+
+    # Semester-aware courses must not share census state.
+    run_script("scaffold_course.py", str(repo), "Calculus II", "--semester", "2026 Fall")
+    run_script("scaffold_course.py", str(repo), "Calculus II", "--semester", "2027 Spring")
+    fall_exams = repo / "courses" / "2026-fall" / "calculus-ii" / "references" / "exams"
+    spring_exams = repo / "courses" / "2027-spring" / "calculus-ii" / "references" / "exams"
+    fall_exams.mkdir(parents=True, exist_ok=True)
+    spring_exams.mkdir(parents=True, exist_ok=True)
+    (fall_exams / "paper.pdf.md").write_text("# fall\n", encoding="utf-8", newline="\n")
+    (spring_exams / "paper.pdf.md").write_text("# spring\n", encoding="utf-8", newline="\n")
+    fall_init = json.loads(
+        run_script(
+            "init_exam_census.py",
+            str(repo),
+            "--course",
+            "calculus-ii",
+            "--semester",
+            "2026 Fall",
+            "--exam-scope",
+            "期中",
+            "--papers-dir",
+            "courses/2026-fall/calculus-ii/references/exams",
+        )
+    )
+    spring_init = json.loads(
+        run_script(
+            "init_exam_census.py",
+            str(repo),
+            "--course",
+            "calculus-ii",
+            "--semester",
+            "2027 Spring",
+            "--exam-scope",
+            "期中",
+            "--papers-dir",
+            "courses/2027-spring/calculus-ii/references/exams",
+        )
+    )
+    if fall_init["course"] != "2026-fall/calculus-ii" or spring_init["course"] != "2027-spring/calculus-ii":
+        raise AssertionError(f"Expected semester-qualified course keys, got {fall_init['course']} / {spring_init['course']}")
+    if Path(fall_init["state_dir"]) == Path(spring_init["state_dir"]):
+        raise AssertionError("Semester-qualified courses must not share exam-census state directories")
+
+    # Rank changes should retire obsolete generated skeletons.
+    taxonomy_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                'course: "Linear Algebra"',
+                "exam_scope: 期中",
+                "types:",
+                "  - id: matrix-rank",
+                "    name: 矩阵的秩",
+                "    aliases: [秩, rank]",
+                "    keywords: [秩, 行阶梯]",
+                "  - id: eigen-decomp",
+                "    name: 特征值与对角化",
+                "    aliases: [特征值, diagonalize]",
+                "    keywords: [特征值, 对角化]",
+                "  - id: gaussian-elim",
+                "    name: 高斯消元",
+                "    aliases: [消元]",
+                "    keywords: [高斯, 行变换]",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    for stem, payload in annotations.items():
+        (annotations_dir / f"{stem}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+    # Boost gaussian-elim above eigen-decomp by swapping one paper's second type.
+    boosted = dict(annotations["2021-期中-C"])
+    boosted["types_present"] = ["matrix-rank", "gaussian-elim"]
+    boosted["type_counts"] = {"matrix-rank": 1, "gaussian-elim": 1}
+    (annotations_dir / "2021-期中-C.json").write_text(
+        json.dumps(boosted, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    rerank = json.loads(
+        run_script(
+            "build_exam_type_stats.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+            "--overwrite",
+        )
+    )
+    if [item["id"] for item in rerank["ranked_types"][:3]] != ["matrix-rank", "gaussian-elim", "eigen-decomp"]:
+        raise AssertionError(f"Unexpected reranked order: {rerank['ranked_types']}")
+    analysis_dir = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型解析"
+    ensure_exists(analysis_dir / "02-gaussian-elim.md")
+    ensure_exists(analysis_dir / "03-eigen-decomp.md")
+    if (analysis_dir / "02-eigen-decomp.md").exists():
+        raise AssertionError("Obsolete ranked skeleton 02-eigen-decomp.md should be retired after rerank")
+
+    # --validate should fail when an annotation is missing.
+    (annotations_dir / "2021-期中-C.json").unlink()
+    validate_result = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "build_exam_type_stats.py"),
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+            "--validate",
+            "--overwrite",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if validate_result.returncode == 0:
+        raise AssertionError("build_exam_type_stats.py --validate should fail when annotations are missing")
+    # Restore annotation and rebuild final report for the example snapshot.
+    for stem, payload in annotations.items():
+        (annotations_dir / f"{stem}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+    run_script(
+        "build_exam_type_stats.py",
+        str(repo),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期中",
+        "--overwrite",
+    )
+
+    # Path-like exam_scope values must be rejected.
+    for bad_scope in ("../escape", "", "C:\\windows"):
+        bad_init = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(STUDENT_OS_SCRIPTS / "init_exam_census.py"),
+                str(repo),
+                "--course",
+                "linear-algebra",
+                "--exam-scope",
+                bad_scope,
+                "--papers-dir",
+                "courses/linear-algebra/references/exams",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=ROOT,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+        )
+        if bad_init.returncode == 0:
+            raise AssertionError(f"Expected init to reject exam_scope={bad_scope!r}")
+
+    # Without --overwrite, existing skeletons must be skipped (not migrated/deleted).
+    analysis_dir = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型解析"
+    existing_skeletons = sorted(path.name for path in analysis_dir.glob("*.md"))
+    if not existing_skeletons:
+        raise AssertionError("Expected skeletons before no-overwrite rebuild")
+    no_overwrite = json.loads(
+        run_script(
+            "build_exam_type_stats.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+        )
+    )
+    if not no_overwrite.get("skeletons_skipped"):
+        raise AssertionError("Expected existing skeletons to be skipped without --overwrite")
+    after_skeletons = sorted(path.name for path in analysis_dir.glob("*.md"))
+    if after_skeletons != existing_skeletons:
+        raise AssertionError(f"Skeletons changed without --overwrite: {existing_skeletons} -> {after_skeletons}")
+
+    # User-edited skeletons (fingerprint mismatch) are archived, not deleted.
+    user_skeleton = analysis_dir / existing_skeletons[-1]
+    user_text = user_skeleton.read_text(encoding="utf-8") + "\n## User Notes\n\nKeep me.\n"
+    user_skeleton.write_text(user_text, encoding="utf-8", newline="\n")
+    user_type = None
+    import re as _re
+
+    match = _re.search(r'(?m)^exam_type_id:\s*"?([^"\n]+)"?\s*$', user_text)
+    if match:
+        user_type = match.group(1)
+    if not user_type:
+        raise AssertionError(f"Could not read exam_type_id from {user_skeleton}")
+    # Drop that type from all annotations so it becomes obsolete and should archive.
+    for stem, payload in annotations.items():
+        cleaned = dict(payload)
+        cleaned["types_present"] = [tid for tid in payload["types_present"] if tid != user_type]
+        cleaned["type_counts"] = {
+            key: value for key, value in payload["type_counts"].items() if key != user_type
+        }
+        if "matrix-rank" not in cleaned["types_present"]:
+            cleaned["types_present"].append("matrix-rank")
+            cleaned["type_counts"]["matrix-rank"] = 1
+        (annotations_dir / f"{stem}.json").write_text(
+            json.dumps(cleaned, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+    run_script(
+        "build_exam_type_stats.py",
+        str(repo),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期中",
+        "--overwrite",
+    )
+    if user_skeleton.exists():
+        raise AssertionError("Edited obsolete skeleton should leave 题型解析/")
+    archived = analysis_dir / "_archive" / user_skeleton.name
+    ensure_exists(archived)
+    ensure_contains(archived, "Keep me.")
+
+    # Taxonomy JSON round-trip preserves string ids like "true" and comma-bearing names.
+    utils_spec = importlib.util.spec_from_file_location(
+        "exam_census_utils_smoke", STUDENT_OS_SCRIPTS / "exam_census_utils.py"
+    )
+    if utils_spec is None or utils_spec.loader is None:
+        raise RuntimeError("Unable to load exam_census_utils for round-trip check")
+    exam_census_utils = importlib.util.module_from_spec(utils_spec)
+    sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
+    try:
+        utils_spec.loader.exec_module(exam_census_utils)
+    finally:
+        if sys.path and sys.path[0] == str(STUDENT_OS_SCRIPTS):
+            sys.path.pop(0)
+    roundtrip_path = state_dir / "taxonomy-roundtrip.yaml"
+    exam_census_utils.write_taxonomy(
+        roundtrip_path,
+        {
+            "version": 1,
+            "course": "Linear Algebra",
+            "exam_scope": "期中",
+            "types": [
+                {"id": "true", "name": "A, B family", "aliases": ["x,y"], "keywords": ["a,b"]},
+            ],
+        },
+    )
+    loaded = exam_census_utils.load_taxonomy_yaml(roundtrip_path)
+    if loaded["types"][0]["id"] != "true":
+        raise AssertionError(f"Expected id 'true' string round-trip, got {loaded['types'][0]['id']!r}")
+    if loaded["types"][0]["name"] != "A, B family":
+        raise AssertionError(f"Expected comma-bearing name preserved, got {loaded['types'][0]['name']!r}")
+    dumped = exam_census_utils.dump_taxonomy_yaml(loaded)
+    if '"true"' not in dumped:
+        raise AssertionError("Writer should JSON-quote the id true")
+
+    # Paths with spaces must produce quoted Markdown hrefs.
+    spaced = exams_dir / "mid term paper.pdf.md"
+    spaced.write_text("# spaced\n", encoding="utf-8", newline="\n")
+    spaced_init = json.loads(
+        run_script(
+            "init_exam_census.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "spaced-scope",
+            "--papers-dir",
+            "courses/linear-algebra/references/exams",
+            "--pattern",
+            "mid term paper.pdf.md",
+            "--overwrite",
+        )
+    )
+    spaced_state = Path(spaced_init["state_dir"])
+    (spaced_state / "taxonomy.yaml").write_text(
+        "\n".join(
+            [
+                "version: 1",
+                'course: "Linear Algebra"',
+                'exam_scope: "spaced-scope"',
+                "types:",
+                '  - id: "matrix-rank"',
+                '    name: "矩阵的秩"',
+                "    aliases: []",
+                "    keywords: []",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    stem = "mid term paper"
+    # annotation id from basename without .pdf.md
+    (spaced_state / "annotations" / f"{stem}.json").write_text(
+        json.dumps(
+            {
+                "source": "courses/linear-algebra/references/exams/mid term paper.pdf.md",
+                "exam_label": "spaced",
+                "types_present": ["matrix-rank"],
+                "type_counts": {"matrix-rank": 1},
+                "confidence": "high",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    # Fix annotation filename: annotation_id uses relative path
+    spaced_manifest = json.loads((spaced_state / "manifest.json").read_text(encoding="utf-8"))
+    spaced_stem = spaced_manifest["papers"][0]["stem"]
+    (spaced_state / "annotations" / f"{stem}.json").rename(spaced_state / "annotations" / f"{spaced_stem}.json")
+    run_script(
+        "build_exam_type_stats.py",
+        str(repo),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "spaced-scope",
+        "--overwrite",
+    )
+    spaced_report = repo / "courses" / "linear-algebra" / "reviews" / "spaced-scope" / "题型频率统计.md"
+    ensure_contains(spaced_report, "mid%20term%20paper.pdf.md")
+
+    # Restore linear-algebra midterm annotations for any later consumers of this fixture.
+    for stem, payload in annotations.items():
+        (annotations_dir / f"{stem}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+
+
 def exercise_feedback_lifecycle(repo: Path) -> None:
     feedback_day = date.today()
     expected_feedback_id = f'fb-{feedback_day.strftime("%Y%m%d")}-weekly-plan-omitted-imported-deadline-2'
@@ -1971,6 +2620,7 @@ def build_single_semester(repo: Path, today: date) -> None:
     run_script("build_review_indexes.py", str(repo))
     exercise_feedback_lifecycle(repo)
     exercise_import_workflows(repo)
+    exercise_exam_census(repo)
     run_script("build_review_indexes.py", str(repo))
     run_script("build_week_plan.py", str(repo))
     ensure_contains(repo / "tasks" / "weekly" / f"{default_week_label}.md", "Linear Algebra Midterm")
