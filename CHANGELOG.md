@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 整理人类入口、agent 路由和维护记录文档，补充“一句话发给 agent”的安装/使用示例、安全提醒、当前能力状态与维护规则。
+
 ### Added
 
 - 为 GitHub 发布链路增加 `sanitize_and_post.py`，以及 `prepare_github_issue.py --check-stdin`：任意 issue / PR review / comment 正文可先脱敏再交给 `gh`；包装脚本仅在脱敏成功后才调用下游命令，避免无 `pipefail` 时管道仍创建空 body（Issue #40）。

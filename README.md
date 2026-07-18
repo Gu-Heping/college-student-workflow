@@ -1,92 +1,61 @@
 # College Student Workflow
 
-这是一个面向大学生学习资料库、Obsidian vault、Markdown 笔记库的 agent workflow 仓库。  
-它的核心 skill 是 [`student-os`](./student-os/)，可以让 `Codex`、`Claude Code`、`OpenCode` 这类 agent 在动手改文件前先检查仓库和 `Git` 状态，再整理资料、生成目录、汇总改动、给出提交建议。  
-这样做的目的，是减少误改、误删、乱提交、把无关文件混进 commit 这类风险。  
-现在它已经支持安装、日常使用、仓库内反馈、发布到 GitHub Issue，以及安装后的自更新。  
-最近的变化可以看 [CHANGELOG.md](./CHANGELOG.md)。
-
 ## 这是什么
 
-`college-student-workflow` 是一个围绕 `student-os` 搭建的仓库。你可以把它理解成：
+`college-student-workflow` 是一个给大学生学习资料库用的 agent workflow 仓库。  
+它的核心是 [`student-os`](./student-os/)——一套装给 agent 用的 **skill**（可理解为：告诉 AI 怎么在你的笔记库里安全干活的说明书 + 脚本）。  
+安装脚本目前支持 `Codex`、`Claude Code`、`OpenCode`（`--agent codex|claude|opencode|all`）。`Cursor` 没有完整 skill 安装目标，可用仓库内 exam-census 等适配说明，或把本仓库 / 已安装 skill 当作规则与脚本参考。
 
-- 给学习资料库用的 agent `skill`
-- 给 Markdown-first 学习仓库用的工作规范
-- 给 AI 使用者准备的一套“先检查、再落盘、最后用 Git 留痕”的安全工作流
+你可以把学习资料放在 Obsidian vault、普通 Markdown 文件夹，或任何以文本笔记为主的目录里。`student-os` 的核心价值是：
 
-它不是单纯的笔记模板，也不是只给程序员用的工具箱。它更像一个“让 agent 在你的学习文件夹里干活时更稳一点”的操作层。
+- 让 agent **动文件前先检查**目录和 Git 状态
+- 用 **Git 留痕**，改动能看、能回滚、能分组提交
+- 降低 **误改 / 误删 / 乱提交** 的风险
+
+它不是“替你自动学完一门课”的黑盒，而是让 AI 在你的学习文件夹里工作时更可控、更可追踪。
 
 ## 适合谁
 
-适合这些人：
+- 用 Obsidian、Markdown、文件夹管理课程资料的人
+- 想让 AI 帮忙建课程、整理作业/复习，又怕改乱文件的人
+- 希望学习资料能用 Git 看改动、分提交、必要时回滚的人
+- 想把「安装 → 日常使用 → 反馈问题 → GitHub Issue → 更新 skill」串成闭环的人
 
-- 平时用 Obsidian、Markdown、文件夹管理课程资料的人
-- 想让 AI 帮自己整理课程、作业、复习资料，但又担心改乱文件的人
-- 希望把学习资料纳入 `Git` 管理，能看改动、能回滚、能分提交的人
-- 想把“安装 skill -> 日常使用 -> 反馈问题 -> GitHub Issue -> 后续更新”串成闭环的人
+如果你只是随手记几条临时笔记、完全不想碰文件夹结构，这个仓库可能会偏重。
 
-如果你只是随手记几条临时笔记、完全不想接触文件夹结构或 `Git`，这个仓库可能会偏重。
+## 它能帮你做什么
 
-## 它能做什么
+当前已经能覆盖的日常能力：
 
-`student-os` 目前能覆盖这些事情：
+- 检查或初始化一个学习 vault（笔记库）
+- 新建课程空间：课堂笔记、作业、复习、实验报告等目录
+- 整理周计划、deadline、考试倒计时
+- 把 PDF / DOCX / PPTX / XLSX 转成可读的 Markdown 资料（图片与旧版 `.doc`/`.ppt`/`.xls` 在配置 MinerU token 时可读转换；无 token 时通常只生成索引占位，不会本地 OCR）
+- 对导入后的 markdown 做保守修复（repair）
+- 对历年试卷做 **exam-census**（题型普查 → 频率统计 → 题型解析 → 备考资料包）
+- 把使用中的问题记到 `feedback/`，并准备/发布隐私检查后的 GitHub Issue
+- 安全更新已安装的 `student-os`，**不碰**你的学习 vault 内容
 
-- 初始化或检查一个学习资料库
-- 识别课程、作业、复习、任务、项目、dashboard 等目录
-- 给课程建主页、笔记区、作业区、复习区
-- 帮你整理本周资料变化，给出 `commit` 建议
-- 导入和整理 PDF、DOCX、XLSX、PPTX 等资料
-- 把使用中的问题记录到 `feedback/`
-- 把反馈整理成 GitHub Issue 草稿，并在发布前做隐私检查
-- 对已安装的 `student-os` 做安全更新，不碰你的真实 vault 内容
+一句话：先检查，再落盘，最后用 Git 留痕。
 
-一句话说：它的目标不是替你“自动写完一切”，而是让 agent 在你的知识库里工作得更可控、更可追踪。
+更细的能力状态见 [`docs/status.md`](./docs/status.md)；设计分层见 [`docs/architecture.md`](./docs/architecture.md)。
 
-## 快速安装
+## 最简单的安装方式：直接发给 agent
 
-如果你会命令行，可以直接看下面的安装命令。  
-如果你不会命令行，建议先看下一节“直接把这些话发给 agent”。
+普通用户不必先学会所有脚本。把下面这句话复制发给你的 agent 即可：
 
-先把这个仓库 clone 到本地，然后在仓库根目录运行安装命令。
-
-Windows：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1
+```text
+请从 GitHub 仓库 Gu-Heping/college-student-workflow 安装 student-os skill。先只读检查 README 和安装脚本，使用用户级 scope（--scope user），确认只会安装到当前 agent 的 skills 目录、不修改我的学习 vault，然后运行对应平台的安装脚本。安装完成后告诉我安装位置、manifest 路径和如何更新。
 ```
-
-macOS / Linux：
-
-```bash
-bash ./install.sh
-```
-
-如果你想手动指定安装方式，也可以直接调用安装脚本：
-
-```bash
-python scripts/install_student_os.py --agent codex
-python scripts/install_student_os.py --agent claude --scope project
-python scripts/install_student_os.py --agent opencode
-python scripts/install_student_os.py --agent all --json
-```
-
-说明：
-
-- `--agent` 用来指定装给谁，例如 `codex`、`claude`、`opencode`
-- `--scope user` 是装到用户目录，`--scope project` 是装到当前项目里
-- 默认会尽量用 symlink，失败时再回退到 copy
-
-安装后会生成一个安装清单 `.student-os-install.json`，后续自更新会用到它。
 
 ## 不会命令行？直接把这些话发给 agent
 
-如果你平时主要是在 `Codex`、`Claude Code`、`OpenCode` 里工作，很多事情不一定要自己敲命令。  
-你可以直接复制下面这些话发给 agent，让它先检查、再执行、最后汇报结果。
+下面这些话都可以直接复制使用。agent 应按 `student-os` 的约定：先检查、再改文件、最后给变更摘要，**不要自动提交**（除非你明确要求）。
 
 安装：
 
 ```text
-请从 GitHub 仓库 Gu-Heping/college-student-workflow 安装 student-os skill。先只读检查 README 和安装脚本，确认只会安装到当前 agent 的 skills 目录、不修改我的学习 vault，然后运行对应平台的安装脚本。安装完成后告诉我安装位置、manifest 路径和如何更新。
+请从 GitHub 仓库 Gu-Heping/college-student-workflow 安装 student-os skill。先只读检查 README 和安装脚本，使用用户级 scope（--scope user），确认只会安装到当前 agent 的 skills 目录、不修改我的学习 vault，然后运行对应平台的安装脚本。安装完成后告诉我安装位置、manifest 路径和如何更新。
 ```
 
 接管学习 vault：
@@ -107,22 +76,22 @@ Git 安全检查：
 请用 student-os 给“模拟电子技术”新建课程空间，包含课堂笔记、作业、复习、实验报告目录。修改前先检查 Git 状态，完成后给我变更摘要和 commit 建议。
 ```
 
-整理资料：
+批量导入资料：
 
 ```text
-请帮我整理这个课程文件夹，把明显的课件、作业、复习资料、实验报告分类；不要删除原文件，所有移动/改名都先给计划，确认后再执行。
+请把这个课程资料文件夹里的 PDF/DOCX/PPTX/XLSX 转成可读的 Markdown 资料。先检查文件类型和是否需要 OCR，不要删除原文件，不要覆盖已有笔记。
 ```
 
-生成周计划：
+考试题型普查：
+
+```text
+请用 student-os 对这门课的历年试卷做 exam-census：先扫描试卷 markdown sidecar，建立题型 taxonomy，再统计高频题型，生成题型解析和备考资料包。每一步都先说明产物位置。
+```
+
+周计划：
 
 ```text
 请根据我的学习 vault 生成本周学习计划，优先考虑临近 deadline、考试复习、未完成作业和最近导入的资料。
-```
-
-导入文件：
-
-```text
-请把这个 PDF/DOCX/PPTX/XLSX 导入到对应课程资料中，生成可读的 Markdown 摘要。保留原文件，不要覆盖已有笔记。
 ```
 
 总结变化：
@@ -143,237 +112,192 @@ student-os 这次处理有问题，请把这个问题记录为 feedback，并准
 请检查 student-os 是否有更新。如果有，先告诉我当前版本、最新版本、更新内容和风险；确认后再更新。不要修改我的学习 vault。
 ```
 
-安全提醒：
+## 手动安装方式
 
-- 不要让 agent 盲目执行陌生仓库脚本
-- 安装前应先让 agent 只读检查 README 和安装脚本
-- 安装 / 更新 `student-os` 不应该修改你的学习 vault
-- 真实 vault 不建议公开上传
-- GitHub Issue 发布前必须检查隐私信息
+如果你会命令行，也可以自己装。先把仓库 clone 到本地，在仓库根目录执行：
 
-## 日常怎么用
+Windows：
 
-最常见的用法，不是先记脚本，而是直接对 agent 说自然语言。
-
-例如：
-
-- “把这个文件夹作为我的学习 vault，先检查 Git 状态”
-- “帮我给模电课程建一个复习目录”
-- “总结这周学习资料有哪些变化，并给我 commit 建议”
-- “把这个问题反馈给开发者”
-- “更新 student-os”
-
-如果你想直接跑脚本，常见入口有这些：
-
-先检查一个已有资料库：
-
-```bash
-python student-os/scripts/inspect_repo.py /path/to/repo
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-新建一个标准资料库：
+macOS / Linux：
 
 ```bash
-python student-os/scripts/scaffold_repo.py /path/to/repo
+bash ./install.sh
 ```
 
-给课程建目录：
+或指定 agent / 安装范围：
 
 ```bash
-python student-os/scripts/scaffold_course.py /path/to/repo "Analog Electronics"
+python scripts/install_student_os.py --agent codex
+python scripts/install_student_os.py --agent claude --scope project
+python scripts/install_student_os.py --agent opencode
+python scripts/install_student_os.py --agent all --json
 ```
 
-重建索引：
+说明：
+
+- `--agent`：装给谁（`codex` / `claude` / `opencode` 等）
+- `--scope user`：装到用户级 agent skills 目录（普通用户推荐；与上文「发给 agent」示例一致）
+- `--scope project`：装到当前项目下的 agent skills 目录（可能写入 vault 内的 `.codex/skills` 等；这是安装 skill，不是改笔记）
+- 默认尽量用 symlink，失败再回退到 copy
+- 安装后会生成 `.student-os-install.json`，供后续自更新使用
+
+## 日常使用场景
+
+最常见的用法是对 agent 说自然语言（见上一节示例），而不是先背脚本。
+
+如果你确实要自己跑脚本，常见入口：
 
 ```bash
-python student-os/scripts/rebuild_indexes.py /path/to/repo
+# 检查学习 vault（注意：目标是你的 vault，不是本仓库）
+python student-os/scripts/inspect_repo.py /path/to/vault
+
+# 新建标准结构 / 新建课程
+python student-os/scripts/scaffold_repo.py /path/to/vault
+python student-os/scripts/scaffold_course.py /path/to/vault "模拟电子技术"
+
+# 汇总最近变化 / Git 分组建议
+python student-os/scripts/summarize_activity.py /path/to/vault --days 7
+python student-os/scripts/group_git_changes.py /path/to/vault
+
+# 批量转换资料（positional 参数是资料源目录/文件，不是 vault）
+python student-os/scripts/materials_convert.py /path/to/materials --method auto
+
+# 考试题型普查（需先有试卷的 .pdf.md sidecar）
+python student-os/scripts/init_exam_census.py /path/to/vault --course <course> --exam-scope 期中
 ```
 
-汇总最近变化：
-
-```bash
-python student-os/scripts/summarize_activity.py /path/to/repo --days 7
-```
-
-如果你要处理 PDF、DOCX、XLSX、PPTX，先安装依赖：
+导入 PDF/DOCX 等前，先安装可选依赖：
 
 ```bash
 pip install -r requirements.txt
 ```
 
+Agent 侧的命令入口见 [`student-os/commands/`](./student-os/commands/)；工作流细节见 [`student-os/references/`](./student-os/references/)。
+
 ## 发现问题怎么反馈
 
-现在这套流程已经不只是“本地记个反馈”，而是支持：
+完整闭环是：
 
-1. 把问题记录到仓库里的 `feedback/`
-2. 做分类、triage、汇总
+1. 把问题记到学习 vault 的 `feedback/`
+2. 分类（triage）、汇总
 3. 生成 GitHub Issue 草稿
-4. 发布前做隐私检查
-5. 发布到 GitHub 后把 issue 信息回写到本地 feedback 条目
+4. **发布前做隐私检查**
+5. 确认后再发布；发布后把 issue 信息写回本地反馈条目
 
-常见命令：
+也可以直接对 agent 说上一节的「反馈问题」示例。
+
+手动脚本入口（目标仍是你的 vault）：
 
 ```bash
-python student-os/scripts/log_feedback.py /path/to/repo --title "PDF 导入后图示丢失"
-python student-os/scripts/triage_feedback.py /path/to/repo feedback/raw/2026-07-16-pdf.md
-python student-os/scripts/summarize_feedback.py /path/to/repo --title "Weekly feedback review"
-python student-os/scripts/prepare_github_issue.py /path/to/repo feedback/triaged/example.md
-python student-os/scripts/publish_github_issue.py /path/to/repo feedback/triaged/example.md --json
+python student-os/scripts/log_feedback.py /path/to/vault --title "PDF 导入后图示丢失"
+python student-os/scripts/prepare_github_issue.py /path/to/vault feedback/triaged/example.md
+python student-os/scripts/publish_github_issue.py /path/to/vault feedback/triaged/example.md --json
 ```
 
-如果存在隐私告警，发布前应先停在 draft，检查草稿后再决定是否继续。
+对任意要公开发布的正文（Issue / PR review / comment），应先走脱敏。有隐私告警或检查失败时默认停在 draft，不要继续调用 `gh`：
 
-隐私提醒很重要：
+```bash
+# 预检（有 blocker / warning 时非零退出）
+python student-os/scripts/prepare_github_issue.py --check-stdin --check-only < draft.md
 
-- 真实学习 vault 不建议公开上传
-- 课本内容、简历、个人资料、大文件、`.env` 不应随便提交
-- 发 GitHub Issue 前，一定要先看草稿和隐私提示
-- 如果脚本检测到隐私风险，默认应该先停在 draft，而不是直接发布
+# 脱敏后发布：把 draft 喂给包装脚本（不要拆成两条互不相关的管道）
+python student-os/scripts/sanitize_and_post.py -- \
+  gh issue create --repo Gu-Heping/college-student-workflow -F - < draft.md
+```
 
 ## 如何更新 student-os
 
-`student-os` 支持安装后的安全更新，而且更新目标只是 skill 本身，不会改你的学习 vault 内容。
-
-先检查：
+更新只改已安装的 skill，**不会**改你的学习 vault。
 
 ```bash
 python ~/.codex/skills/student-os/scripts/update_student_os.py --check
-```
-
-再应用更新：
-
-```bash
 python ~/.codex/skills/student-os/scripts/update_student_os.py --apply --target ~/.codex/skills/student-os
 ```
 
-说明：
+（路径按你实际安装位置调整；也可让 agent 用上一节的「更新」示例帮你检查。）
 
-- `--check` 会比较当前安装版本和远端最新版本
-- `--apply` 会更新 skill 文件
-- copy 安装会先做备份，并给出 rollback 命令
-- 如果本地安装有手改内容，通常需要显式 `--force`
+- `--check`：比较当前版本与远端最新版
+- `--apply`：应用更新；copy 安装会先备份并给出 rollback 命令
+- 本地有手改时通常需要显式 `--force`
 
-## 推荐的知识库结构
+## 隐私与安全提醒
 
-推荐的基础结构如下：
+请务必记住：
+
+- **不要盲目让 agent 执行陌生仓库脚本。** 安装前先让它只读检查 README 和安装脚本。
+- 安装 / 更新 skill **不应修改**你的学习 vault。
+- 真实 vault **不建议**公开上传到公开仓库。
+- `.env`、token、简历、个人资料、课本原文、大文件 **不应**随便提交，也不应直接发到 GitHub Issue。
+- 发布 GitHub Issue / PR comment / review 前，应先走脱敏检查（`prepare_github_issue.py --stdin` / `--check-only`，或 `sanitize_and_post.py`）。
+- 本仓库（skill 源码）**不是**你的学习 vault；agent 不要把当前仓库误当成 vault 来改笔记。
+
+## 推荐的学习 vault 结构
 
 ```text
-courses/
-projects/
-tasks/
-reviews/
-references/
-dashboards/
-.student-os/
-feedback/
+courses/          # 课程主页、笔记、作业、复习、实验
+projects/         # 课程/竞赛/个人项目
+tasks/            # deadline、周计划、待办
+reviews/          # 跨课复习产物（课程内复习也可放在 courses/.../reviews/）
+references/       # 外部资料、导入材料
+dashboards/       # 总览、周报
+feedback/         # 使用问题与汇总
+.student-os/      # repo profile、索引、状态缓存
 ```
 
-其中：
-
-- `courses/` 放课程主页、课堂笔记、作业、复习资料
-- `projects/` 放课程项目、竞赛项目、个人项目
-- `tasks/` 放 deadline、每周计划、待办
-- `reviews/` 放期中期末复习产物
-- `references/` 放外部资料、导入材料、课本摘要
-- `dashboards/` 放总览、周报、进度页
-- `.student-os/` 放 repo profile、索引、状态缓存
-- `feedback/` 放使用过程中的问题反馈与汇总
-
-如果你是多学期管理，也可以用：
+多学期时可用：
 
 - `courses/<semester>/<course>/`
 - `semesters/<semester>/`
 
-`student-os` 不强制你把旧 vault 全部改名，它更倾向于“识别和映射”，而不是“一刀切重构”。
+旧 vault 不必强行改名；`student-os` 更倾向在 `.student-os/repo-profile.md` 里做路径映射。
 
 ## 给开发者看的说明
 
-如果你是来改这个仓库本身的，可以重点看这些位置：
+如果你是来改这个仓库本身的，优先看：
 
-- [`student-os/`](./student-os/)：核心 skill
-- [`student-os/SKILL.md`](./student-os/SKILL.md)：主入口和行为合同
-- [`student-os/references/`](./student-os/references/)：各工作流说明
-- [`student-os/scripts/`](./student-os/scripts/)：脚本入口
-- [`student-os/templates/`](./student-os/templates/)：模板
-- [`CHANGELOG.md`](./CHANGELOG.md)：版本变化
+| 文档 | 用途 |
+| --- | --- |
+| [`AGENTS.md`](./AGENTS.md) | 云端/开发 agent 入口与安全边界 |
+| [`student-os/SKILL.md`](./student-os/SKILL.md) | skill 总路由 |
+| [`docs/architecture.md`](./docs/architecture.md) | 文档与代码分层 |
+| [`docs/status.md`](./docs/status.md) | 当前能力状态 |
+| [`docs/maintenance.md`](./docs/maintenance.md) | 维护与发 PR 规则 |
+| [`docs/roadmap.md`](./docs/roadmap.md) | 短期路线 |
+| [`CHANGELOG.md`](./CHANGELOG.md) | 版本变化 |
 
-仓库结构大致如下：
+仓库大致结构：
 
 ```text
-student-os/
-  SKILL.md
-  references/
-  scripts/
-  templates/
-examples/
-scripts/
-CHANGELOG.md
-README.md
+student-os/     # skill：SKILL.md、commands、references、scripts、templates
+examples/       # 演示与 smoke fixtures
+scripts/        # 安装器、smoke runner、兼容包装
+docs/           # 维护记录文档
 ```
-
-当前已经覆盖的重点能力包括：
-
-- Git-first 的资料库治理
-- 多学期课程结构
-- 文件导入处理
-- feedback -> GitHub Issue 发布闭环
-- 安装清单和 skill 自更新
-
-有几条实现原则建议继续保持：
-
-- Markdown first
-- Git friendly
-- agent friendly
-- 旧资料库尽量映射接入，而不是强制迁移
-- 可再生索引和状态尽量脚本化
 
 ## 测试
 
-最直接的回归测试方式：
-
 ```bash
+python -m py_compile scripts/install_student_os.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py
 python scripts/run_smoke_tests.py
 ```
 
-如果你要先检查关键脚本能不能编译：
-
-```bash
-python -m py_compile scripts/install_student_os.py
-python -m py_compile scripts/run_smoke_tests.py
-python -m py_compile student-os/scripts/update_student_os.py
-```
-
-CI 会在 PR 和 main push 上运行 py_compile 与 smoke tests。
-
-如果你想刷新示例仓库：
+刷新示例仓库：
 
 ```bash
 python scripts/run_smoke_tests.py --refresh-examples
 ```
 
-仓库里保留了这些重要入口，请不要在 README 里丢掉：
-
-- [`student-os/`](./student-os/)
-- [`CHANGELOG.md`](./CHANGELOG.md)
-- [`scripts/install_student_os.py`](./scripts/install_student_os.py)
-- [`scripts/run_smoke_tests.py`](./scripts/run_smoke_tests.py)
-- [`.github/workflows/smoke.yml`](./.github/workflows/smoke.yml)
+CI 在 PR 与 main push 上会跑上述编译检查与 smoke tests（[`.github/workflows/smoke.yml`](./.github/workflows/smoke.yml)）。
 
 ## Roadmap
 
-接下来比较值得继续推进的方向：
+短期优先级见 [`docs/roadmap.md`](./docs/roadmap.md)。方向概览：
 
-1. 更强的旧 vault 识别和迁移建议
-2. 更细的 Git change grouping 与 hold-back 规则
-3. 更强的课程 / 作业 / 复习自动串联
-4. 更稳的导入处理回归测试
-5. 更完整的多 agent 协作体验
-6. 更细的反馈闭环与 GitHub Issue / CHANGELOG 联动
-
-## 补充说明
-
-这个仓库默认是“文本优先、版本控制优先”的路线。
-
-- 二进制大文件可以存在，但不是第一设计目标
-- 真实学习资料库往往包含隐私，不建议直接公开
-- 真正重要的不是“让 agent 自动做更多”，而是“让它做事前后都能被你看懂、检查、回滚”
+1. 安全边界与 CI 继续加固
+2. README / agent 路由 / 文档入口保持同步
+3. 用真实（脱敏）vault 做狗粮测试
+4. 课程包与 exam-census 体验优化

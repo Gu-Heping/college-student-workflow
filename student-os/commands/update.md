@@ -12,6 +12,8 @@ Default route:
 - primary role: `coordinator`
 - supporting role: skill-maintenance flow via `references/update-workflow.md`
 
+Hard rule: update **only** the installed skill directory (user-scope or project-scope skill path). Do **not** modify vault notes/courses/feedback, re-scaffold notes, or treat the skill source checkout as the vault. Project-scope installs may live under the project’s `.codex/skills` / `.claude/skills` / `.opencode/skills`; that is still skill maintenance, not vault content editing.
+
 Expected outputs:
 - installed target path
 - current commit and latest commit

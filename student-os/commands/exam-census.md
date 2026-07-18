@@ -14,6 +14,20 @@ Default route:
 - coordinator owns batching, progress checks, and final summary
 - `file-operator` only when papers still need `materials_convert` / repair
 
+Before any writing phase: inspect Git in the **learning vault** (not the skill source repo). Announce where artifacts will land before starting the next phase.
+
+## Phase A–E (short)
+
+| Phase | Goal |
+| --- | --- |
+| A Fill | Fill `题型解析/` pages from skeletons |
+| B Quality | Structural quality gate (`review_type_analysis.py`) |
+| C Multi-dim | Drafts under `analysis/` |
+| D Deep-dive | Representative paper walkthroughs |
+| E Cross-val | Coverage / traceability after prep pack |
+
+Full checklist below; narrative detail in `references/exam-census-workflow.md`.
+
 ## Platform entry points
 
 Prefer installing vault adapters once, then using the platform-native trigger:

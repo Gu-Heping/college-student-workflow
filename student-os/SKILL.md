@@ -7,9 +7,32 @@ description: Git-first student knowledge base operating system for Claude Code, 
 
 Run this skill as the single entry point for a university knowledge repository. Treat the target vault as a git-backed working tree where every academic or planning task should leave a clear markdown trail and a reviewable change set.
 
+## Hard boundaries
+
+- The **learning vault** is a directory the user names (Obsidian vault / Markdown notes). It is **never** the `college-student-workflow` skill source checkout unless the user explicitly says they want to develop the skill itself.
+- **Install / update** of this skill must not modify vault notes, courses, or feedback content. Allowed exception: `--scope project` may write only into agent skill directories inside the current project (for example `.codex/skills/student-os`, `.claude/skills/student-os`, `.opencode/skills/student-os`). Prefer `--scope user` for ordinary students.
+- Any workflow that writes files must **inspect Git status first** and must not auto-commit unless the user explicitly asks.
+- Any text destined for a **public** GitHub Issue / PR review / comment must pass privacy checks first (`prepare_github_issue.py --stdin` / `--check-only`, or `sanitize_and_post.py`). If the check fails or raises a privacy warning, **do not call `gh`**: keep a draft, redact, and wait for explicit human confirmation before publishing.
+
+## Intent → workflow routing
+
+| User intent (examples) | Route |
+| --- | --- |
+| Install / update / upgrade `student-os` | Skill maintenance → `references/update-workflow.md` + `commands/update.md` |
+| Check vault / Git status / what to commit | Repo governance → `references/vault-governance.md` + `scripts/group_git_changes.py` |
+| New course / homework / notes / lab / review sheet | Academic → `references/academic-workflow.md` + `commands/study.md` / `review.md` |
+| Import PDF/DOCX/PPTX/XLSX/images/legacy Office | File-handler → `references/file-handler.md` + `commands/import-file.md` / `materials-convert.md` |
+| Repair imported markdown | File-handler repair → `scripts/repair_markdown_import.py` or `materials_convert.py --repair` |
+| Exam type census / past-paper analysis / 题型普查 | Exam-census → `references/exam-census-workflow.md` (Phases 0–5 + A–E) + `commands/exam-census.md` |
+| Record a local problem about student-os | Feedback → `references/feedback-ops.md` + `commands/feedback.md` |
+| Publish to GitHub Issue | GitHub feedback → `references/github-feedback.md` + `commands/report-issue.md` |
+| Sanitize text before any public post | `scripts/prepare_github_issue.py --stdin` / `--check-only` (+ `sanitize_and_post.py`) |
+
+`materials_convert.py` takes the **source file or folder** as its only positional argument — **not** the vault path. Outputs default to sidecars beside the source (`<name>.<ext>.md`) unless `--output-root` is set.
+
 ## Core workflow
 
-1. Identify the request type: repository governance, daily academic work, project work, planning, review work, file ingestion, knowledge operations, feedback operations, skill maintenance, or git review.
+1. Identify the request type using the routing table above: repository governance, daily academic work, project work, planning, review work, file ingestion, exam-census, knowledge operations, feedback operations, skill maintenance, or git review.
 2. Inspect the target repository before editing anything.
 3. Choose the primary role and any supporting roles from the companion layer.
 4. Resolve the target paths and templates that will be touched.
@@ -19,6 +42,7 @@ Run this skill as the single entry point for a university knowledge repository. 
 ## Inspect first
 
 Before writing:
+- Confirm the target path is the user's learning vault, not this skill's source repository (unless developing the skill).
 - Detect whether the target directory is already a git repository.
 - Inspect for pre-existing dirty files, conflict files, generated caches, and binary-heavy areas.
 - Detect whether the repository already resembles the standard contract or needs a mapping layer.
@@ -109,7 +133,7 @@ Handle:
 - course dashboards
 - review artifacts
 - weekly review digests
-- exam census packs (type frequency, type analyses, prep guide)
+- exam census packs (type frequency, type analyses, prep guide) — for the full Phase A–E census pipeline use the **Exam census** section below and `references/exam-census-workflow.md`
 - progress-linked course updates
 
 ### Project workflow
@@ -138,6 +162,7 @@ Handle:
 ### Document ingestion
 
 Use `references/file-handler.md`.
+Command entry points: `commands/import-file.md`, `commands/materials-convert.md`, `commands/pdf-to-md.md`, `commands/tabular-summary.md`.
 
 Handle:
 - PDF to markdown import
@@ -148,9 +173,30 @@ Handle:
 - PPTX to slide summaries
 - routing imported artifacts back into courses, references, reviews, or dashboards
 
+`materials_convert.py` CLI reminder:
+- positional arg = **source file/dir only** (not vault)
+- `--method auto` (default) probes and routes; `--method local` forces local converters; `--method api` requires a MinerU token
+
 When the request involves scanned PDFs, image-heavy materials, or legacy `.doc` / `.ppt` / `.xls` files:
 - check whether `MINERU_TOKEN` or `MINERU_API_TOKEN` is configured before defaulting to local conversion
 - if no token is configured, tell the user that `materials_convert.py --method auto` will fall back locally and that adding a MinerU token enables higher-fidelity API parsing
+
+### Exam census
+
+Use `references/exam-census-workflow.md` and `references/exam-census-quality.md`.
+Command entry: `commands/exam-census.md`.
+
+Short phase map (details in the reference):
+- **Prepare** — convert papers to `.pdf.md` sidecars (+ repair)
+- **Init / taxonomy / annotate / aggregate** — manifest, type catalog, per-paper JSON, frequency + skeletons
+- **Phase A** — fill type-analysis pages (`fill_type_analysis.py`)
+- **Phase B** — structural quality gate (`review_type_analysis.py`)
+- **Phase C** — multi-dimensional drafts (`build_multi_dim_stats.py`)
+- **Phase D** — representative paper deep-dives (`init_exam_deep_dive.py`)
+- **Prep pack** — 备考指南 / 公式总卡 / 答题模板 / 考前清单
+- **Phase E** — coverage / traceability (`cross_validate_exam_census.py`)
+
+Inspect Git before each writing phase; announce output paths before starting the next phase.
 
 ### Knowledge operations
 
