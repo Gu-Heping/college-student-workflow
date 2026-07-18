@@ -23,6 +23,20 @@ Use this reference when the request starts from a PDF, DOCX, XLSX, or PPTX file 
 - MinerU API mode auto-splits PDFs above `--chunk-size` (default 200 pages), converts each chunk, and merges the markdown unless `--no-merge` is set.
 - Use `--no-auto-split` when you want oversized PDFs to fail fast instead of chunking.
 
+## `materials_convert.py` argument reminder
+
+```bash
+# CORRECT: positional = materials source (file or folder)
+python scripts/materials_convert.py /path/to/materials --method auto
+
+# WRONG: do not treat the vault path as the materials positional unless sources live there
+# python scripts/materials_convert.py /path/to/vault   # only if converting files inside that tree on purpose
+```
+
+- This script does **not** take a separate vault argument.
+- Sidecars are written beside sources by default; use `--output-root` to mirror elsewhere.
+- After conversion, continue with course/review/planning workflows; use `--repair` or `repair_markdown_import.py` when imports need cleanup.
+
 ## Default landing zones
 
 - Course-local source material:

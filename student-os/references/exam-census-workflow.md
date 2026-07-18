@@ -101,6 +101,24 @@ Aggregation uses `types_present` for paper appearance counts and `type_counts` f
 
 ## Phases
 
+One-screen map (agents should announce artifact paths before each step):
+
+| Step | What | Main script / owner |
+| --- | --- | --- |
+| Prepare | PDF → `.pdf.md` sidecar (+ repair) | `materials_convert.py` / file-operator |
+| Init | Manifest + taxonomy stub | `init_exam_census.py` |
+| Taxonomy | Draft type catalog from sample papers | review-coach |
+| Annotate | Per-paper `annotations/*.json` | batched agents |
+| Aggregate | Frequency report + type-analysis skeletons | `build_exam_type_stats.py --validate` |
+| **A** Fill | Raise skeletons to full 题型解析 | `fill_type_analysis.py` + agents |
+| **B** Quality | Structural gate, ≤2 revision rounds | `review_type_analysis.py` |
+| **C** Multi-dim | Co-occurrence / difficulty drafts | `build_multi_dim_stats.py` |
+| **D** Deep-dive | 1–2 representative paper walkthroughs | `init_exam_deep_dive.py` |
+| Prep pack | 备考指南 / 公式总卡 / 答题模板 / 考前清单 | templates + review-coach |
+| **E** Cross-val | Coverage / link traceability | `cross_validate_exam_census.py` |
+
+Current entry points: this file, `commands/exam-census.md`, and `references/exam-census-quality.md` (content standard). Prefer those over inventing a parallel checklist.
+
 ### Phase 0 — Prepare sidecars
 
 1. Convert source PDFs with `materials_convert.py`.

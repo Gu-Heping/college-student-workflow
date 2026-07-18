@@ -9,6 +9,12 @@ Use when the user asks to:
 - run a conservative post-processing repair pass after conversion
 - repair a batch of already-generated markdown imports without re-running extraction
 
+CLI contract (critical):
+- The **only positional argument** is the **source file or directory**, not the learning vault path.
+- Default output: markdown sidecar beside each source as `<name>.<ext>.md` (override with `--output-root`).
+- Do not pass the vault root unless the materials truly live there and the user wants sidecars written beside them.
+- Inspect Git in the vault (if outputs land inside it) before writing; never delete source binaries; never overwrite existing hand-written notes without confirmation.
+
 Recommended API / auto mode:
 - set `MINERU_TOKEN` in the environment, or put it in the skill-root / cwd `.env` (see `.env.example`), or pass `--api-token`
 - `--method auto` (default) probes each file and routes to MinerU API (+OCR when scanned/image-heavy), PyMuPDF for text-heavy manuals, pandoc/`docx_to_md` for text DOCX, or local pptx/xlsx converters

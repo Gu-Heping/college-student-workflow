@@ -79,7 +79,8 @@ Use these scripts when the repository owner wants a tighter lifecycle:
 - `scripts/log_feedback.py` to create a new raw entry
 - `scripts/triage_feedback.py` to classify and move an item into `feedback/triaged/`
 - `scripts/resolve_feedback.py` to move an item into `feedback/resolved/` or archive it with a fix summary
-- `scripts/summarize_feedback.py` with `--audience developer` to create an issue-ready developer handoff inside `feedback/summaries/`
+- `scripts/summarize_feedback.py` with `--audience developer` to create an issue-ready developer summary inside `feedback/summaries/`
+- For **GitHub Issue** drafts and publishing, continue with `references/github-feedback.md` (`prepare_github_issue.py` / `publish_github_issue.py` / `sanitize_and_post.py`) — local developer summaries are not a substitute for the privacy-checked publish path
 
 Recommended progression:
 1. Capture the issue in `feedback/raw/`

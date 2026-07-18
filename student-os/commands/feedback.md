@@ -14,3 +14,5 @@ Use when the user asks to:
 Default route:
 - primary role: `feedback-operator`
 - coordinator remains responsible for the final summary
+
+If the user wants a **public** GitHub Issue, continue with `commands/report-issue.md` and `references/github-feedback.md` (privacy check before any `gh` call). Local `feedback/` entries alone are not public.

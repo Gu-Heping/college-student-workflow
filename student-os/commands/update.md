@@ -12,6 +12,8 @@ Default route:
 - primary role: `coordinator`
 - supporting role: skill-maintenance flow via `references/update-workflow.md`
 
+Hard rule: update **only** the installed skill directory. Do **not** modify the learning vault, re-scaffold notes, or treat the skill source checkout as the vault.
+
 Expected outputs:
 - installed target path
 - current commit and latest commit
