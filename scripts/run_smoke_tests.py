@@ -2027,6 +2027,81 @@ def exercise_exam_census(repo: Path) -> None:
             newline="\n",
         )
 
+    # Phase A–E mechanical scripts (fill queue, quality gate, multi-dim, cross-val).
+    run_script(
+        "build_exam_type_stats.py",
+        str(repo),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期中",
+        "--overwrite",
+    )
+    fill_payload = json.loads(
+        run_script(
+            "fill_type_analysis.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+        )
+    )
+    if fill_payload.get("item_count", 0) < 1:
+        raise AssertionError(f"Expected fill queue items, got: {fill_payload}")
+    ensure_exists(state_dir / "fill-queue.json")
+
+    review_result = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "review_type_analysis.py"),
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if review_result.returncode == 0:
+        raise AssertionError("Bare census skeletons should fail Phase B structural review")
+    ensure_exists(state_dir / "quality-reviews.json")
+    ensure_exists(repo / "courses" / "linear-algebra" / "reviews" / "期中" / "analysis" / "质量门禁.md")
+
+    multi = json.loads(
+        run_script(
+            "build_multi_dim_stats.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+        )
+    )
+    if multi.get("pair_count", 0) < 1:
+        raise AssertionError(f"Expected co-occurrence pairs from annotations, got: {multi}")
+    ensure_exists(repo / "courses" / "linear-algebra" / "reviews" / "期中" / "analysis" / "题型关联分析.md")
+
+    cross = json.loads(
+        run_script(
+            "cross_validate_exam_census.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+        )
+    )
+    if not cross.get("ok"):
+        raise AssertionError(f"Expected clean cross-validation after census rebuild, got: {cross}")
+    ensure_exists(repo / "courses" / "linear-algebra" / "reviews" / "期中" / "analysis" / "覆盖率检查.md")
+
 
 def exercise_feedback_lifecycle(repo: Path) -> None:
     feedback_day = date.today()

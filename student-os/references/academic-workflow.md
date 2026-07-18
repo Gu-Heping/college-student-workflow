@@ -80,11 +80,13 @@ Slug notes:
   - `templates/exam-type-taxonomy.md`
   - `templates/exam-type-frequency-report.md`
   - `templates/exam-type-analysis.md`
+  - `templates/exam-paper-deep-dive.md`
   - `templates/exam-prep-guide.md`
   - `templates/formula-cheat-sheet.md`
   - `templates/answer-template-quickref.md`
   - `templates/pre-exam-one-hour-checklist.md`
 - Rank study effort by paper appearance rate from `build_exam_type_stats.py`, not gut feel.
+- After Aggregate, follow Phase A–E in `references/exam-census-quality.md` before treating the prep pack as done.
 
 ### Add lab or report work
 
