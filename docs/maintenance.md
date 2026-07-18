@@ -40,7 +40,7 @@
 - 合并前至少本地跑：
 
 ```bash
-python -m py_compile scripts/install_student_os.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py
+python -m py_compile scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py
 python scripts/run_smoke_tests.py
 ```
 
@@ -51,6 +51,32 @@ python scripts/run_smoke_tests.py
 
 - 用户可见行为变化写入 `CHANGELOG.md` 的 `[Unreleased]`。
 - 文档整理可用一条 `Changed` / 文档向 bullet，不必重写历史。
+- 版本号暂时按 `0.x.y` 维护：功能性大更新升 minor，bugfix 升 patch。
+
+## 发布流程
+
+发版采用 **tag 触发自动 Release**（不会在每次 push main 时发版）。Release notes 来自 `CHANGELOG.md` 对应版本段落，不要直接从 `[Unreleased]` 发 release。
+
+1. 平时把变更写到 `CHANGELOG.md` 的 `[Unreleased]`。
+2. 准备发版时，把 `[Unreleased]` 改成 `[x.y.z] - YYYY-MM-DD`，并在顶部新建空的 `[Unreleased]`。
+3. 合并 release PR 到 `main`。
+4. 在 `main` 上打 tag：`vX.Y.Z`。
+5. 推送 tag 后，GitHub Actions（[`.github/workflows/release.yml`](../.github/workflows/release.yml)）自动跑验证并从 CHANGELOG 创建 GitHub Release。
+
+```bash
+git checkout main
+git pull
+git tag v0.7.0
+git push origin v0.7.0
+```
+
+本地可先核对 notes：
+
+```bash
+python scripts/extract_release_notes.py --version 0.7.0 --output release-notes.md
+```
+
+如果 workflow 失败，先修 CHANGELOG 或测试，再删除/重推 tag 或使用新 tag。已存在的同名 GitHub Release 不会被静默覆盖。
 
 ## Agent 维护时注意
 

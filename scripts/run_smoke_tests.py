@@ -6101,6 +6101,55 @@ def verify_self_update_workflow(tmp_root: Path) -> None:
         raise AssertionError("self-update should refuse overwriting local installed-skill drift without --force")
 
 
+def verify_extract_release_notes(tmp_root: Path) -> None:
+    output_plain = tmp_root / "notes-0.6.0.md"
+    output_prefixed = tmp_root / "notes-v0.6.0.md"
+    run_root_script(
+        "extract_release_notes.py",
+        "--version",
+        "0.6.0",
+        "--output",
+        str(output_plain),
+    )
+    run_root_script(
+        "extract_release_notes.py",
+        "--version",
+        "v0.6.0",
+        "--output",
+        str(output_prefixed),
+    )
+    plain_text = output_plain.read_text(encoding="utf-8")
+    prefixed_text = output_prefixed.read_text(encoding="utf-8")
+    if "多学期知识库支持" not in plain_text:
+        raise AssertionError("extract_release_notes.py should extract the 0.6.0 section body")
+    if "## [0.6.0]" in plain_text or "## [0.5.0]" in plain_text:
+        raise AssertionError("extract_release_notes.py should omit version headings from the body")
+    if "## [Unreleased]" in plain_text:
+        raise AssertionError("extract_release_notes.py must not include the Unreleased section")
+    if plain_text != prefixed_text:
+        raise AssertionError("0.6.0 and v0.6.0 should extract identical release notes")
+
+    missing = run_root_script_failure(
+        "extract_release_notes.py",
+        "--version",
+        "9.9.9",
+        "--output",
+        str(tmp_root / "missing.md"),
+    )
+    if "9.9.9" not in missing:
+        raise AssertionError("extract_release_notes.py should fail clearly when the version is missing")
+
+    unreleased = run_root_script_failure(
+        "extract_release_notes.py",
+        "--version",
+        "Unreleased",
+        "--output",
+        str(tmp_root / "unreleased.md"),
+    )
+    if "Unreleased" not in unreleased:
+        raise AssertionError("extract_release_notes.py should refuse Unreleased as release notes")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run smoke tests for student-os scaffolding workflows.")
     parser.add_argument(
@@ -6134,6 +6183,7 @@ def main() -> int:
         verify_self_update_workflow(tmp_root / "self-update-demo")
         verify_token_loader(tmp_root / "token-loader-demo")
         verify_ensure_frontmatter(tmp_root / "ensure-frontmatter-demo")
+        verify_extract_release_notes(tmp_root / "extract-release-notes-demo")
 
         if args.refresh_examples:
             EXAMPLES_ROOT.mkdir(parents=True, exist_ok=True)
@@ -6159,6 +6209,7 @@ def main() -> int:
     print("OK self-update-demo")
     print("OK token-loader-demo")
     print("OK ensure-frontmatter-demo")
+    print("OK extract-release-notes-demo")
     if args.refresh_examples:
         print(f"REFRESHED {EXAMPLES_ROOT}")
     return 0
