@@ -9,6 +9,7 @@
 - Lint/compile, test, and run commands are documented in `README.md` (see the "测试" / "日常怎么用" sections). Key ones:
   - Tests: `python scripts/run_smoke_tests.py` (self-contained; creates temp Git repos and uses fixtures under `examples/`).
   - Compile check: `python -m py_compile scripts/install_student_os.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py`.
+  - CI 会在 PR 和 main push 上运行 py_compile 与 smoke tests（`.github/workflows/smoke.yml`）。
 - CLI scripts operate on a **separate target vault directory passed as an argument** (e.g. `python student-os/scripts/inspect_repo.py /path/to/vault`). Never run them against this repo itself as the vault.
 - Gotchas:
   - `materials_convert.py` takes the source file/dir as its **only positional arg** (no vault arg); outputs are written beside the source as `<name>.<ext>.md` unless `--output-root` is given. Use `--method local` to force local converters and avoid the hosted MinerU API.

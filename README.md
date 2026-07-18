@@ -343,6 +343,8 @@ python -m py_compile scripts/run_smoke_tests.py
 python -m py_compile student-os/scripts/update_student_os.py
 ```
 
+CI 会在 PR 和 main push 上运行 py_compile 与 smoke tests。
+
 如果你想刷新示例仓库：
 
 ```bash
@@ -355,6 +357,7 @@ python scripts/run_smoke_tests.py --refresh-examples
 - [`CHANGELOG.md`](./CHANGELOG.md)
 - [`scripts/install_student_os.py`](./scripts/install_student_os.py)
 - [`scripts/run_smoke_tests.py`](./scripts/run_smoke_tests.py)
+- [`.github/workflows/smoke.yml`](./.github/workflows/smoke.yml)
 
 ## Roadmap
 
