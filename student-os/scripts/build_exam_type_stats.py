@@ -545,6 +545,86 @@ def _owns_type(text: str, type_id: str) -> bool:
     return actual is None or actual == type_id
 
 
+def _staging_name(seq: int, path: Path) -> str:
+    """Short collision-safe staging filename (avoid doubling long type ids)."""
+    digest = hashlib.sha256(f"{seq}:{path.name}".encode("utf-8")).hexdigest()[:12]
+    return f"s{seq:04d}-{digest}{path.suffix or '.md'}"
+
+
+def _merge_parked_entry(
+    parked: dict[str, dict[str, Any]],
+    entry: dict[str, Any],
+    *,
+    analysis_dir: Path,
+) -> None:
+    type_id = str(entry["type_id"])
+    previous = parked.get(type_id)
+    if previous is None:
+        parked[type_id] = entry
+        return
+    keep_new = previous["was_generated"] and not entry["was_generated"]
+    keep_old = (not previous["was_generated"]) and entry["was_generated"]
+    if keep_new:
+        prev_path = Path(previous["staging_path"])
+        if prev_path.exists():
+            if previous["was_generated"]:
+                prev_path.unlink(missing_ok=True)
+            else:
+                archive_dest = _archive_path(analysis_dir, Path(previous["original_name"]))
+                shutil.move(str(prev_path), str(archive_dest))
+        parked[type_id] = entry
+        return
+    if keep_old:
+        dest = Path(entry["staging_path"])
+        if entry["was_generated"]:
+            dest.unlink(missing_ok=True)
+        elif dest.exists():
+            archive_dest = _archive_path(analysis_dir, Path(entry["original_name"]))
+            shutil.move(str(dest), str(archive_dest))
+        return
+    # Same class: keep the later file.
+    prev_path = Path(previous["staging_path"])
+    if prev_path.exists():
+        if previous["was_generated"]:
+            prev_path.unlink(missing_ok=True)
+        else:
+            archive_dest = _archive_path(analysis_dir, Path(previous["original_name"]))
+            shutil.move(str(prev_path), str(archive_dest))
+    parked[type_id] = entry
+
+
+def _recover_staging(
+    staging: Path,
+    *,
+    analysis_dir: Path,
+    fingerprint_store: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    """Reload pages left in staging by an interrupted --overwrite run."""
+    parked: dict[str, dict[str, Any]] = {}
+    if not staging.exists():
+        return parked
+    for path in sorted(staging.iterdir()):
+        if not path.is_file() or path.suffix.lower() != ".md":
+            continue
+        text = path.read_text(encoding="utf-8")
+        type_id = extract_exam_type_id(text)
+        if not type_id:
+            archive_dest = _archive_path(analysis_dir, path)
+            shutil.move(str(path), str(archive_dest))
+            continue
+        was_generated = is_generated_skeleton(text, type_id=type_id, store=fingerprint_store)
+        entry = {
+            "type_id": type_id,
+            "text": text,
+            "was_generated": was_generated,
+            "staging_path": path,
+            "original_name": path.name,
+            "original_path": str(path.resolve()),
+        }
+        _merge_parked_entry(parked, entry, analysis_dir=analysis_dir)
+    return parked
+
+
 def park_skeletons_for_overwrite(
     analysis_dir: Path,
     fingerprint_store: dict[str, str],
@@ -553,14 +633,14 @@ def park_skeletons_for_overwrite(
 
     This avoids rename cycles when ranks swap (A wants B's path and vice versa).
     Prefer a user-edited page over a generated one when duplicates share a type id.
+    Existing non-empty staging from an interrupted run is recovered, never deleted.
     """
-    staging = analysis_dir / "_reconcile_staging"
-    if staging.exists():
-        shutil.rmtree(staging)
-    staging.mkdir(parents=True, exist_ok=True)
-    parked: dict[str, dict[str, Any]] = {}
     analysis_dir.mkdir(parents=True, exist_ok=True)
+    staging = analysis_dir / "_reconcile_staging"
+    parked = _recover_staging(staging, analysis_dir=analysis_dir, fingerprint_store=fingerprint_store)
+    staging.mkdir(parents=True, exist_ok=True)
 
+    seq = 0
     for path in sorted(analysis_dir.glob("*.md")):
         text = path.read_text(encoding="utf-8")
         type_id = extract_exam_type_id(text)
@@ -569,16 +649,12 @@ def park_skeletons_for_overwrite(
             remove_or_archive_skeleton(analysis_dir, path, store=fingerprint_store)
             continue
         was_generated = is_generated_skeleton(text, type_id=type_id, store=fingerprint_store)
-        dest = staging / f"{slugify(type_id, fallback='type')}__{path.name}"
-        # Avoid collisions inside staging.
-        if dest.exists():
-            index = 1
-            while True:
-                candidate = staging / f"{slugify(type_id, fallback='type')}__{path.stem}-{index}{path.suffix}"
-                if not candidate.exists():
-                    dest = candidate
-                    break
-                index += 1
+        original_path = str(path.resolve())
+        seq += 1
+        dest = staging / _staging_name(seq, path)
+        while dest.exists():
+            seq += 1
+            dest = staging / _staging_name(seq, path)
         shutil.move(str(path), str(dest))
         entry = {
             "type_id": type_id,
@@ -586,38 +662,9 @@ def park_skeletons_for_overwrite(
             "was_generated": was_generated,
             "staging_path": dest,
             "original_name": path.name,
+            "original_path": original_path,
         }
-        previous = parked.get(type_id)
-        if previous is None:
-            parked[type_id] = entry
-            continue
-        keep_new = previous["was_generated"] and not was_generated
-        keep_old = (not previous["was_generated"]) and was_generated
-        if keep_new:
-            prev_path = Path(previous["staging_path"])
-            if prev_path.exists():
-                if previous["was_generated"]:
-                    prev_path.unlink(missing_ok=True)
-                else:
-                    archive_dest = _archive_path(analysis_dir, Path(previous["original_name"]))
-                    shutil.move(str(prev_path), str(archive_dest))
-            parked[type_id] = entry
-        elif keep_old:
-            if was_generated:
-                dest.unlink(missing_ok=True)
-            else:
-                archive_dest = _archive_path(analysis_dir, path)
-                shutil.move(str(dest), str(archive_dest))
-        else:
-            # Same class: keep the later file, archive/delete the earlier staging copy.
-            prev_path = Path(previous["staging_path"])
-            if prev_path.exists():
-                if previous["was_generated"]:
-                    prev_path.unlink(missing_ok=True)
-                else:
-                    archive_dest = _archive_path(analysis_dir, Path(previous["original_name"]))
-                    shutil.move(str(prev_path), str(archive_dest))
-            parked[type_id] = entry
+        _merge_parked_entry(parked, entry, analysis_dir=analysis_dir)
     return parked, staging
 
 
@@ -685,7 +732,7 @@ def place_parked_skeletons(
             continue
         if entry["was_generated"]:
             staging_path.unlink(missing_ok=True)
-            retired.append(f"deleted:{entry['original_name']}")
+            retired.append(f"deleted:{entry.get('original_path') or entry['original_name']}")
         else:
             archive_dest = _archive_path(analysis_dir, Path(entry["original_name"]))
             shutil.move(str(staging_path), str(archive_dest))

@@ -345,14 +345,46 @@ if (analysisGate.analysis_needs_revision.length) {
     ),
   )
 
-  await agent(
+  const analysisRecheck = await agent(
     [
       'Phase C analysis re-check: run review_type_analysis.py once more after analysis revisions.',
       `Command: python -B ${script('review_type_analysis.py')} ${baseFlags}`,
-      'Confirm analysis_needs_revision is empty. If any remain, report them and stop before Phase D (do not silently continue).',
+      'Return analysis_needs_revision from quality-reviews.json (kind=analysis-report).',
+      'If any remain, do not continue to Phase D.',
     ].join('\n'),
-    { label: 'phase-analysis-quality-recheck' },
+    {
+      label: 'phase-analysis-quality-recheck',
+      schema: {
+        type: 'object',
+        required: ['analysis_needs_revision'],
+        properties: {
+          analysis_needs_revision: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['path'],
+              properties: {
+                path: { type: 'string' },
+                failed_checks: { type: 'array', items: { type: 'string' } },
+              },
+            },
+          },
+        },
+      },
+    },
   )
+
+  if (analysisRecheck.analysis_needs_revision.length) {
+    return {
+      status: 'blocked_analysis_quality',
+      vault,
+      course,
+      examScope,
+      semester,
+      scriptsDir,
+      analysis_needs_revision: analysisRecheck.analysis_needs_revision,
+    }
+  }
 }
 
 await agent(
