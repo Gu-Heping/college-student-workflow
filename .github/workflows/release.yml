@@ -9,22 +9,38 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# Default to read; only the publish job elevates to write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
-    name: Verify and publish GitHub Release
+  verify:
+    name: Verify tag and run checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
     env:
-      GH_TOKEN: ${{ github.token }}
       PYTHONIOENCODING: utf-8
       PYTHONDONTWRITEBYTECODE: "1"
 
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require tag commit on origin/main
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "error: tag $TAG (${GITHUB_SHA}) is not reachable from origin/main." >&2
+            echo "Only tags pointing at commits already on main may be released." >&2
+            exit 1
+          fi
 
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
@@ -67,9 +83,32 @@ jobs:
           --version "${{ steps.version.outputs.version }}"
           --output release-notes.md
 
+      - name: Upload release notes
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-notes
+          path: release-notes.md
+          if-no-files-found: error
+
+  publish:
+    name: Create GitHub Release
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Download release notes
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: release-notes
+
       - name: Fail if GitHub Release already exists
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
+          TAG="${{ needs.verify.outputs.tag }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "error: GitHub Release for $TAG already exists; refusing to overwrite." >&2
             exit 1
@@ -77,6 +116,7 @@ jobs:
 
       - name: Create GitHub Release
         run: >
-          gh release create "${{ steps.version.outputs.tag }}"
-          --title "${{ steps.version.outputs.tag }}"
+          gh release create "${{ needs.verify.outputs.tag }}"
+          --title "${{ needs.verify.outputs.tag }}"
           --notes-file release-notes.md
+          --verify-tag

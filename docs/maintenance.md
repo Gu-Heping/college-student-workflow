@@ -76,7 +76,16 @@ git push origin v0.7.0
 python scripts/extract_release_notes.py --version 0.7.0 --output release-notes.md
 ```
 
-如果 workflow 失败，先修 CHANGELOG 或测试，再删除/重推 tag 或使用新 tag。已存在的同名 GitHub Release 不会被静默覆盖。
+Workflow 会拒绝：
+
+- 指向未合入 `main` 的 commit 的 tag
+- CHANGELOG 缺少对应版本段落
+- smoke / 编译失败
+- 已存在的同名 GitHub Release（不会静默覆盖）
+
+验证步骤只使用 `contents: read`；创建 Release 才提升到 `contents: write`。
+
+如果 workflow 失败，先修 CHANGELOG 或测试，再删除/重推 tag 或使用新 tag。
 
 ## Agent 维护时注意
 
