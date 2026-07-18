@@ -2177,6 +2177,41 @@ def exercise_exam_census(repo: Path) -> None:
         raise AssertionError("Expected Phase E to fail when prep guide has no type links")
     prep_guide.unlink()
 
+    # Platform adapters install into the vault (not the skill dir).
+    adapter_payload = json.loads(
+        run_script(
+            "install_exam_census_adapters.py",
+            str(repo),
+            "--platforms",
+            "claude,cursor,opencode,github",
+            "--json",
+        )
+    )
+    if adapter_payload.get("installed") != 4:
+        raise AssertionError(f"Expected 4 adapters installed, got: {adapter_payload}")
+    claude_wf = repo / ".claude" / "workflows" / "exam-census.js"
+    cursor_rule = repo / ".cursor" / "rules" / "exam-census.mdc"
+    ensure_exists(claude_wf)
+    ensure_exists(cursor_rule)
+    ensure_exists(repo / ".opencode" / "exam-census.md")
+    ensure_exists(repo / ".github" / "copilot-exam-census.md")
+    ensure_contains(claude_wf, "name: 'exam-census'")
+    ensure_contains(claude_wf, "export const meta")
+    ensure_contains(cursor_rule, "alwaysApply: false")
+    ensure_contains(cursor_rule, "exam-census")
+    # Second install without --force should skip.
+    skip_payload = json.loads(
+        run_script(
+            "install_exam_census_adapters.py",
+            str(repo),
+            "--platforms",
+            "claude",
+            "--json",
+        )
+    )
+    if skip_payload.get("skipped") != 1:
+        raise AssertionError(f"Expected claude adapter skip on reinstall, got: {skip_payload}")
+
 
 def exercise_feedback_lifecycle(repo: Path) -> None:
     feedback_day = date.today()

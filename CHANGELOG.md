@@ -8,6 +8,7 @@
 
 - 为 `student-os` 新增大规模试卷普查工作流（`exam-census`）：`init_exam_census.py` / `build_exam_type_stats.py`、题型 taxonomy/annotation 契约、频率统计与题型解析骨架生成，以及备考指南/公式总卡/答题模板/考前清单模板；配套 `exam-census-workflow.md`、命令入口与 review-coach/coordinator 路由。
 - 为 exam-census 增加 Phase A–E（Issue #41）：`fill_type_analysis.py` / `review_type_analysis.py` / `build_multi_dim_stats.py` / `init_exam_deep_dive.py` / `cross_validate_exam_census.py`、内容标准与零基础入口契约（`exam-census-quality.md`）、题型解析模板升级与 `analysis/` 产物。
+- 为 exam-census 增加多平台编排层（Issue #43）：`integrations/` 下 Claude Code JS workflow、Cursor `.mdc`、OpenCode/GitHub 薄适配，以及 `install_exam_census_adapters.py` 安装到学习 vault。
 - 为 `materials_convert.py` 增加内容探针与智能分流（`probe_materials.py`）：按 PDF/DOCX/PPTX/图片/旧 Office 特征选择 MinerU API（含自动 OCR）、PyMuPDF、pandoc/`docx_to_md` 或本地转换器，并支持 `--probe-only` / `--force-strategy`。
 - 为 `student-os` 新增统一的 `token_loader.py`：按 CLI → 进程环境变量 → skill 根目录 `.env` → cwd `.env` 加载 `MINERU_TOKEN` / `MINERU_API_TOKEN`，并提供 `.env.example`；安装/更新时保留 skill 本地 `.env`（含 `--force` 重装），仓库与脚手架默认忽略真实 `.env`，并对已有 vault 的 `.gitignore` 追加缺失的密钥规则。
 - 为 `prepare_github_issue.py` 增加 `--stdin` / `--check-only` / `--stdin-format json` / `--allow-privacy-warnings` 独立脱敏管道，使任意 issue draft 在直接 `gh issue create` 前也能走同一套隐私检查与脱敏逻辑；JSON 模式会同时扫描并脱敏 `title` 字段，warning 草稿默认拦截需显式放行，文档统一固定 `--repo Gu-Heping/college-student-workflow`。
