@@ -52,6 +52,7 @@ Use these scripts when helpful:
 - `scripts/fill_type_analysis.py` for Phase A fill queues after Aggregate.
 - `scripts/review_type_analysis.py` for Phase B structural quality gates.
 - `scripts/build_multi_dim_stats.py` for Phase C multi-dimensional analysis drafts.
+- `scripts/init_exam_deep_dive.py` for Phase D representative paper deep-dive scaffolds.
 - `scripts/cross_validate_exam_census.py` for Phase E coverage / traceability checks.
 - `scripts/group_git_changes.py` for student-task change grouping and commit prefix suggestions.
 - `scripts/rebuild_indexes.py` for regenerating course/project/task/activity indexes.

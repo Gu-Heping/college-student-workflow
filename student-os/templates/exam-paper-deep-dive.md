@@ -28,7 +28,7 @@ source_artifacts: [{{paper_path}}]
 
 ### Q2
 
-- Type analysis:
+- Type analysis: [{{type_name}}](题型解析/{{type_file}})
 - Prompt:
 - Method link:
 - Solution outline:

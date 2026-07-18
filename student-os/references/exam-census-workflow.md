@@ -163,7 +163,14 @@ Writes drafts under `reviews/<exam-scope-key>/analysis/` (co-occurrence, format 
 
 ### Phase 4d — Deep-dive papers (Phase D)
 
-Select 1–2 representative papers and write per-question walkthroughs under `reviews/<exam-scope-key>/` using `templates/exam-paper-deep-dive.md`, linking each question to its type-analysis page.
+```bash
+python student-os/scripts/init_exam_deep_dive.py /path/to/vault \
+  --course linear-algebra \
+  --exam-scope 期中 \
+  --limit 2
+```
+
+Scaffolds 1–2 representative paper walkthroughs under `reviews/<exam-scope-key>/真题精析/` (links each annotated type back to `题型解析/`). Agents then fill prompts and solutions; template: `templates/exam-paper-deep-dive.md`.
 
 ### Phase 4e — Cross-validation (Phase E)
 

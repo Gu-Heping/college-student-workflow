@@ -6,6 +6,7 @@ import json
 import re
 from datetime import date
 from pathlib import Path
+from urllib.parse import unquote
 
 from course_layout import configure_stdout_utf8
 from exam_census_utils import (
@@ -40,6 +41,27 @@ def extract_exam_type_id(text: str) -> str | None:
     if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
         return raw[1:-1]
     return raw
+
+
+def markdown_link_targets(text: str) -> list[str]:
+    return [unquote(match.group(1).strip()) for match in re.finditer(r"\[[^\]]*\]\(([^)]+)\)", text)]
+
+
+def guide_links_type(guide_text: str, type_id: str, skeleton_name: str | None) -> bool:
+    for target in markdown_link_targets(guide_text):
+        normalized = target.replace("\\", "/")
+        if type_id and type_id in normalized:
+            return True
+        if skeleton_name and skeleton_name in normalized:
+            return True
+        if f"题型解析/" in normalized and type_id.replace("_", "-") in normalized:
+            return True
+    return False
+
+
+def yaml_string(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def main() -> int:
@@ -90,13 +112,21 @@ def main() -> int:
 
     prep_guide = output_root / "备考指南.md"
     guide_missing_links: list[str] = []
-    if prep_guide.exists():
+    guide_exists = prep_guide.exists()
+    if guide_exists:
         guide_text = prep_guide.read_text(encoding="utf-8")
         for type_id in sorted(annotated_known):
-            if type_id not in guide_text and skeleton_ids.get(type_id, "") not in guide_text:
+            if not guide_links_type(guide_text, type_id, skeleton_ids.get(type_id)):
                 guide_missing_links.append(type_id)
 
     today = date.today().isoformat()
+    ok = not (
+        papers_missing_types
+        or missing_skeletons
+        or unknown_annotated
+        or orphan_skeletons
+        or (guide_exists and guide_missing_links)
+    )
     report = {
         "course": course_key,
         "exam_scope": exam_scope,
@@ -107,8 +137,9 @@ def main() -> int:
         "missing_skeletons": missing_skeletons,
         "orphan_skeletons": orphan_skeletons,
         "unknown_annotated_types": unknown_annotated,
+        "prep_guide_exists": guide_exists,
         "prep_guide_unlinked_types": guide_missing_links,
-        "ok": not (papers_missing_types or missing_skeletons or unknown_annotated),
+        "ok": ok,
     }
     write_json(census_state / "cross-validation.json", report)
 
@@ -117,12 +148,12 @@ def main() -> int:
     lines = [
         "---",
         "type: exam-census-cross-validation",
-        f'course: "{course_key}"',
+        f"course: {yaml_string(course_key)}",
         "status: active",
         f"created: {today}",
         f"updated: {today}",
         "review_scope: exam-census",
-        f'exam_scope: "{exam_scope}"',
+        f"exam_scope: {yaml_string(exam_scope)}",
         "---",
         "",
         f"# {course_key} · {exam_scope} · 覆盖率检查",
@@ -133,6 +164,7 @@ def main() -> int:
         f"- Missing skeletons for annotated types: {len(missing_skeletons)}",
         f"- Orphan skeletons (no annotated papers): {len(orphan_skeletons)}",
         f"- Unknown annotated type ids: {len(unknown_annotated)}",
+        f"- Prep guide unlinked types: {len(guide_missing_links)}",
         "",
         "## Missing skeletons",
         "",
@@ -146,11 +178,18 @@ def main() -> int:
         lines.extend([f"- `{item}`" for item in papers_missing_types])
     else:
         lines.append("- None")
+    lines.extend(["", "## Orphan skeletons", ""])
+    if orphan_skeletons:
+        lines.extend([f"- `{item}`" for item in orphan_skeletons])
+    else:
+        lines.append("- None")
     lines.extend(["", "## Prep guide types not linked", ""])
-    if guide_missing_links:
+    if not guide_exists:
+        lines.append("- None (prep guide not created yet; skipped)")
+    elif guide_missing_links:
         lines.extend([f"- `{item}`" for item in guide_missing_links])
     else:
-        lines.append("- None (or prep guide not created yet)")
+        lines.append("- None")
     lines.extend(
         [
             "",

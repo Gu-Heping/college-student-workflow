@@ -35,11 +35,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def yaml_string(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def main() -> int:
     configure_stdout_utf8()
     args = parse_args()
-    if args.max_rounds < 0:
-        raise SystemExit("--max-rounds must be >= 0")
+    if not 0 <= args.max_rounds <= 2:
+        raise SystemExit("--max-rounds must be between 0 and 2")
 
     repo = Path(args.repo).resolve()
     course_dir = resolve_course(repo, args.course, semester=args.semester)
@@ -84,9 +89,9 @@ def main() -> int:
     lines = [
         "---",
         "type: exam-census-quality-gate",
-        f'course: "{course_key}"',
+        f"course: {yaml_string(course_key)}",
         "status: active",
-        f'exam_scope: "{exam_scope}"',
+        f"exam_scope: {yaml_string(exam_scope)}",
         "review_scope: exam-census",
         "---",
         "",

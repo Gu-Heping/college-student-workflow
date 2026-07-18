@@ -25,13 +25,27 @@ Use this reference for Phase A–E after Aggregate. Mechanical census scripts st
 
 Principles: conclusions/templates before deep theory; expand numeric substitution; first sentence of solutions states order; key observations only explain *why* or *common error*.
 
-## Blockquote patterns
+## Blockquote patterns (page-level)
 
-- Badge at top (`> **考试频率**` …)
-- Decision trees as ASCII (`├─` / `└─`) preferred over long prose
-- In solutions: `> **核心技巧**` (before), `> **关键**` (after result), `> **注意**`, `> **技巧总结**`
-- Fill-in answer templates in `>` blocks with `[占位符]`
-- Separate advanced tricks into an optional 考试技巧进阶指南 and link from type pages
+| Type | Role | Typical location |
+| --- | --- | --- |
+| Badge | Frequency / score / difficulty / sources in 30s | File top |
+| Decision tree | Branching method choice (`├─` / `└─`) | 方法选择树 |
+| Special trick callout | Cold / high-skill methods | After decision tree or in examples |
+| Lookup table | Side-by-side contrasts | 考前速记 / 公式 |
+| Advanced-guide link | Shared tricks live in one guide | Badge or 进阶技巧 |
+| Motto / relation chain | One-line memorables | 考前速记 |
+
+## Blockquote patterns (inside solutions)
+
+| Type | Solves | Placement |
+| --- | --- | --- |
+| `> **核心技巧**` | Why this step? | Before a key step |
+| `> **关键**` | What does this result mean? | After an intermediate result |
+| `> **注意**` | How does this differ from the usual case? | After the solution |
+| `> **技巧总结**` | Where else can this method apply? | End of worked example |
+| Fill-in template | Exam-ready answer skeleton with `[占位符]` | After each judgment step |
+| `> **口诀**` | Compress a criterion | 速记区 |
 
 ## Phase scripts
 
@@ -43,29 +57,46 @@ python student-os/scripts/fill_type_analysis.py /path/to/vault --course linear-a
 python student-os/scripts/review_type_analysis.py /path/to/vault --course linear-algebra --exam-scope 期中
 
 # C — multi-dim analysis drafts under reviews/<scope>/analysis/
-python student-os/scripts/build_multi_dim_stats.py /path/to/vault --course linear-algebra --exam-scope 期中
+python student-os/scripts/build_multi_dim_stats.py /path/to/vault --course linear-algebra --exam-scope 期中 --overwrite
 
-# D — agent-authored 真题精析 for 1–2 representative papers (no dedicated script; follow SOP)
+# D — scaffold 1–2 representative paper deep-dives
+python student-os/scripts/init_exam_deep_dive.py /path/to/vault --course linear-algebra --exam-scope 期中 --limit 2
 
-# E — coverage / skeleton traceability
+# E — coverage / skeleton / prep-guide link traceability
 python student-os/scripts/cross_validate_exam_census.py /path/to/vault --course linear-algebra --exam-scope 期中
 ```
 
 ## Reviewer JSON shape (Phase B)
 
-`review_type_analysis.py` writes `.student-os/state/exam-census/.../quality-reviews.json` with:
+`review_type_analysis.py` writes `.student-os/state/exam-census/.../quality-reviews.json` as a **report object**:
 
 ```json
 {
-  "file": "courses/.../题型解析/01-matrix-rank.md",
-  "verdict": "pass",
-  "checks": {
-    "required_sections": {"pass": true, "issues": []},
-    "entry_layer": {"pass": true, "issues": []},
-    "worked_examples": {"pass": true, "issues": []},
-    "self_tests": {"pass": true, "issues": []}
-  }
+  "course": "linear-algebra",
+  "exam_scope": "期中",
+  "exam_scope_key": "期中",
+  "phase": "B",
+  "max_rounds": 2,
+  "file_count": 3,
+  "pass_count": 0,
+  "needs_revision_count": 3,
+  "reviews": [
+    {
+      "file": "courses/.../题型解析/01-matrix-rank.md",
+      "verdict": "needs-revision",
+      "failed_checks": ["worked_examples", "method_reference"],
+      "checks": {
+        "required_sections": {"pass": true, "issues": []},
+        "entry_layer": {"pass": false, "issues": ["empty entry block: 30秒认题"]},
+        "worked_examples": {"pass": false, "issues": ["need >=2 filled worked examples with method refs, found 0"]},
+        "self_tests": {"pass": false, "issues": ["need >=2 filled self-tests with answers, found 0"]},
+        "method_reference": {"pass": false, "issues": ["need >=2 【方法引用】entries with content, found 0"]},
+        "verification_steps": {"pass": false, "issues": ["missing verification/校验 steps"]},
+        "no_placeholders": {"pass": true, "issues": []}
+      }
+    }
+  ]
 }
 ```
 
-Agents may revise a `needs-revision` file at most twice; then set `quality: needs-review` in frontmatter.
+Structural checks also require non-placeholder body text (empty template headings alone fail). Agents may revise a `needs-revision` file at most twice; then set `quality: needs-review` in frontmatter.

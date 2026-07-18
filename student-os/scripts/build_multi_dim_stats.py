@@ -31,6 +31,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--course", required=True, help="Course slug or path under courses/")
     parser.add_argument("--exam-scope", required=True, help="Exam scope label such as 期中 or midterm")
     parser.add_argument("--semester", default="", help="Optional semester slug when resolving the course")
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing analysis drafts (default: skip files that already exist)",
+    )
     return parser.parse_args()
 
 
@@ -39,10 +44,13 @@ def yaml_string(value: str) -> str:
     return f'"{escaped}"'
 
 
-def write_md(path: Path, lines: list[str]) -> None:
+def write_md(path: Path, lines: list[str], *, overwrite: bool) -> bool:
+    if path.exists() and not overwrite:
+        return False
     path.parent.mkdir(parents=True, exist_ok=True)
     text = "\n".join(lines)
     path.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8", newline="\n")
+    return True
 
 
 def frontmatter(course_key: str, exam_scope: str, doc_type: str, today: str) -> list[str]:
@@ -95,7 +103,7 @@ def main() -> int:
         present = list(dict.fromkeys(str(item) for item in (annotation.get("types_present") or [])))
         reliability = str(annotation.get("paper_reliability") or annotation.get("reliability") or "unspecified")
         difficulty = annotation.get("difficulty_stars") or annotation.get("difficulty") or "unspecified"
-        paper_format = str(annotation.get("paper_format") or annotation.get("format") or "mixed")
+        paper_format = str(annotation.get("paper_format") or annotation.get("format") or "unspecified")
         format_counter[paper_format] += 1
         for left, right in combinations(sorted(present), 2):
             pair_counter[(left, right)] += 1
@@ -130,9 +138,7 @@ def main() -> int:
             )
     else:
         co_lines.append("| - | - | 0 |")
-    write_md(analysis_dir / "题型关联分析.md", co_lines)
 
-    # 分题型频率（by annotation paper_format when present）
     format_lines = frontmatter(course_key, exam_scope, "exam-format-frequency", today)
     format_lines.extend(
         [
@@ -164,9 +170,7 @@ def main() -> int:
         format_lines.append(
             f"| {md_table_cell(str(row['label']))} | {md_table_cell(str(row['format']))} | {md_table_cell(types)} |"
         )
-    write_md(analysis_dir / "分题型频率统计.md", format_lines)
 
-    # 难度 / 卷源 stubs seeded from annotation optional fields
     diff_lines = frontmatter(course_key, exam_scope, "exam-difficulty-grading", today)
     diff_lines.extend(
         [
@@ -183,7 +187,6 @@ def main() -> int:
             f"| {md_table_cell(str(row['label']))} | {md_table_cell(str(row['difficulty']))} | "
             f"{md_table_cell(', '.join(row['types']) or '-')} |"
         )
-    write_md(analysis_dir / "题型难度分级.md", diff_lines)
 
     rel_lines = frontmatter(course_key, exam_scope, "exam-paper-reliability", today)
     rel_lines.extend(
@@ -199,7 +202,19 @@ def main() -> int:
     )
     for row in paper_rows:
         rel_lines.append(f"| {md_table_cell(str(row['label']))} | {md_table_cell(str(row['reliability']))} |")
-    write_md(analysis_dir / "卷源可靠性分级.md", rel_lines)
+
+    written: list[str] = []
+    skipped: list[str] = []
+    for path, lines in (
+        (analysis_dir / "题型关联分析.md", co_lines),
+        (analysis_dir / "分题型频率统计.md", format_lines),
+        (analysis_dir / "题型难度分级.md", diff_lines),
+        (analysis_dir / "卷源可靠性分级.md", rel_lines),
+    ):
+        if write_md(path, lines, overwrite=args.overwrite):
+            written.append(str(path))
+        else:
+            skipped.append(str(path))
 
     result = {
         "course": course_key,
@@ -207,12 +222,10 @@ def main() -> int:
         "analysis_dir": str(analysis_dir),
         "pair_count": len(pair_counter),
         "format_labels": dict(format_counter),
-        "outputs": [
-            str(analysis_dir / "题型关联分析.md"),
-            str(analysis_dir / "分题型频率统计.md"),
-            str(analysis_dir / "题型难度分级.md"),
-            str(analysis_dir / "卷源可靠性分级.md"),
-        ],
+        "overwrite": args.overwrite,
+        "written": written,
+        "skipped_existing": skipped,
+        "outputs": written + skipped,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

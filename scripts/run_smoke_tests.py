@@ -2027,7 +2027,7 @@ def exercise_exam_census(repo: Path) -> None:
             newline="\n",
         )
 
-    # Phase A–E mechanical scripts (fill queue, quality gate, multi-dim, cross-val).
+    # Phase A–E mechanical scripts (fill queue, quality gate, multi-dim, deep-dive, cross-val).
     run_script(
         "build_exam_type_stats.py",
         str(repo),
@@ -2035,6 +2035,7 @@ def exercise_exam_census(repo: Path) -> None:
         "linear-algebra",
         "--exam-scope",
         "期中",
+        "--validate",
         "--overwrite",
     )
     fill_payload = json.loads(
@@ -2050,6 +2051,11 @@ def exercise_exam_census(repo: Path) -> None:
     if fill_payload.get("item_count", 0) < 1:
         raise AssertionError(f"Expected fill queue items, got: {fill_payload}")
     ensure_exists(state_dir / "fill-queue.json")
+    fill_queue = json.loads((state_dir / "fill-queue.json").read_text(encoding="utf-8"))
+    if fill_queue.get("quality_reference") != "references/exam-census-quality.md":
+        raise AssertionError(f"Expected skill-relative quality_reference, got: {fill_queue.get('quality_reference')}")
+    if not fill_queue["items"][0].get("source_papers"):
+        raise AssertionError("Expected source_papers on fill-queue items")
 
     review_result = subprocess.run(
         [
@@ -2069,9 +2075,12 @@ def exercise_exam_census(repo: Path) -> None:
         cwd=ROOT,
         env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
     )
-    if review_result.returncode == 0:
-        raise AssertionError("Bare census skeletons should fail Phase B structural review")
+    if review_result.returncode != 1:
+        raise AssertionError(f"Expected Phase B exit code 1 for bare skeletons, got {review_result.returncode}")
     ensure_exists(state_dir / "quality-reviews.json")
+    quality_report = json.loads((state_dir / "quality-reviews.json").read_text(encoding="utf-8"))
+    if quality_report.get("needs_revision_count", 0) <= 0:
+        raise AssertionError(f"Expected needs_revision_count > 0, got: {quality_report}")
     ensure_exists(repo / "courses" / "linear-algebra" / "reviews" / "期中" / "analysis" / "质量门禁.md")
 
     multi = json.loads(
@@ -2082,11 +2091,34 @@ def exercise_exam_census(repo: Path) -> None:
             "linear-algebra",
             "--exam-scope",
             "期中",
+            "--overwrite",
         )
     )
     if multi.get("pair_count", 0) < 1:
         raise AssertionError(f"Expected co-occurrence pairs from annotations, got: {multi}")
     ensure_exists(repo / "courses" / "linear-algebra" / "reviews" / "期中" / "analysis" / "题型关联分析.md")
+    if multi.get("format_labels", {}).get("unspecified", 0) < 1:
+        raise AssertionError(f"Expected unspecified format labels when annotations omit format: {multi}")
+
+    deep = json.loads(
+        run_script(
+            "init_exam_deep_dive.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+            "--limit",
+            "2",
+            "--overwrite",
+        )
+    )
+    if not deep.get("written"):
+        raise AssertionError(f"Expected Phase D deep-dive scaffolds, got: {deep}")
+    deep_dir = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "真题精析"
+    ensure_exists(deep_dir)
+    if not any(deep_dir.glob("*-精析.md")):
+        raise AssertionError("Expected at least one deep-dive markdown under 真题精析/")
 
     cross = json.loads(
         run_script(
@@ -2101,6 +2133,49 @@ def exercise_exam_census(repo: Path) -> None:
     if not cross.get("ok"):
         raise AssertionError(f"Expected clean cross-validation after census rebuild, got: {cross}")
     ensure_exists(repo / "courses" / "linear-algebra" / "reviews" / "期中" / "analysis" / "覆盖率检查.md")
+
+    # Prep guide without real type links must fail Phase E.
+    prep_guide = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "备考指南.md"
+    prep_guide.write_text(
+        "\n".join(
+            [
+                "---",
+                'course: "Linear Algebra"',
+                "status: draft",
+                "review_scope: exam-census",
+                "---",
+                "",
+                "# Prep guide",
+                "",
+                "Study hard.",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    linked_fail = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "cross_validate_exam_census.py"),
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if linked_fail.returncode == 0:
+        raise AssertionError("Expected Phase E to fail when prep guide has no type links")
+    prep_guide.unlink()
 
 
 def exercise_feedback_lifecycle(repo: Path) -> None:

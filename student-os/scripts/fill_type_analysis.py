@@ -11,7 +11,7 @@ from exam_census_quality import ENTRY_LAYER_MARKERS, REQUIRED_SECTION_HEADINGS
 from exam_census_utils import (
     course_slug_of,
     exam_scope_key,
-    load_json,
+    load_annotations,
     relative_posix,
     resolve_course,
     reviews_dir,
@@ -48,13 +48,40 @@ def extract_exam_type_id(text: str) -> str | None:
 
 
 def extract_sources(text: str) -> list[str]:
-    match = re.search(r"(?m)^source_artifacts:\s*\[(.*)\]\s*$", text)
+    match = re.search(r"(?m)^source_artifacts:\s*(\[.*\])\s*$", text)
     if not match:
         return []
-    inner = match.group(1).strip()
-    if not inner:
+    raw = match.group(1).strip()
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        # Legacy / mixed quoting: recover quoted segments first.
+        quoted = re.findall(r'"((?:\\.|[^"\\])*)"|\'((?:\\.|[^\'\\])*)\'', raw)
+        if quoted:
+            return [item[0] or item[1] for item in quoted]
+        inner = raw.strip("[]").strip()
+        if not inner:
+            return []
+        return [part.strip().strip('"').strip("'") for part in inner.split(",") if part.strip()]
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if value in ("", None):
         return []
-    return [part.strip().strip('"').strip("'") for part in inner.split(",") if part.strip()]
+    return [str(value)]
+
+
+def papers_for_type(annotations: dict[str, dict], type_id: str) -> list[str]:
+    paths: list[str] = []
+    seen: set[str] = set()
+    for annotation in annotations.values():
+        present = [str(item) for item in (annotation.get("types_present") or [])]
+        if type_id not in present:
+            continue
+        source = str(annotation.get("source") or "").strip()
+        if source and source not in seen:
+            seen.add(source)
+            paths.append(source)
+    return paths
 
 
 def main() -> int:
@@ -74,15 +101,19 @@ def main() -> int:
     if not analysis_dir.exists():
         raise SystemExit(f"Missing type-analysis directory. Run build_exam_type_stats.py first: {analysis_dir}")
 
+    annotations = load_annotations(census_state / "annotations")
     items: list[dict] = []
     for path in sorted(analysis_dir.glob("*.md")):
         text = path.read_text(encoding="utf-8")
         type_id = extract_exam_type_id(text) or path.stem
+        sources = extract_sources(text)
+        source_papers = papers_for_type(annotations, type_id) or sources
         items.append(
             {
                 "path": relative_posix(path, repo),
                 "exam_type_id": type_id,
-                "sources": extract_sources(text),
+                "sources": sources,
+                "source_papers": source_papers,
                 "required_sections": REQUIRED_SECTION_HEADINGS,
                 "entry_layer_markers": ENTRY_LAYER_MARKERS,
                 "instructions": [
@@ -104,11 +135,17 @@ def main() -> int:
         "phase": "A",
         "item_count": len(items),
         "items": items,
-        "quality_reference": "student-os/references/exam-census-quality.md",
-        "template": "student-os/templates/exam-type-analysis.md",
+        "quality_reference": "references/exam-census-quality.md",
+        "template": "templates/exam-type-analysis.md",
     }
     write_json(queue_path, payload)
-    print(json.dumps({"queue": str(queue_path), **{k: payload[k] for k in ("course", "exam_scope", "item_count")}}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {"queue": str(queue_path), **{k: payload[k] for k in ("course", "exam_scope", "item_count")}},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 
