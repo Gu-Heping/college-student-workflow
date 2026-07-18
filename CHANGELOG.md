@@ -46,6 +46,7 @@
 
 ### Fixed
 
+- 修复 Claude exam-census `SKILL.md`：去掉 `disable-model-invocation` 与 Workflow 调用指引，改为可自然语言 / `/exam-census` 触发的完整 runbook（Issue #59）。
 - 修复 Claude exam-census adapter 默认依赖 `.claude/workflows/*.js` 的问题，改为安装稳定的 `.claude/skills/exam-census/SKILL.md` 与 `.claude/commands/exam-census.md` 入口；workflow JS 仅作为实验选项。
 - 修复 exam-census 排名互换时题型解析内容串位，以及 Phase C analysis 修订后缺少质量门禁终检的问题。
 - 修复 exam-census 生成产物的可读性与质量门禁问题：精简题型解析 frontmatter、统一字段、中文化分析报告，并避免表格中的行列式 pipe 破坏 Markdown 表格。

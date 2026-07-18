@@ -26,13 +26,17 @@ python student-os/scripts/install_exam_census_adapters.py /path/to/vault \
 python student-os/scripts/install_exam_census_adapters.py /path/to/vault --platforms claude
 ```
 
-然后在 Claude Code 中使用：
+然后在 Claude Code 中使用 slash command 或自然语言：
 
 ```text
 /exam-census vault="/path/to/vault" course="linear-algebra" examScope="期中"
 ```
 
-Claude 端默认使用 skill/command 入口；workflow JS 仅作为实验性适配，不作为推荐入口。`.claude/workflows/exam-census.js` is experimental and not installed by default because Claude Code custom workflow discovery is not stable across environments. 需要时显式传入 `--include-experimental-claude-workflow`。若 vault 里仍留有旧版默认安装的 workflow JS，默认重装会将其备份为 `.bak` 并移除。不要推荐 `Workflow({name: "exam-census"})` 或 `Workflow({scriptPath: ".claude/workflows/exam-census.js"})`。
+```text
+请对 vault="/path/to/vault" 的线性代数期中真题做 exam-census 题型普查
+```
+
+Claude 端默认入口是 **skill/command runbook**（`.claude/skills/exam-census/SKILL.md`）：由模型直接按阶段跑 Python 脚本与填写产物。不要使用 Workflow 工具，也不要依赖 `.claude/workflows/*.js`（该文件仅实验性 opt-in，且自定义 workflow 发现不稳定）。若 vault 里仍留有旧版默认安装的 workflow JS，默认重装会将其备份为 `.bak` 并移除。
 
 Adapters only orchestrate; all durable work still goes through the Python scripts below and `references/exam-census-quality.md`.
 
