@@ -70,7 +70,8 @@ def main(argv: list[str] | None = None) -> int:
         return exit_code
     if args.check_only:
         return 0
-    if output is None:
+    if output is None or not output.strip():
+        print("Aborting: draft is empty after sanitization.", file=sys.stderr)
         return 1
 
     if args.check or not command:

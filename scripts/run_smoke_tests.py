@@ -2565,6 +2565,26 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     if "[REDACTED_WINDOWS_PATH]" not in sanitize_check.stdout:
         raise AssertionError("sanitize_and_post.py --check --allow-privacy-warnings should redact paths")
 
+    for empty_input, empty_label in (("", "empty"), ("   \n\t  \n", "whitespace-only")):
+        with tempfile.TemporaryDirectory() as empty_tmp:
+            empty_marker = Path(empty_tmp) / "should-not-post.txt"
+            empty_post = run_script_with_stdin(
+                "sanitize_and_post.py",
+                empty_input,
+                "--",
+                sys.executable,
+                "-c",
+                "import sys; from pathlib import Path; Path(sys.argv[1]).write_text(sys.stdin.read(), encoding='utf-8')",
+                str(empty_marker),
+                check=False,
+            )
+            if empty_post.returncode == 0:
+                raise AssertionError(f"sanitize_and_post.py should reject {empty_label} drafts")
+            if empty_marker.exists():
+                raise AssertionError(f"sanitize_and_post.py must not invoke follow-up for {empty_label} drafts")
+            if "empty after sanitization" not in empty_post.stderr:
+                raise AssertionError(f"sanitize_and_post.py should explain rejection of {empty_label} drafts")
+
     stdin_json = run_script_with_stdin(
         "prepare_github_issue.py",
         json.dumps({"body": "Contact me at alice@example.com about the vault at /Users/alice/My Vault/notes.md\n"}),
