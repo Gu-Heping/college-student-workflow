@@ -9,9 +9,10 @@ from pathlib import Path
 from course_layout import configure_stdout_utf8
 from exam_census_utils import (
     DEFAULT_BATCH_SIZE,
-    annotation_stem,
+    annotation_id,
     chunk_batches,
     course_slug_of,
+    course_tag_slug,
     default_taxonomy,
     discover_papers,
     relative_posix,
@@ -62,9 +63,9 @@ def main() -> int:
 
     repo = Path(args.repo).resolve()
     course_dir = resolve_course(repo, args.course, semester=args.semester)
-    course_slug = course_slug_of(course_dir, repo)
+    course_key = course_slug_of(course_dir, repo)
     exam_scope = args.exam_scope.strip()
-    census_state = state_dir(repo, course_slug, exam_scope)
+    census_state = state_dir(repo, course_key, exam_scope)
     annotations_dir = census_state / "annotations"
     manifest_path = census_state / "manifest.json"
     taxonomy_path = census_state / "taxonomy.yaml"
@@ -75,8 +76,9 @@ def main() -> int:
         papers_dir = papers_root if papers_root.is_absolute() else (repo / papers_root)
     else:
         papers_dir = course_dir / "references"
+    papers_dir = papers_dir.resolve()
 
-    papers = discover_papers(papers_dir.resolve(), args.pattern)
+    papers = discover_papers(papers_dir, args.pattern)
     if not papers:
         raise SystemExit(f"No .pdf.md papers found under {papers_dir} with pattern {args.pattern!r}")
 
@@ -84,12 +86,21 @@ def main() -> int:
         raise SystemExit(f"Manifest already exists: {manifest_path}. Re-run with --overwrite to replace it.")
 
     paper_entries = []
+    seen_ids: dict[str, str] = {}
     for paper in papers:
+        paper_key = annotation_id(paper, papers_dir)
+        paper_path = relative_posix(paper, repo)
+        if paper_key in seen_ids:
+            raise SystemExit(
+                f"Annotation id collision for {paper_key!r}: {seen_ids[paper_key]} and {paper_path}. "
+                "Rename one of the papers or narrow --pattern."
+            )
+        seen_ids[paper_key] = paper_path
         paper_entries.append(
             {
-                "path": relative_posix(paper, repo),
-                "annotation": f"annotations/{annotation_stem(paper)}.json",
-                "stem": annotation_stem(paper),
+                "path": paper_path,
+                "annotation": f"annotations/{paper_key}.json",
+                "stem": paper_key,
             }
         )
 
@@ -106,10 +117,11 @@ def main() -> int:
         "version": 1,
         "created": date.today().isoformat(),
         "updated": date.today().isoformat(),
-        "course": course_slug,
+        "course": course_key,
+        "course_tag": course_tag_slug(course_key),
         "course_path": relative_posix(course_dir, repo),
         "exam_scope": exam_scope,
-        "papers_dir": relative_posix(papers_dir.resolve(), repo),
+        "papers_dir": relative_posix(papers_dir, repo),
         "pattern": args.pattern,
         "batch_size": args.batch_size,
         "state_dir": relative_posix(census_state, repo),
@@ -125,10 +137,9 @@ def main() -> int:
     write_json(manifest_path, manifest)
 
     if not taxonomy_path.exists():
-        course_name = course_slug.replace("-", " ")
+        course_name = course_tag_slug(course_key).replace("-", " ")
         index_path = course_dir / "index.md"
         if index_path.exists():
-            # Prefer a readable course title from the first markdown heading when present.
             for line in index_path.read_text(encoding="utf-8").splitlines():
                 if line.startswith("# "):
                     course_name = line[2:].strip() or course_name
@@ -137,7 +148,7 @@ def main() -> int:
 
     result = {
         "repo": str(repo),
-        "course": course_slug,
+        "course": course_key,
         "exam_scope": exam_scope,
         "state_dir": str(census_state),
         "manifest": str(manifest_path),

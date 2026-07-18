@@ -14,15 +14,43 @@ DEFAULT_BATCH_SIZE = 6
 MUST_KNOW_RATE = 0.6
 
 
-def state_dir(repo: Path, course_slug: str, exam_scope: str) -> Path:
-    return repo / ".student-os" / "state" / "exam-census" / course_slug / slugify(exam_scope, fallback="exam")
+def course_state_key(course_dir: Path, repo: Path) -> str:
+    """Stable census key that includes semester nesting when present."""
+    courses_root = (repo / "courses").resolve()
+    try:
+        return course_dir.resolve().relative_to(courses_root).as_posix()
+    except ValueError:
+        return course_dir.name
+
+
+def course_tag_slug(course_key: str) -> str:
+    return course_key.replace("/", "-")
+
+
+def state_dir(repo: Path, course_key: str, exam_scope: str) -> Path:
+    return repo / ".student-os" / "state" / "exam-census" / Path(course_key) / slugify(exam_scope, fallback="exam")
 
 
 def reviews_dir(course_dir: Path, exam_scope: str) -> Path:
     return course_dir / "reviews" / exam_scope
 
 
+def annotation_id(paper_path: Path, papers_dir: Path) -> str:
+    """Unique annotation id derived from the paper path relative to papers_dir."""
+    try:
+        relative = paper_path.resolve().relative_to(papers_dir.resolve())
+    except ValueError:
+        relative = Path(paper_path.name)
+    text = relative.as_posix()
+    if text.endswith(".pdf.md"):
+        text = text[: -len(".pdf.md")]
+    elif text.endswith(".md"):
+        text = text[: -len(".md")]
+    return text.replace("/", "__")
+
+
 def annotation_stem(paper_path: Path) -> str:
+    # Backward-compatible helper for basename-only callers/tests.
     name = paper_path.name
     if name.endswith(".pdf.md"):
         return name[: -len(".pdf.md")]
@@ -34,7 +62,7 @@ def resolve_course(repo: Path, course: str, semester: str = "") -> Path:
 
 
 def course_slug_of(course_dir: Path, repo: Path) -> str:
-    return course_dir.name
+    return course_state_key(course_dir, repo)
 
 
 def discover_papers(papers_dir: Path, pattern: str) -> list[Path]:
@@ -209,11 +237,12 @@ def load_annotations(annotations_dir: Path) -> dict[str, dict[str, Any]]:
     if not annotations_dir.exists():
         return {}
     payload: dict[str, dict[str, Any]] = {}
-    for path in sorted(annotations_dir.glob("*.json")):
+    for path in sorted(annotations_dir.rglob("*.json")):
         item = load_json(path)
         if not isinstance(item, dict):
             raise ValueError(f"Annotation must be an object: {path}")
-        payload[path.stem] = item
+        key = path.relative_to(annotations_dir).with_suffix("").as_posix().replace("/", "__")
+        payload[key] = item
     return payload
 
 
@@ -222,3 +251,27 @@ def relative_posix(path: Path, root: Path) -> str:
         return path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
         return path.as_posix()
+
+
+def resolve_repo_path(repo: Path, value: str) -> Path:
+    candidate = Path(value)
+    if candidate.is_absolute():
+        return candidate
+    return (repo / candidate).resolve()
+
+
+def markdown_rel_link(source: str, from_doc: Path, repo: Path) -> str:
+    import os
+
+    target = resolve_repo_path(repo, source)
+    try:
+        return Path(os.path.relpath(target, start=from_doc.parent)).as_posix()
+    except ValueError:
+        try:
+            return target.resolve().relative_to(repo.resolve()).as_posix()
+        except ValueError:
+            return source
+
+
+def md_table_cell(value: str) -> str:
+    return str(value).replace("|", "\\|").replace("\n", " ")

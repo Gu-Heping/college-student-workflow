@@ -1542,17 +1542,202 @@ def exercise_exam_census(repo: Path) -> None:
     ensure_contains(report_path, "matrix-rank")
     ensure_contains(report_path, "Low-confidence annotations")
     ensure_contains(report_path, "`2021-期中-C`")
+    ensure_contains(report_path, "](../../references/exams/2019-期中-A.pdf.md)")
 
     first_skeleton = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型解析" / "01-matrix-rank.md"
     ensure_exists(first_skeleton)
     ensure_contains(first_skeleton, "type: exam-type-analysis")
     ensure_contains(first_skeleton, "exam_type_id: \"matrix-rank\"")
     ensure_contains(first_skeleton, "Must-know tier: yes")
+    ensure_contains(first_skeleton, "](../../../references/exams/2019-期中-A.pdf.md)")
 
     second_skeleton = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型解析" / "02-eigen-decomp.md"
     ensure_exists(second_skeleton)
     third_skeleton = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型解析" / "03-gaussian-elim.md"
     ensure_exists(third_skeleton)
+
+    # Pipe characters in type names must not break the Markdown table.
+    taxonomy_path.write_text(
+        taxonomy_path.read_text(encoding="utf-8").replace(
+            "    name: 矩阵的秩\n",
+            "    name: \"矩阵的秩 P(A|B)\"\n",
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    run_script(
+        "build_exam_type_stats.py",
+        str(repo),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期中",
+        "--overwrite",
+    )
+    ensure_contains(report_path, "矩阵的秩 P(A\\|B)")
+
+    # Unknown types_present / type_counts keys must appear in the durable report and fail --validate.
+    bad_annotation = dict(annotations["2021-期中-C"])
+    bad_annotation["types_present"] = ["matrix-rank", "not-a-real-type"]
+    bad_annotation["type_counts"] = {"matrix-rank": 1, "ghost-count": 2}
+    (annotations_dir / "2021-期中-C.json").write_text(
+        json.dumps(bad_annotation, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    bad_validate = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "build_exam_type_stats.py"),
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+            "--validate",
+            "--overwrite",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if bad_validate.returncode == 0:
+        raise AssertionError("Expected --validate to fail on unknown type ids / count keys")
+    ensure_contains(report_path, "Unknown type ids in types_present")
+    ensure_contains(report_path, "not-a-real-type")
+    ensure_contains(report_path, "ghost-count")
+
+    # Nested papers with the same basename must get distinct annotation ids.
+    nested_root = exams_dir / "nested"
+    (nested_root / "2019").mkdir(parents=True, exist_ok=True)
+    (nested_root / "2020").mkdir(parents=True, exist_ok=True)
+    (nested_root / "2019" / "paper.pdf.md").write_text("# nested 2019\n", encoding="utf-8", newline="\n")
+    (nested_root / "2020" / "paper.pdf.md").write_text("# nested 2020\n", encoding="utf-8", newline="\n")
+    nested_init = json.loads(
+        run_script(
+            "init_exam_census.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "nested-midterm",
+            "--papers-dir",
+            "courses/linear-algebra/references/exams/nested",
+            "--pattern",
+            "**/*.pdf.md",
+            "--overwrite",
+        )
+    )
+    nested_manifest = Path(nested_init["manifest"])
+    nested_stems = {item["stem"] for item in json.loads(nested_manifest.read_text(encoding="utf-8"))["papers"]}
+    if nested_stems != {"2019__paper", "2020__paper"}:
+        raise AssertionError(f"Expected path-namespaced annotation ids, got: {nested_stems}")
+
+    # Semester-aware courses must not share census state.
+    run_script("scaffold_course.py", str(repo), "Calculus II", "--semester", "2026 Fall")
+    run_script("scaffold_course.py", str(repo), "Calculus II", "--semester", "2027 Spring")
+    fall_exams = repo / "courses" / "2026-fall" / "calculus-ii" / "references" / "exams"
+    spring_exams = repo / "courses" / "2027-spring" / "calculus-ii" / "references" / "exams"
+    fall_exams.mkdir(parents=True, exist_ok=True)
+    spring_exams.mkdir(parents=True, exist_ok=True)
+    (fall_exams / "paper.pdf.md").write_text("# fall\n", encoding="utf-8", newline="\n")
+    (spring_exams / "paper.pdf.md").write_text("# spring\n", encoding="utf-8", newline="\n")
+    fall_init = json.loads(
+        run_script(
+            "init_exam_census.py",
+            str(repo),
+            "--course",
+            "calculus-ii",
+            "--semester",
+            "2026 Fall",
+            "--exam-scope",
+            "期中",
+            "--papers-dir",
+            "courses/2026-fall/calculus-ii/references/exams",
+        )
+    )
+    spring_init = json.loads(
+        run_script(
+            "init_exam_census.py",
+            str(repo),
+            "--course",
+            "calculus-ii",
+            "--semester",
+            "2027 Spring",
+            "--exam-scope",
+            "期中",
+            "--papers-dir",
+            "courses/2027-spring/calculus-ii/references/exams",
+        )
+    )
+    if fall_init["course"] != "2026-fall/calculus-ii" or spring_init["course"] != "2027-spring/calculus-ii":
+        raise AssertionError(f"Expected semester-qualified course keys, got {fall_init['course']} / {spring_init['course']}")
+    if Path(fall_init["state_dir"]) == Path(spring_init["state_dir"]):
+        raise AssertionError("Semester-qualified courses must not share exam-census state directories")
+
+    # Rank changes should retire obsolete generated skeletons.
+    taxonomy_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                'course: "Linear Algebra"',
+                "exam_scope: 期中",
+                "types:",
+                "  - id: matrix-rank",
+                "    name: 矩阵的秩",
+                "    aliases: [秩, rank]",
+                "    keywords: [秩, 行阶梯]",
+                "  - id: eigen-decomp",
+                "    name: 特征值与对角化",
+                "    aliases: [特征值, diagonalize]",
+                "    keywords: [特征值, 对角化]",
+                "  - id: gaussian-elim",
+                "    name: 高斯消元",
+                "    aliases: [消元]",
+                "    keywords: [高斯, 行变换]",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    for stem, payload in annotations.items():
+        (annotations_dir / f"{stem}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+    # Boost gaussian-elim above eigen-decomp by swapping one paper's second type.
+    boosted = dict(annotations["2021-期中-C"])
+    boosted["types_present"] = ["matrix-rank", "gaussian-elim"]
+    boosted["type_counts"] = {"matrix-rank": 1, "gaussian-elim": 1}
+    (annotations_dir / "2021-期中-C.json").write_text(
+        json.dumps(boosted, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    rerank = json.loads(
+        run_script(
+            "build_exam_type_stats.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+            "--overwrite",
+        )
+    )
+    if [item["id"] for item in rerank["ranked_types"][:3]] != ["matrix-rank", "gaussian-elim", "eigen-decomp"]:
+        raise AssertionError(f"Unexpected reranked order: {rerank['ranked_types']}")
+    analysis_dir = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型解析"
+    ensure_exists(analysis_dir / "02-gaussian-elim.md")
+    ensure_exists(analysis_dir / "03-eigen-decomp.md")
+    if (analysis_dir / "02-eigen-decomp.md").exists():
+        raise AssertionError("Obsolete ranked skeleton 02-eigen-decomp.md should be retired after rerank")
 
     # --validate should fail when an annotation is missing.
     (annotations_dir / "2021-期中-C.json").unlink()
@@ -1579,11 +1764,12 @@ def exercise_exam_census(repo: Path) -> None:
     if validate_result.returncode == 0:
         raise AssertionError("build_exam_type_stats.py --validate should fail when annotations are missing")
     # Restore annotation and rebuild final report for the example snapshot.
-    (annotations_dir / "2021-期中-C.json").write_text(
-        json.dumps(annotations["2021-期中-C"], ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    for stem, payload in annotations.items():
+        (annotations_dir / f"{stem}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
     run_script(
         "build_exam_type_stats.py",
         str(repo),

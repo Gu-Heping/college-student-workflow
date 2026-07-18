@@ -22,14 +22,16 @@ courses/<course>/reviews/<exam-scope>/
 ├── 答题模板速查.md
 └── 考前1小时清单.md
 
-.student-os/state/exam-census/<course-slug>/<exam-scope-slug>/
+.student-os/state/exam-census/<course-key>/<exam-scope-slug>/
 ├── taxonomy.yaml
 ├── manifest.json
 └── annotations/
-    └── <paper-stem>.json
+    └── <relative-paper-id>.json
 ```
 
+`<course-key>` is the course path under `courses/` (for example `linear-algebra` or `2026-fall/cs-101`), so semester-nested courses do not collide.
 `<exam-scope>` keeps the human label (for example `期中`). The state path slugifies that label.
+Annotation filenames are derived from each paper's path relative to `--papers-dir`, with `/` flattened to `__` (for example `2019/paper.pdf.md` → `annotations/2019__paper.json`).
 
 ## Data contracts
 
