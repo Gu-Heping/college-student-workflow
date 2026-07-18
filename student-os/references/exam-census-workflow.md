@@ -6,13 +6,13 @@ Use this reference for large-scale past-paper censuses: question-type taxonomy, 
 
 - Papers already exist as markdown sidecars (usually `*.pdf.md`) under a course `references/` tree or another explicit papers directory.
 - Prefer running `materials_convert.py` with `--repair` before annotation when OCR/import quality is uneven.
-- Final readable artifacts land under `courses/<course>/reviews/<exam-scope>/`.
-- Machine state lands under `.student-os/state/exam-census/<course-slug>/<exam-scope-slug>/`.
+- Final readable artifacts land under `courses/<course-key>/reviews/<exam-scope-key>/`.
+- Machine state lands under `.student-os/state/exam-census/<course-key>/<exam-scope-key>/`.
 
 ## Directory contract
 
 ```text
-courses/<course>/reviews/<exam-scope>/
+courses/<course-key>/reviews/<exam-scope-key>/
 ├── 题型频率统计.md
 ├── 题型解析/
 │   ├── 01-<type-id>.md
@@ -22,7 +22,7 @@ courses/<course>/reviews/<exam-scope>/
 ├── 答题模板速查.md
 └── 考前1小时清单.md
 
-.student-os/state/exam-census/<course-key>/<exam-scope-slug>/
+.student-os/state/exam-census/<course-key>/<exam-scope-key>/
 ├── taxonomy.yaml
 ├── manifest.json
 └── annotations/
@@ -30,7 +30,8 @@ courses/<course>/reviews/<exam-scope>/
 ```
 
 `<course-key>` is the course path under `courses/` (for example `linear-algebra` or `2026-fall/cs-101`), so semester-nested courses do not collide.
-`<exam-scope>` keeps the human label (for example `期中`). The state path slugifies that label.
+`<exam-scope-key>` is the slugified exam-scope label (for example `期中` or `midterm`). Raw labels must not contain path separators (`/`, `\\`, `:`).
+State and reviews share the same `exam-scope-key`.
 Annotation filenames are derived from each paper's path relative to `--papers-dir`, with `/` flattened to `__` (for example `2019/paper.pdf.md` → `annotations/2019__paper.json`).
 
 ## Data contracts
@@ -121,7 +122,7 @@ Produces:
 - `题型频率统计.md`
 - ranked skeletons under `题型解析/NN-<type-id>.md`
 
-`--validate` exits nonzero when annotations are missing or reference unknown type ids.
+`--validate` exits nonzero when annotations are missing, reference unknown type ids, have unknown/unmatched `type_counts` keys, or have invalid `type_counts` values (non-object, non-positive integer). On validation failure the frequency report is still refreshed, but skeleton write/reconcile/retire is skipped.
 
 ### Phase 4 — Fill type analyses
 

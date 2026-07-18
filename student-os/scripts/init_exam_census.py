@@ -15,6 +15,7 @@ from exam_census_utils import (
     course_tag_slug,
     default_taxonomy,
     discover_papers,
+    exam_scope_key,
     relative_posix,
     resolve_course,
     reviews_dir,
@@ -64,7 +65,11 @@ def main() -> int:
     repo = Path(args.repo).resolve()
     course_dir = resolve_course(repo, args.course, semester=args.semester)
     course_key = course_slug_of(course_dir, repo)
-    exam_scope = args.exam_scope.strip()
+    try:
+        exam_scope = args.exam_scope.strip()
+        exam_scope_key(exam_scope)  # validate early for clear errors
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     census_state = state_dir(repo, course_key, exam_scope)
     annotations_dir = census_state / "annotations"
     manifest_path = census_state / "manifest.json"

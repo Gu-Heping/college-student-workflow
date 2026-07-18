@@ -28,6 +28,7 @@ Human-readable companion to `.student-os/state/exam-census/.../taxonomy.yaml`.
 
 ## Stability Rules
 
+- `id` values are stable English-ish keys (append-only after annotations exist).
+- `name` / aliases use the course-pack language (or the course's teaching language).
 - Never rename an existing `id` after annotations exist.
 - New question families get new ids.
-- Prefer course-pack language when a pack exists.

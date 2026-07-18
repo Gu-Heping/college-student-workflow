@@ -74,8 +74,8 @@ Slug notes:
 
 - Use when the user has many past papers and wants type frequencies plus an exam-prep pack.
 - Follow `references/exam-census-workflow.md` and the `exam-census` command.
-- Keep annotations and taxonomy under `.student-os/state/exam-census/<course-key>/<exam-scope-slug>/`.
-- Write the readable pack under `courses/<course>/reviews/<exam-scope>/`.
+- Keep annotations and taxonomy under `.student-os/state/exam-census/<course-key>/<exam-scope-key>/`.
+- Write the readable pack under `courses/<course-key>/reviews/<exam-scope-key>/`.
 - Prefer these templates:
   - `templates/exam-type-taxonomy.md`
   - `templates/exam-type-frequency-report.md`

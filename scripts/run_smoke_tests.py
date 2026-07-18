@@ -1610,6 +1610,53 @@ def exercise_exam_census(repo: Path) -> None:
     ensure_contains(report_path, "Unknown type ids in types_present")
     ensure_contains(report_path, "not-a-real-type")
     ensure_contains(report_path, "ghost-count")
+    bad_payload = json.loads(bad_validate.stdout)
+    if not bad_payload.get("skeletons_skipped_due_to_validate"):
+        raise AssertionError("Expected skeleton reconcile to be skipped when --validate fails")
+
+    # Invalid type_counts must not silently become 1.
+    invalid_annotation = dict(annotations["2021-期中-C"])
+    invalid_annotation["types_present"] = ["matrix-rank", "eigen-decomp"]
+    invalid_annotation["type_counts"] = {"matrix-rank": "many", "eigen-decomp": -2}
+    (annotations_dir / "2021-期中-C.json").write_text(
+        json.dumps(invalid_annotation, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    skeleton_before = first_skeleton.read_text(encoding="utf-8")
+    invalid_validate = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "build_exam_type_stats.py"),
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+            "--validate",
+            "--overwrite",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if invalid_validate.returncode == 0:
+        raise AssertionError("Expected --validate to fail on invalid type_counts values")
+    ensure_contains(report_path, "Invalid type_counts values")
+    if first_skeleton.read_text(encoding="utf-8") != skeleton_before:
+        raise AssertionError("Skeleton must not change when --validate fails")
+
+    # Restore clean annotations after validation failure cases.
+    for stem, payload in annotations.items():
+        (annotations_dir / f"{stem}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
 
     # Nested papers with the same basename must get distinct annotation ids.
     nested_root = exams_dir / "nested"
@@ -1779,6 +1826,206 @@ def exercise_exam_census(repo: Path) -> None:
         "期中",
         "--overwrite",
     )
+
+    # Path-like exam_scope values must be rejected.
+    for bad_scope in ("../escape", "", "C:\\windows"):
+        bad_init = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(STUDENT_OS_SCRIPTS / "init_exam_census.py"),
+                str(repo),
+                "--course",
+                "linear-algebra",
+                "--exam-scope",
+                bad_scope,
+                "--papers-dir",
+                "courses/linear-algebra/references/exams",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=ROOT,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+        )
+        if bad_init.returncode == 0:
+            raise AssertionError(f"Expected init to reject exam_scope={bad_scope!r}")
+
+    # Without --overwrite, existing skeletons must be skipped (not migrated/deleted).
+    analysis_dir = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型解析"
+    existing_skeletons = sorted(path.name for path in analysis_dir.glob("*.md"))
+    if not existing_skeletons:
+        raise AssertionError("Expected skeletons before no-overwrite rebuild")
+    no_overwrite = json.loads(
+        run_script(
+            "build_exam_type_stats.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+        )
+    )
+    if not no_overwrite.get("skeletons_skipped"):
+        raise AssertionError("Expected existing skeletons to be skipped without --overwrite")
+    after_skeletons = sorted(path.name for path in analysis_dir.glob("*.md"))
+    if after_skeletons != existing_skeletons:
+        raise AssertionError(f"Skeletons changed without --overwrite: {existing_skeletons} -> {after_skeletons}")
+
+    # User-edited skeletons (fingerprint mismatch) are archived, not deleted.
+    user_skeleton = analysis_dir / existing_skeletons[-1]
+    user_text = user_skeleton.read_text(encoding="utf-8") + "\n## User Notes\n\nKeep me.\n"
+    user_skeleton.write_text(user_text, encoding="utf-8", newline="\n")
+    user_type = None
+    import re as _re
+
+    match = _re.search(r'(?m)^exam_type_id:\s*"?([^"\n]+)"?\s*$', user_text)
+    if match:
+        user_type = match.group(1)
+    if not user_type:
+        raise AssertionError(f"Could not read exam_type_id from {user_skeleton}")
+    # Drop that type from all annotations so it becomes obsolete and should archive.
+    for stem, payload in annotations.items():
+        cleaned = dict(payload)
+        cleaned["types_present"] = [tid for tid in payload["types_present"] if tid != user_type]
+        cleaned["type_counts"] = {
+            key: value for key, value in payload["type_counts"].items() if key != user_type
+        }
+        if "matrix-rank" not in cleaned["types_present"]:
+            cleaned["types_present"].append("matrix-rank")
+            cleaned["type_counts"]["matrix-rank"] = 1
+        (annotations_dir / f"{stem}.json").write_text(
+            json.dumps(cleaned, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+    run_script(
+        "build_exam_type_stats.py",
+        str(repo),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期中",
+        "--overwrite",
+    )
+    if user_skeleton.exists():
+        raise AssertionError("Edited obsolete skeleton should leave 题型解析/")
+    archived = analysis_dir / "_archive" / user_skeleton.name
+    ensure_exists(archived)
+    ensure_contains(archived, "Keep me.")
+
+    # Taxonomy JSON round-trip preserves string ids like "true" and comma-bearing names.
+    utils_spec = importlib.util.spec_from_file_location(
+        "exam_census_utils_smoke", STUDENT_OS_SCRIPTS / "exam_census_utils.py"
+    )
+    if utils_spec is None or utils_spec.loader is None:
+        raise RuntimeError("Unable to load exam_census_utils for round-trip check")
+    exam_census_utils = importlib.util.module_from_spec(utils_spec)
+    sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
+    try:
+        utils_spec.loader.exec_module(exam_census_utils)
+    finally:
+        if sys.path and sys.path[0] == str(STUDENT_OS_SCRIPTS):
+            sys.path.pop(0)
+    roundtrip_path = state_dir / "taxonomy-roundtrip.yaml"
+    exam_census_utils.write_taxonomy(
+        roundtrip_path,
+        {
+            "version": 1,
+            "course": "Linear Algebra",
+            "exam_scope": "期中",
+            "types": [
+                {"id": "true", "name": "A, B family", "aliases": ["x,y"], "keywords": ["a,b"]},
+            ],
+        },
+    )
+    loaded = exam_census_utils.load_taxonomy_yaml(roundtrip_path)
+    if loaded["types"][0]["id"] != "true":
+        raise AssertionError(f"Expected id 'true' string round-trip, got {loaded['types'][0]['id']!r}")
+    if loaded["types"][0]["name"] != "A, B family":
+        raise AssertionError(f"Expected comma-bearing name preserved, got {loaded['types'][0]['name']!r}")
+    dumped = exam_census_utils.dump_taxonomy_yaml(loaded)
+    if '"true"' not in dumped:
+        raise AssertionError("Writer should JSON-quote the id true")
+
+    # Paths with spaces must produce quoted Markdown hrefs.
+    spaced = exams_dir / "mid term paper.pdf.md"
+    spaced.write_text("# spaced\n", encoding="utf-8", newline="\n")
+    spaced_init = json.loads(
+        run_script(
+            "init_exam_census.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "spaced-scope",
+            "--papers-dir",
+            "courses/linear-algebra/references/exams",
+            "--pattern",
+            "mid term paper.pdf.md",
+            "--overwrite",
+        )
+    )
+    spaced_state = Path(spaced_init["state_dir"])
+    (spaced_state / "taxonomy.yaml").write_text(
+        "\n".join(
+            [
+                "version: 1",
+                'course: "Linear Algebra"',
+                'exam_scope: "spaced-scope"',
+                "types:",
+                '  - id: "matrix-rank"',
+                '    name: "矩阵的秩"',
+                "    aliases: []",
+                "    keywords: []",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    stem = "mid term paper"
+    # annotation id from basename without .pdf.md
+    (spaced_state / "annotations" / f"{stem}.json").write_text(
+        json.dumps(
+            {
+                "source": "courses/linear-algebra/references/exams/mid term paper.pdf.md",
+                "exam_label": "spaced",
+                "types_present": ["matrix-rank"],
+                "type_counts": {"matrix-rank": 1},
+                "confidence": "high",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    # Fix annotation filename: annotation_id uses relative path
+    spaced_manifest = json.loads((spaced_state / "manifest.json").read_text(encoding="utf-8"))
+    spaced_stem = spaced_manifest["papers"][0]["stem"]
+    (spaced_state / "annotations" / f"{stem}.json").rename(spaced_state / "annotations" / f"{spaced_stem}.json")
+    run_script(
+        "build_exam_type_stats.py",
+        str(repo),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "spaced-scope",
+        "--overwrite",
+    )
+    spaced_report = repo / "courses" / "linear-algebra" / "reviews" / "spaced-scope" / "题型频率统计.md"
+    ensure_contains(spaced_report, "mid%20term%20paper.pdf.md")
+
+    # Restore linear-algebra midterm annotations for any later consumers of this fixture.
+    for stem, payload in annotations.items():
+        (annotations_dir / f"{stem}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
 
 
 def exercise_feedback_lifecycle(repo: Path) -> None:

@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
+import shutil
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -13,6 +15,7 @@ from exam_census_utils import (
     MUST_KNOW_RATE,
     course_slug_of,
     course_tag_slug,
+    exam_scope_key,
     load_annotations,
     load_json,
     load_taxonomy,
@@ -65,6 +68,23 @@ def write_text(path: Path, text: str, *, overwrite: bool) -> bool:
     return True
 
 
+def _positive_int_count(raw: Any) -> int | None:
+    if isinstance(raw, bool) or raw is None:
+        return None
+    if isinstance(raw, int):
+        return raw if raw > 0 else None
+    if isinstance(raw, float):
+        if raw.is_integer() and raw > 0:
+            return int(raw)
+        return None
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not re.fullmatch(r"[1-9]\d*", text):
+            return None
+        return int(text)
+    return None
+
+
 def aggregate(
     *,
     taxonomy: dict[str, Any],
@@ -74,6 +94,7 @@ def aggregate(
 ) -> tuple[
     list[dict[str, Any]],
     list[str],
+    list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
@@ -97,6 +118,7 @@ def aggregate(
     low_confidence: list[dict[str, Any]] = []
     unknown_types: list[dict[str, Any]] = []
     unknown_count_keys: list[dict[str, Any]] = []
+    invalid_count_values: list[dict[str, Any]] = []
 
     for paper in papers:
         stem = str(paper["stem"])
@@ -110,8 +132,11 @@ def aggregate(
 
         raw_present = [str(item) for item in annotation.get("types_present") or []]
         present = list(dict.fromkeys(raw_present))
-        counts = annotation.get("type_counts") or {}
-        if not isinstance(counts, dict):
+        counts = annotation.get("type_counts")
+        if counts is None:
+            counts = {}
+        elif not isinstance(counts, dict):
+            invalid_count_values.append({"stem": stem, "type_id": "*", "value": counts})
             counts = {}
 
         for type_id in present:
@@ -120,11 +145,16 @@ def aggregate(
                 continue
             bucket = stats[type_id]
             bucket["paper_count"] += 1
-            try:
-                count_value = int(counts.get(type_id, 1))
-            except (TypeError, ValueError):
+            if type_id in counts:
+                count_value = _positive_int_count(counts.get(type_id))
+                if count_value is None:
+                    invalid_count_values.append(
+                        {"stem": stem, "type_id": type_id, "value": counts.get(type_id)}
+                    )
+                    count_value = 0
+            else:
                 count_value = 1
-            bucket["question_count"] += max(count_value, 1)
+            bucket["question_count"] += count_value
             source = annotation.get("source") or paper_by_stem.get(stem, {}).get("path") or stem
             label = annotation.get("exam_label") or stem
             bucket["papers"].append({"stem": stem, "label": label, "source": source})
@@ -147,7 +177,7 @@ def aggregate(
             }
         )
     ranked.sort(key=lambda item: (-item["paper_count"], -item["question_count"], item["id"]))
-    return ranked, missing, low_confidence, unknown_types, unknown_count_keys
+    return ranked, missing, low_confidence, unknown_types, unknown_count_keys, invalid_count_values
 
 
 def render_frequency_report(
@@ -163,6 +193,7 @@ def render_frequency_report(
     low_confidence: list[dict[str, Any]],
     unknown_types: list[dict[str, Any]],
     unknown_count_keys: list[dict[str, Any]],
+    invalid_count_values: list[dict[str, Any]],
     report_path: Path,
     repo: Path,
     today: str,
@@ -188,7 +219,7 @@ def render_frequency_report(
         f"- Papers total: {paper_count}",
         f"- Annotated: {annotated_count}",
         f"- Coverage: {coverage:.0%}",
-        f"- Ranking key: paper appearance count (not raw question repeats)",
+        "- Ranking key: paper appearance count (not raw question repeats)",
         "",
         "## Frequency Table",
         "",
@@ -247,16 +278,37 @@ def render_frequency_report(
     else:
         lines.extend(["### Unknown or unmatched type_counts keys", "", "- None", ""])
 
+    if invalid_count_values:
+        lines.append("### Invalid type_counts values")
+        for item in invalid_count_values:
+            lines.append(f"- `{item['stem']}` -> `{item['type_id']}` = `{item['value']!r}`")
+        lines.append("")
+    else:
+        lines.extend(["### Invalid type_counts values", "", "- None", ""])
+
+    scope_key = exam_scope_key(exam_scope)
     lines.extend(
         [
             "## Next Steps",
             "",
-            f"- Fill `reviews/{exam_scope}/题型解析/` skeletons in frequency order.",
-            f"- Draft `备考指南.md`, `公式总卡.md`, `答题模板速查.md`, and `考前1小时清单.md`.",
+            f"- Fill `reviews/{scope_key}/题型解析/` skeletons in frequency order.",
+            "- Draft `备考指南.md`, `公式总卡.md`, `答题模板速查.md`, and `考前1小时清单.md`.",
             "",
         ]
     )
     return "\n".join(lines)
+
+
+def fingerprint_skeleton_body(text: str) -> str:
+    normalized = re.sub(r"(?m)^generated_fingerprint:\s*.*\n?", "", text)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+
+
+def extract_fingerprint(text: str) -> str | None:
+    match = re.search(r'(?m)^generated_fingerprint:\s*"?([a-f0-9]+)"?\s*$', text)
+    if not match:
+        return None
+    return match.group(1)
 
 
 def render_type_skeleton(
@@ -322,7 +374,13 @@ def render_type_skeleton(
             "",
         ]
     )
-    return "\n".join(lines)
+    body = "\n".join(lines)
+    fingerprint = fingerprint_skeleton_body(body)
+    return body.replace(
+        f"source_artifacts: [{source_yaml}]\n---",
+        f"source_artifacts: [{source_yaml}]\ngenerated_fingerprint: {fingerprint}\n---",
+        1,
+    )
 
 
 def extract_exam_type_id(text: str) -> str | None:
@@ -336,7 +394,10 @@ def extract_exam_type_id(text: str) -> str | None:
 
 
 def is_generated_skeleton(text: str) -> bool:
-    return 'status: draft' in text and "_(fill by review-coach)_" in text
+    expected = extract_fingerprint(text)
+    if not expected:
+        return False
+    return fingerprint_skeleton_body(text) == expected
 
 
 def find_skeletons_by_type_id(analysis_dir: Path) -> dict[str, list[Path]]:
@@ -361,6 +422,38 @@ def update_rank_in_text(text: str, rank: int) -> str:
     return updated
 
 
+def _archive_path(analysis_dir: Path, path: Path) -> Path:
+    archive_dir = analysis_dir / "_archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    destination = archive_dir / path.name
+    if destination.exists():
+        stem = path.stem
+        suffix = path.suffix
+        index = 1
+        while True:
+            candidate = archive_dir / f"{stem}-{index}{suffix}"
+            if not candidate.exists():
+                destination = candidate
+                break
+            index += 1
+    return destination
+
+
+def remove_or_archive_skeleton(analysis_dir: Path, path: Path) -> str:
+    """Delete unchanged generated skeletons; archive everything else."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        path.unlink(missing_ok=True)
+        return "deleted"
+    if is_generated_skeleton(text):
+        path.unlink(missing_ok=True)
+        return "deleted"
+    destination = _archive_path(analysis_dir, path)
+    shutil.move(str(path), str(destination))
+    return "archived"
+
+
 def reconcile_skeleton(
     *,
     analysis_dir: Path,
@@ -375,31 +468,30 @@ def reconcile_skeleton(
     analysis_dir.mkdir(parents=True, exist_ok=True)
     existing = list(existing_by_type.get(type_id, []))
     others = [path for path in existing if path.resolve() != target.resolve()]
-    user_others: list[Path] = []
-    generated_others: list[Path] = []
-    for path in others:
-        text = path.read_text(encoding="utf-8")
-        if is_generated_skeleton(text):
-            generated_others.append(path)
-        else:
-            user_others.append(path)
 
-    if overwrite:
-        for path in generated_others:
-            path.unlink(missing_ok=True)
+    if not overwrite and others:
+        # Alternate path already holds this type id — do not migrate or delete.
+        if target.exists():
+            return "skipped", str(target)
+        return "skipped", str(others[-1])
+
+    if overwrite and others:
+        user_sources = [
+            path for path in others if not is_generated_skeleton(path.read_text(encoding="utf-8"))
+        ]
+        if user_sources:
+            source = user_sources[-1]
+            migrated = update_rank_in_text(source.read_text(encoding="utf-8"), rank)
+            for path in others:
+                remove_or_archive_skeleton(analysis_dir, path)
+            write_text(target, migrated, overwrite=True)
+            return "migrated", str(target)
+        for path in others:
+            remove_or_archive_skeleton(analysis_dir, path)
 
     target_exists = target.exists()
     target_text = target.read_text(encoding="utf-8") if target_exists else ""
     target_is_generated = (not target_exists) or is_generated_skeleton(target_text)
-
-    if user_others:
-        source = user_others[-1]
-        text = update_rank_in_text(source.read_text(encoding="utf-8"), rank)
-        write_text(target, text, overwrite=True)
-        for path in user_others:
-            if path.resolve() != target.resolve():
-                path.unlink(missing_ok=True)
-        return "migrated", str(target)
 
     if target_exists and not target_is_generated:
         if overwrite:
@@ -426,13 +518,20 @@ def retire_obsolete_generated(
             continue
         for path in paths:
             try:
-                text = path.read_text(encoding="utf-8")
+                action = remove_or_archive_skeleton(analysis_dir, path)
             except OSError:
                 continue
-            if is_generated_skeleton(text):
-                path.unlink(missing_ok=True)
-                retired.append(str(path))
+            retired.append(f"{action}:{path}")
     return retired
+
+
+def has_validation_errors(
+    missing: list[str],
+    unknown_types: list[dict[str, Any]],
+    unknown_count_keys: list[dict[str, Any]],
+    invalid_count_values: list[dict[str, Any]],
+) -> bool:
+    return bool(missing or unknown_types or unknown_count_keys or invalid_count_values)
 
 
 def main() -> int:
@@ -445,7 +544,11 @@ def main() -> int:
     course_dir = resolve_course(repo, args.course, semester=args.semester)
     course_key = course_slug_of(course_dir, repo)
     course_tag = course_tag_slug(course_key)
-    exam_scope = args.exam_scope.strip()
+    try:
+        exam_scope = args.exam_scope.strip()
+        scope_key = exam_scope_key(exam_scope)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     census_state = state_dir(repo, course_key, exam_scope)
     manifest_path = census_state / "manifest.json"
     taxonomy_path = census_state / "taxonomy.yaml"
@@ -465,7 +568,7 @@ def main() -> int:
     papers = list(manifest.get("papers") or [])
     course_name = str(taxonomy.get("course") or course_key)
 
-    ranked, missing, low_confidence, unknown_types, unknown_count_keys = aggregate(
+    ranked, missing, low_confidence, unknown_types, unknown_count_keys, invalid_count_values = aggregate(
         taxonomy=taxonomy,
         annotations=annotations,
         papers=papers,
@@ -473,6 +576,9 @@ def main() -> int:
     )
     annotated_count = len(papers) - len(missing)
     today = date.today().isoformat()
+    validation_failed = has_validation_errors(
+        missing, unknown_types, unknown_count_keys, invalid_count_values
+    )
 
     report = render_frequency_report(
         course_name=course_name,
@@ -486,67 +592,71 @@ def main() -> int:
         low_confidence=low_confidence,
         unknown_types=unknown_types,
         unknown_count_keys=unknown_count_keys,
+        invalid_count_values=invalid_count_values,
         report_path=report_path,
         repo=repo,
         today=today,
     )
-    wrote_report = write_text(report_path, report, overwrite=args.overwrite)
+    # Always refresh the durable report so Validation stays visible.
+    wrote_report = write_text(report_path, report, overwrite=True)
 
-    existing_by_type = find_skeletons_by_type_id(analysis_dir)
     written_skeletons: list[str] = []
     skipped_skeletons: list[str] = []
     migrated_skeletons: list[str] = []
+    retired: list[str] = []
     keep_type_ids: set[str] = set()
+    skip_skeletons = bool(args.validate and validation_failed)
 
-    for index, item in enumerate(ranked, start=1):
-        if item["paper_count"] <= 0:
-            continue
-        keep_type_ids.add(str(item["id"]))
-        filename = f"{index:02d}-{slugify(item['id'], fallback='type')}.md"
-        target = analysis_dir / filename
-        body = render_type_skeleton(
-            course_name=course_name,
-            course_tag=course_tag,
-            exam_scope=exam_scope,
-            item=item,
-            rank=index,
-            today=today,
-            target_path=target,
-            repo=repo,
-        )
-        action, path = reconcile_skeleton(
-            analysis_dir=analysis_dir,
-            target=target,
-            type_id=str(item["id"]),
-            rank=index,
-            body=body,
-            overwrite=args.overwrite,
-            existing_by_type=existing_by_type,
-        )
-        if action == "written" and path:
-            written_skeletons.append(relative_posix(Path(path), repo))
-        elif action == "migrated" and path:
-            migrated_skeletons.append(relative_posix(Path(path), repo))
-        elif action == "skipped" and path:
-            skipped_skeletons.append(relative_posix(Path(path), repo))
-
-    retired = []
-    if args.overwrite:
-        # Refresh map after writes, then retire obsolete generated files.
+    if not skip_skeletons:
         existing_by_type = find_skeletons_by_type_id(analysis_dir)
-        retired = [
-            relative_posix(Path(path), repo)
-            for path in retire_obsolete_generated(
+        for index, item in enumerate(ranked, start=1):
+            if item["paper_count"] <= 0:
+                continue
+            keep_type_ids.add(str(item["id"]))
+            filename = f"{index:02d}-{slugify(item['id'], fallback='type')}.md"
+            target = analysis_dir / filename
+            body = render_type_skeleton(
+                course_name=course_name,
+                course_tag=course_tag,
+                exam_scope=exam_scope,
+                item=item,
+                rank=index,
+                today=today,
+                target_path=target,
+                repo=repo,
+            )
+            action, path = reconcile_skeleton(
+                analysis_dir=analysis_dir,
+                target=target,
+                type_id=str(item["id"]),
+                rank=index,
+                body=body,
+                overwrite=args.overwrite,
+                existing_by_type=existing_by_type,
+            )
+            if action == "written" and path:
+                written_skeletons.append(relative_posix(Path(path), repo))
+            elif action == "migrated" and path:
+                migrated_skeletons.append(relative_posix(Path(path), repo))
+            elif action == "skipped" and path:
+                skipped_skeletons.append(relative_posix(Path(path), repo))
+
+        if args.overwrite:
+            existing_by_type = find_skeletons_by_type_id(analysis_dir)
+            retired = []
+            for entry in retire_obsolete_generated(
                 analysis_dir=analysis_dir,
                 keep_type_ids=keep_type_ids,
                 existing_by_type=existing_by_type,
-            )
-        ]
+            ):
+                _action, _, path_text = entry.partition(":")
+                retired.append(relative_posix(Path(path_text or entry), repo))
 
     result = {
         "repo": str(repo),
         "course": course_key,
         "exam_scope": exam_scope,
+        "exam_scope_key": scope_key,
         "report": str(report_path),
         "report_written": wrote_report,
         "annotated_count": annotated_count,
@@ -567,14 +677,16 @@ def main() -> int:
         "skeletons_migrated": migrated_skeletons,
         "skeletons_skipped": skipped_skeletons,
         "skeletons_retired": retired,
+        "skeletons_skipped_due_to_validate": skip_skeletons,
         "missing_annotations": missing,
         "low_confidence": low_confidence,
         "unknown_types": unknown_types,
         "unknown_count_keys": unknown_count_keys,
+        "invalid_count_values": invalid_count_values,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
-    if args.validate and (missing or unknown_types or unknown_count_keys):
+    if args.validate and validation_failed:
         return 1
     return 0
 

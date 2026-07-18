@@ -5,6 +5,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from course_layout import resolve_course_dir, slugify
 
@@ -27,12 +28,28 @@ def course_tag_slug(course_key: str) -> str:
     return course_key.replace("/", "-")
 
 
+def exam_scope_key(exam_scope: str) -> str:
+    """Normalize exam_scope for state and reviews directory segments."""
+    raw = str(exam_scope or "").strip()
+    if not raw:
+        raise ValueError("exam_scope must be a non-empty label")
+    if raw in {".", ".."} or any(sep in raw for sep in ("/", "\\", ":")):
+        raise ValueError(
+            "exam_scope must not contain path separators or drive markers "
+            f"(got {exam_scope!r})"
+        )
+    key = slugify(raw, fallback="")
+    if not key:
+        raise ValueError(f"exam_scope does not yield a usable directory key: {exam_scope!r}")
+    return key
+
+
 def state_dir(repo: Path, course_key: str, exam_scope: str) -> Path:
-    return repo / ".student-os" / "state" / "exam-census" / Path(course_key) / slugify(exam_scope, fallback="exam")
+    return repo / ".student-os" / "state" / "exam-census" / Path(course_key) / exam_scope_key(exam_scope)
 
 
 def reviews_dir(course_dir: Path, exam_scope: str) -> Path:
-    return course_dir / "reviews" / exam_scope
+    return course_dir / "reviews" / exam_scope_key(exam_scope)
 
 
 def annotation_id(paper_path: Path, papers_dir: Path) -> str:
@@ -87,26 +104,18 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
 
 
+def _json_scalar(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
 def _parse_scalar(raw: str) -> Any:
     text = raw.strip()
     if not text:
         return ""
-    if text.startswith('"') and text.endswith('"'):
-        return text[1:-1]
-    if text.startswith("'") and text.endswith("'"):
-        return text[1:-1]
-    if text.startswith("[") and text.endswith("]"):
-        inner = text[1:-1].strip()
-        if not inner:
-            return []
-        return [_parse_scalar(part) for part in _split_csv(inner)]
-    if re.fullmatch(r"-?\d+", text):
-        return int(text)
-    if text in {"true", "false"}:
-        return text == "true"
-    if text == "null":
-        return None
-    return text
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return text
 
 
 def _split_csv(text: str) -> list[str]:
@@ -133,27 +142,42 @@ def _split_csv(text: str) -> list[str]:
     return [part for part in parts if part]
 
 
-def _yaml_quote(value: str) -> str:
-    if re.search(r'[:#\[\]{},\n"]', value) or value.strip() != value:
-        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-        return f'"{escaped}"'
-    return value
+def _parse_string_list(raw: str) -> list[str]:
+    text = raw.strip()
+    if not text:
+        return []
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        value = None
+    else:
+        if isinstance(value, list):
+            return [str(item) for item in value]
+        if value == "" or value is None:
+            return []
+        return [str(value)]
+    if text.startswith("[") and text.endswith("]"):
+        inner = text[1:-1].strip()
+        if not inner:
+            return []
+        return [str(_parse_scalar(part)) for part in _split_csv(inner)]
+    return [str(_parse_scalar(text))]
 
 
 def dump_taxonomy_yaml(taxonomy: dict[str, Any]) -> str:
     lines = [
         f"version: {int(taxonomy.get('version', 1))}",
-        f"course: {_yaml_quote(str(taxonomy.get('course', '')))}",
-        f"exam_scope: {_yaml_quote(str(taxonomy.get('exam_scope', '')))}",
+        f"course: {_json_scalar(str(taxonomy.get('course', '')))}",
+        f"exam_scope: {_json_scalar(str(taxonomy.get('exam_scope', '')))}",
         "types:",
     ]
     for item in taxonomy.get("types", []):
-        lines.append(f"  - id: {_yaml_quote(str(item['id']))}")
-        lines.append(f"    name: {_yaml_quote(str(item.get('name', item['id'])))}")
-        aliases = item.get("aliases") or []
-        keywords = item.get("keywords") or []
-        alias_text = ", ".join(_yaml_quote(str(alias)) for alias in aliases)
-        keyword_text = ", ".join(_yaml_quote(str(keyword)) for keyword in keywords)
+        lines.append(f"  - id: {_json_scalar(str(item['id']))}")
+        lines.append(f"    name: {_json_scalar(str(item.get('name', item['id'])))}")
+        aliases = [str(alias) for alias in (item.get("aliases") or [])]
+        keywords = [str(keyword) for keyword in (item.get("keywords") or [])]
+        alias_text = ", ".join(_json_scalar(alias) for alias in aliases)
+        keyword_text = ", ".join(_json_scalar(keyword) for keyword in keywords)
         lines.append(f"    aliases: [{alias_text}]")
         lines.append(f"    keywords: [{keyword_text}]")
     lines.append("")
@@ -195,18 +219,18 @@ def load_taxonomy_yaml(path: Path) -> dict[str, Any]:
             current["name"] = str(_parse_scalar(raw_line.split(":", 1)[1]))
             continue
         if raw_line.startswith("    aliases:"):
-            value = _parse_scalar(raw_line.split(":", 1)[1])
-            current["aliases"] = value if isinstance(value, list) else [str(value)]
+            current["aliases"] = _parse_string_list(raw_line.split(":", 1)[1])
             continue
         if raw_line.startswith("    keywords:"):
-            value = _parse_scalar(raw_line.split(":", 1)[1])
-            current["keywords"] = value if isinstance(value, list) else [str(value)]
+            current["keywords"] = _parse_string_list(raw_line.split(":", 1)[1])
             continue
     if current is not None:
         data["types"].append(current)
     for item in data["types"]:
         if not item.get("name"):
             item["name"] = item["id"]
+        item["id"] = str(item["id"])
+        item["name"] = str(item["name"])
     return data
 
 
@@ -265,12 +289,16 @@ def markdown_rel_link(source: str, from_doc: Path, repo: Path) -> str:
 
     target = resolve_repo_path(repo, source)
     try:
-        return Path(os.path.relpath(target, start=from_doc.parent)).as_posix()
+        relative = Path(os.path.relpath(target, start=from_doc.parent)).as_posix()
     except ValueError:
         try:
-            return target.resolve().relative_to(repo.resolve()).as_posix()
+            relative = target.resolve().relative_to(repo.resolve()).as_posix()
         except ValueError:
-            return source
+            relative = source
+    # Preserve non-ASCII path segments (common in vaults); encode only Markdown/URL breakers.
+    return "".join(
+        quote(char, safe="") if char in " ?#<>[]{}|\\%()" else char for char in relative
+    )
 
 
 def md_table_cell(value: str) -> str:

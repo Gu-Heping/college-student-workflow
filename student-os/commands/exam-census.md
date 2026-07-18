@@ -19,7 +19,7 @@ Default route:
 2. **Init** — `init_exam_census.py` writes manifest + empty taxonomy stub.
 3. **Taxonomy** — review-coach drafts `taxonomy.yaml` from 2–3 sample papers.
 4. **Annotate** — coordinator splits batches; agents write `annotations/*.json`.
-5. **Aggregate** — `build_exam_type_stats.py` writes `题型频率统计.md` + `题型解析/` skeletons.
+5. **Aggregate** — `build_exam_type_stats.py --validate` writes `题型频率统计.md` + `题型解析/` skeletons; stop if validation fails before Synthesize.
 6. **Synthesize** — review-coach fills analyses, then prep guide / formula card / templates / checklist.
 
 See `references/exam-census-workflow.md` for the full SOP.
