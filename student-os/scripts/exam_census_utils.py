@@ -301,5 +301,171 @@ def markdown_rel_link(source: str, from_doc: Path, repo: Path) -> str:
     )
 
 
+# $|A|$ / $|λE-A|$ → $\lvert …\rvert$ so Markdown tables keep column counts.
+_MATH_ABS_PIPE_RE = re.compile(r"\$\|([^|$]+)\|\$")
+# Bare determinant/absolute forms that commonly break tables: |A|, |A*|, |λE-A|.
+_BARE_DET_PIPE_RE = re.compile(
+    r"(?<![\\|$])\|([A-Za-zΑ-Ωα-ωλΛ*][A-Za-z0-9Α-Ωα-ωλΛ*\+\-−–]*)\|(?![\\|$\w])"
+)
+
+# Annotation enum → Chinese display labels for user-facing Markdown reports.
+RELIABILITY_DISPLAY = {
+    "answer-key": "答案卷",
+    "review-copy": "复习版",
+    "recall": "回忆版",
+    "unspecified": "未标注",
+}
+FORMAT_DISPLAY = {
+    "unspecified": "未标注",
+    "choice": "选择",
+    "multiple-choice": "选择",
+    "mcq": "选择",
+    "select": "选择",
+    "fill": "填空",
+    "fill-in": "填空",
+    "blank": "填空",
+    "calculation": "计算",
+    "compute": "计算",
+    "short-answer": "简答",
+    "true-false": "判断",
+    "proof": "证明",
+}
+DIFFICULTY_DISPLAY = {
+    "unspecified": "未标注",
+    "easy": "易",
+    "medium": "中",
+    "hard": "难",
+    "1": "★",
+    "2": "★★",
+    "3": "★★★",
+    "4": "★★★★",
+    "5": "★★★★★",
+    "*": "★",
+    "**": "★★",
+    "***": "★★★",
+    "****": "★★★★",
+    "*****": "★★★★★",
+}
+
+
+def display_annotation_label(value: str, mapping: dict[str, str] | None = None) -> str:
+    text = str(value).strip()
+    if not text:
+        return "未标注"
+    table = mapping or {}
+    if text in table:
+        return table[text]
+    if text.lower() in table:
+        return table[text.lower()]
+    return text
+
+
 def md_table_cell(value: str) -> str:
-    return str(value).replace("|", "\\|").replace("\n", " ")
+    """Escape a Markdown table cell so bare `|` cannot split columns.
+
+    Preference for math absolute/determinant forms:
+    - `$|A|$` → `$\\lvert A\\rvert$`
+    - bare `|A|` / `|λE-A|` → `$\\lvert …\\rvert$`
+    Remaining pipes become `\\|`. Already-escaped `\\|` is left alone.
+    """
+    text = str(value).replace("\n", " ")
+    text = _MATH_ABS_PIPE_RE.sub(r"$\\lvert \1\\rvert$", text)
+    text = _BARE_DET_PIPE_RE.sub(r"$\\lvert \1\\rvert$", text)
+    pieces: list[str] = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "\\" and index + 1 < len(text) and text[index + 1] == "|":
+            pieces.append("\\|")
+            index += 2
+            continue
+        if char == "|":
+            pieces.append("\\|")
+            index += 1
+            continue
+        pieces.append(char)
+        index += 1
+    return "".join(pieces)
+
+
+def count_markdown_table_columns(line: str) -> int | None:
+    """Return column count for a Markdown table row, or None if not a table row."""
+    stripped = line.strip()
+    if not stripped.startswith("|"):
+        return None
+    # Separator rows like | --- | ---: |
+    if re.fullmatch(r"\|[\s\-:|]+\|?", stripped):
+        cells = [cell for cell in _split_table_cells(stripped) if cell.strip() != ""]
+        return len(cells) if cells else None
+    cells = _split_table_cells(stripped)
+    # Leading/trailing empty cells from edge pipes are normal; drop only pure edge empties.
+    if cells and cells[0].strip() == "":
+        cells = cells[1:]
+    if cells and cells[-1].strip() == "":
+        cells = cells[:-1]
+    return len(cells)
+
+
+def _split_table_cells(row: str) -> list[str]:
+    cells: list[str] = []
+    current: list[str] = []
+    index = 0
+    text = row.strip()
+    while index < len(text):
+        char = text[index]
+        if char == "\\" and index + 1 < len(text) and text[index + 1] == "|":
+            current.append("\\|")
+            index += 2
+            continue
+        if char == "|":
+            cells.append("".join(current))
+            current = []
+            index += 1
+            continue
+        current.append(char)
+        index += 1
+    cells.append("".join(current))
+    return cells
+
+
+def markdown_table_pipe_issues(text: str) -> list[str]:
+    """Detect table rows whose column count diverges from the header (often unescaped `|`)."""
+    issues: list[str] = []
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        header_cols = count_markdown_table_columns(lines[index])
+        if header_cols is None or header_cols < 1:
+            index += 1
+            continue
+        if index + 1 >= len(lines):
+            break
+        sep_cols = count_markdown_table_columns(lines[index + 1])
+        sep_line = lines[index + 1].strip()
+        if sep_cols is None or not re.fullmatch(r"\|[\s\-:|]+\|?", sep_line):
+            index += 1
+            continue
+        expected = header_cols
+        if sep_cols != expected:
+            issues.append(
+                f"table separator mismatch near line {index + 2}: "
+                f"expected {expected} columns, found {sep_cols}"
+            )
+            index += 1
+            continue
+        row_index = index + 2
+        while row_index < len(lines):
+            row = lines[row_index]
+            if not row.strip():
+                break
+            cols = count_markdown_table_columns(row)
+            if cols is None:
+                break
+            if cols != expected:
+                issues.append(
+                    f"table column mismatch near line {row_index + 1}: "
+                    f"expected {expected} columns, found {cols} ({row.strip()[:80]})"
+                )
+            row_index += 1
+        index = row_index
+    return issues

@@ -25,6 +25,7 @@ from exam_census_utils import (
     resolve_course,
     reviews_dir,
     state_dir,
+    write_json,
 )
 
 
@@ -299,8 +300,11 @@ def render_frequency_report(
     return "\n".join(lines)
 
 
-def fingerprint_skeleton_body(text: str) -> str:
+def fingerprint_skeleton_body(text: str, *, keep_source_artifacts: bool = False) -> str:
+    # Strip machine-only fingerprint line, then hash.
     normalized = re.sub(r"(?m)^generated_fingerprint:\s*.*\n?", "", text)
+    if not keep_source_artifacts:
+        normalized = re.sub(r"(?m)^source_artifacts:\s*\[.*\]\s*\n?", "", normalized)
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
@@ -309,6 +313,38 @@ def extract_fingerprint(text: str) -> str | None:
     if not match:
         return None
     return match.group(1)
+
+
+def fingerprint_matches(text: str, expected: str) -> bool:
+    if fingerprint_skeleton_body(text) == expected:
+        return True
+    # Legacy skeletons hashed with the bulky source_artifacts line still present.
+    return fingerprint_skeleton_body(text, keep_source_artifacts=True) == expected
+
+
+def fingerprint_store_path(census_state: Path) -> Path:
+    return census_state / "skeleton-fingerprints.json"
+
+
+def load_fingerprint_store(census_state: Path) -> dict[str, str]:
+    path = fingerprint_store_path(census_state)
+    if not path.exists():
+        return {}
+    try:
+        payload = load_json(path)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return {str(key): str(value) for key, value in payload.items()}
+
+
+def save_fingerprint_store(census_state: Path, store: dict[str, str]) -> None:
+    write_json(fingerprint_store_path(census_state), store)
+
+
+def source_summary_text(paper_count: int) -> str:
+    return f"共 {paper_count} 份试卷；详见 题型频率统计.md"
 
 
 def render_type_skeleton(
@@ -322,36 +358,34 @@ def render_type_skeleton(
     target_path: Path,
     repo: Path,
 ) -> str:
-    source_paths = [str(paper["source"]) for paper in item["papers"]]
-    source_yaml = ", ".join(yaml_string(source) for source in source_paths) if source_paths else ""
+    paper_count = int(item["paper_count"])
+    source_summary = source_summary_text(paper_count)
     lines = [
         "---",
         "type: exam-type-analysis",
         f"course: {yaml_string(course_name)}",
-        "status: draft",
-        f"created: {today}",
-        f"updated: {today}",
-        f"tags: [course/{course_tag}, review, exam-census]",
-        "review_scope: exam-census",
         f"exam_scope: {yaml_string(exam_scope)}",
         f"exam_type_id: {yaml_string(item['id'])}",
-        f"exam_type_rank: {rank}",
-        f"source_artifacts: [{source_yaml}]",
+        f"exam_type_name: {yaml_string(str(item['name']))}",
+        f"rank: {rank}",
+        f"paper_count: {paper_count}",
+        f"must_know: {'true' if item['must_know'] else 'false'}",
+        "quality: draft",
+        "status: active",
+        f"source_summary: {yaml_string(source_summary)}",
         "---",
         "",
         f"# {rank:02d} · {item['name']}",
         "",
-        "## Census Signal",
+        "## 普查信号",
         "",
-        f"- Appearance rate: {item['appearance_rate']:.0%} ({item['paper_count']} papers)",
-        f"- Question count (annotated): {item['question_count']}",
-        f"- Must-know tier: {'yes' if item['must_know'] else 'no'}",
+        f"- 出现率：{item['appearance_rate']:.0%}（{paper_count} 份试卷）",
+        f"- 标注题量：{item['question_count']}",
+        f"- 必掌握：{'是' if item['must_know'] else '否'}",
         "",
-        "## Method Outline",
+        "## 来源依据",
         "",
-        "- _(fill by review-coach)_",
-        "",
-        "## Representative Problems",
+        f"- {source_summary}",
         "",
     ]
     if item["papers"]:
@@ -359,28 +393,26 @@ def render_type_skeleton(
             href = markdown_rel_link(str(paper["source"]), target_path, repo)
             lines.append(f"- [{paper['label']}]({href})")
     else:
-        lines.append("- _(none yet)_")
+        lines.append("- （暂无试卷命中）")
     lines.extend(
         [
             "",
-            "## Common Pitfalls",
+            "## 方法提纲",
             "",
             "- _(fill by review-coach)_",
             "",
-            "## Practice Targets",
+            "## 易错点",
             "",
-            "- [ ] Rework one high-frequency instance",
-            "- [ ] Recite the core method without notes",
+            "- _(fill by review-coach)_",
+            "",
+            "## 练习目标",
+            "",
+            "- [ ] 重做一道高频真题",
+            "- [ ] 不看笔记复述核心方法",
             "",
         ]
     )
-    body = "\n".join(lines)
-    fingerprint = fingerprint_skeleton_body(body)
-    return body.replace(
-        f"source_artifacts: [{source_yaml}]\n---",
-        f"source_artifacts: [{source_yaml}]\ngenerated_fingerprint: {fingerprint}\n---",
-        1,
-    )
+    return "\n".join(lines)
 
 
 def extract_exam_type_id(text: str) -> str | None:
@@ -393,11 +425,24 @@ def extract_exam_type_id(text: str) -> str | None:
     return raw
 
 
-def is_generated_skeleton(text: str) -> bool:
+def extract_frontmatter_quality(text: str) -> str | None:
+    match = re.search(r"(?m)^quality:\s*(.+)$", text)
+    if not match:
+        return None
+    raw = match.group(1).strip()
+    if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
+        return raw[1:-1]
+    return raw
+
+
+def is_generated_skeleton(text: str, *, type_id: str | None = None, store: dict[str, str] | None = None) -> bool:
     expected = extract_fingerprint(text)
+    if expected is None and store is not None and type_id:
+        expected = store.get(type_id)
     if not expected:
+        # No trusted fingerprint → treat as user-owned (never overwrite from a weak heuristic).
         return False
-    return fingerprint_skeleton_body(text) == expected
+    return fingerprint_matches(text, expected)
 
 
 def find_skeletons_by_type_id(analysis_dir: Path) -> dict[str, list[Path]]:
@@ -416,10 +461,48 @@ def find_skeletons_by_type_id(analysis_dir: Path) -> dict[str, list[Path]]:
     return mapping
 
 
-def update_rank_in_text(text: str, rank: int) -> str:
-    updated = re.sub(r"(?m)^exam_type_rank:\s*.*$", f"exam_type_rank: {rank}", text, count=1)
-    updated = re.sub(r"(?m)^#\s+\d+\s*·", f"# {rank:02d} ·", updated, count=1)
-    return updated
+def _split_frontmatter_and_body(text: str) -> tuple[str, str]:
+    if not text.startswith("---"):
+        return "", text
+    match = re.match(r"^---\r?\n(.*?)\r?\n---\s*(?:\r?\n)?(.*)$", text, flags=re.S)
+    if not match:
+        return "", text
+    return match.group(1), match.group(2)
+
+
+def update_census_metadata_in_text(
+    text: str,
+    *,
+    rank: int,
+    item: dict[str, Any],
+    course_name: str,
+    exam_scope: str,
+) -> str:
+    """Refresh generated census frontmatter while preserving the user-authored body."""
+    _old_fm, body = _split_frontmatter_and_body(text)
+    quality = extract_frontmatter_quality(text) or "draft"
+    paper_count = int(item["paper_count"])
+    source_summary = source_summary_text(paper_count)
+    frontmatter = "\n".join(
+        [
+            "---",
+            "type: exam-type-analysis",
+            f"course: {yaml_string(course_name)}",
+            f"exam_scope: {yaml_string(exam_scope)}",
+            f"exam_type_id: {yaml_string(item['id'])}",
+            f"exam_type_name: {yaml_string(str(item['name']))}",
+            f"rank: {rank}",
+            f"paper_count: {paper_count}",
+            f"must_know: {'true' if item['must_know'] else 'false'}",
+            f"quality: {quality}",
+            "status: active",
+            f"source_summary: {yaml_string(source_summary)}",
+            "---",
+            "",
+        ]
+    )
+    updated_body = re.sub(r"(?m)^#\s+\d+\s*·", f"# {rank:02d} ·", body, count=1)
+    return frontmatter + updated_body.lstrip("\n")
 
 
 def _archive_path(analysis_dir: Path, path: Path) -> Path:
@@ -439,14 +522,17 @@ def _archive_path(analysis_dir: Path, path: Path) -> Path:
     return destination
 
 
-def remove_or_archive_skeleton(analysis_dir: Path, path: Path) -> str:
+def remove_or_archive_skeleton(
+    analysis_dir: Path,
+    path: Path,
+    *,
+    type_id: str | None = None,
+    store: dict[str, str] | None = None,
+) -> str:
     """Delete unchanged generated skeletons; archive everything else."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        path.unlink(missing_ok=True)
-        return "deleted"
-    if is_generated_skeleton(text):
+    text = path.read_text(encoding="utf-8")
+    resolved_type = type_id or extract_exam_type_id(text)
+    if is_generated_skeleton(text, type_id=resolved_type, store=store):
         path.unlink(missing_ok=True)
         return "deleted"
     destination = _archive_path(analysis_dir, path)
@@ -463,11 +549,20 @@ def reconcile_skeleton(
     body: str,
     overwrite: bool,
     existing_by_type: dict[str, list[Path]],
+    fingerprint_store: dict[str, str],
+    item: dict[str, Any],
+    course_name: str,
+    exam_scope: str,
 ) -> tuple[str, str | None]:
     """Write/reconcile one skeleton. Returns (action, path)."""
     analysis_dir.mkdir(parents=True, exist_ok=True)
     existing = list(existing_by_type.get(type_id, []))
     others = [path for path in existing if path.resolve() != target.resolve()]
+
+    def _is_user(path: Path) -> bool:
+        return not is_generated_skeleton(
+            path.read_text(encoding="utf-8"), type_id=type_id, store=fingerprint_store
+        )
 
     if not overwrite and others:
         # Alternate path already holds this type id — do not migrate or delete.
@@ -476,26 +571,74 @@ def reconcile_skeleton(
         return "skipped", str(others[-1])
 
     if overwrite and others:
-        user_sources = [
-            path for path in others if not is_generated_skeleton(path.read_text(encoding="utf-8"))
-        ]
-        if user_sources:
-            source = user_sources[-1]
-            migrated = update_rank_in_text(source.read_text(encoding="utf-8"), rank)
+        user_sources = [path for path in others if _is_user(path)]
+        target_is_user = target.exists() and _is_user(target)
+
+        if target_is_user:
+            # Protect the existing target; archive alternate paths first.
             for path in others:
-                remove_or_archive_skeleton(analysis_dir, path)
+                remove_or_archive_skeleton(
+                    analysis_dir, path, type_id=type_id, store=fingerprint_store
+                )
+            migrated = update_census_metadata_in_text(
+                target.read_text(encoding="utf-8"),
+                rank=rank,
+                item=item,
+                course_name=course_name,
+                exam_scope=exam_scope,
+            )
             write_text(target, migrated, overwrite=True)
+            fingerprint_store.pop(type_id, None)
             return "migrated", str(target)
+
+        if user_sources:
+            # Prefer a single user source; archive every other alternate first.
+            source = user_sources[-1]
+            for path in others:
+                if path.resolve() == source.resolve():
+                    continue
+                remove_or_archive_skeleton(
+                    analysis_dir, path, type_id=type_id, store=fingerprint_store
+                )
+            migrated = update_census_metadata_in_text(
+                source.read_text(encoding="utf-8"),
+                rank=rank,
+                item=item,
+                course_name=course_name,
+                exam_scope=exam_scope,
+            )
+            remove_or_archive_skeleton(
+                analysis_dir, source, type_id=type_id, store=fingerprint_store
+            )
+            write_text(target, migrated, overwrite=True)
+            fingerprint_store.pop(type_id, None)
+            return "migrated", str(target)
+
         for path in others:
-            remove_or_archive_skeleton(analysis_dir, path)
+            remove_or_archive_skeleton(
+                analysis_dir, path, type_id=type_id, store=fingerprint_store
+            )
 
     target_exists = target.exists()
     target_text = target.read_text(encoding="utf-8") if target_exists else ""
-    target_is_generated = (not target_exists) or is_generated_skeleton(target_text)
+    target_is_generated = (not target_exists) or is_generated_skeleton(
+        target_text, type_id=type_id, store=fingerprint_store
+    )
 
     if target_exists and not target_is_generated:
         if overwrite:
-            write_text(target, update_rank_in_text(target_text, rank), overwrite=True)
+            write_text(
+                target,
+                update_census_metadata_in_text(
+                    target_text,
+                    rank=rank,
+                    item=item,
+                    course_name=course_name,
+                    exam_scope=exam_scope,
+                ),
+                overwrite=True,
+            )
+            fingerprint_store.pop(type_id, None)
             return "migrated", str(target)
         return "skipped", str(target)
 
@@ -503,6 +646,7 @@ def reconcile_skeleton(
         return "skipped", str(target)
 
     write_text(target, body, overwrite=True)
+    fingerprint_store[type_id] = fingerprint_skeleton_body(body)
     return "written", str(target)
 
 
@@ -511,6 +655,7 @@ def retire_obsolete_generated(
     analysis_dir: Path,
     keep_type_ids: set[str],
     existing_by_type: dict[str, list[Path]],
+    fingerprint_store: dict[str, str],
 ) -> list[str]:
     retired: list[str] = []
     for type_id, paths in existing_by_type.items():
@@ -518,10 +663,13 @@ def retire_obsolete_generated(
             continue
         for path in paths:
             try:
-                action = remove_or_archive_skeleton(analysis_dir, path)
+                action = remove_or_archive_skeleton(
+                    analysis_dir, path, type_id=type_id, store=fingerprint_store
+                )
             except OSError:
                 continue
             retired.append(f"{action}:{path}")
+        fingerprint_store.pop(type_id, None)
     return retired
 
 
@@ -606,6 +754,7 @@ def main() -> int:
     retired: list[str] = []
     keep_type_ids: set[str] = set()
     skip_skeletons = bool(args.validate and validation_failed)
+    fingerprint_store = load_fingerprint_store(census_state)
 
     if not skip_skeletons:
         existing_by_type = find_skeletons_by_type_id(analysis_dir)
@@ -633,6 +782,10 @@ def main() -> int:
                 body=body,
                 overwrite=args.overwrite,
                 existing_by_type=existing_by_type,
+                fingerprint_store=fingerprint_store,
+                item=item,
+                course_name=course_name,
+                exam_scope=exam_scope,
             )
             if action == "written" and path:
                 written_skeletons.append(relative_posix(Path(path), repo))
@@ -648,9 +801,11 @@ def main() -> int:
                 analysis_dir=analysis_dir,
                 keep_type_ids=keep_type_ids,
                 existing_by_type=existing_by_type,
+                fingerprint_store=fingerprint_store,
             ):
                 _action, _, path_text = entry.partition(":")
                 retired.append(relative_posix(Path(path_text or entry), repo))
+        save_fingerprint_store(census_state, fingerprint_store)
 
     result = {
         "repo": str(repo),

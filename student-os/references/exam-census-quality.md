@@ -2,6 +2,16 @@
 
 Use this reference for Phase A–E after Aggregate. Mechanical census scripts stay unchanged; agents fill and gate content here.
 
+## Output quality (Issue #51)
+
+题型解析面向**中文学生**阅读，正文与表格中文优先。
+
+- **frontmatter 只放短元数据**，统一字段：`type` / `course` / `exam_scope` / `exam_type_id` / `exam_type_name` / `rank` / `paper_count` / `must_know` / `quality` / `status`（可选 `source_summary`）。
+- **不要**写入长 `source_artifacts` 路径数组或机器用的 `generated_fingerprint`；详细来源放在 `题型频率统计.md` 或正文「来源依据」。
+- 表格单元格里的行列式/绝对值**不要裸写** `|A|`：优先 `$\lvert A\rvert$`，或确保 `|` 已转义为 `\|`（生成脚本统一走 `md_table_cell`）。
+- 低频题型证据不足时：写「证据不足，需人工补充」，并设 `quality: needs-review`；不要保留空模板段落。
+- Phase B（`review_type_analysis.py`）会拦截臃肿 frontmatter、英文残留（如 `Seeded from` / `Paper | Reliability` / `unspecified`）、以及疑似被裸 `|` 拆坏的表格。
+
 ## Content standard v2 — required section order
 
 1. 元信息 (badge: frequency / score / difficulty / sources)
@@ -13,6 +23,7 @@ Use this reference for Phase A–E after Aggregate. Mechanical census scripts st
 7. 例题精讲（≥2，标注方法引用）
 8. 自测题（≥2，先试后看答案）
 9. 来源校对说明
+
 
 ## Zero-foundation entry (must answer)
 

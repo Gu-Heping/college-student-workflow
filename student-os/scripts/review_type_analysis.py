@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from course_layout import configure_stdout_utf8
-from exam_census_quality import structural_review
+from exam_census_quality import QUALITY_CHECK_LABELS, analysis_report_review, structural_review
 from exam_census_utils import (
     course_slug_of,
     exam_scope_key,
@@ -40,6 +41,20 @@ def yaml_string(value: str) -> str:
     return f'"{escaped}"'
 
 
+def extract_exam_type_id(text: str) -> str | None:
+    match = re.search(r"(?m)^exam_type_id:\s*(.+)$", text)
+    if not match:
+        return None
+    raw = match.group(1).strip()
+    if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
+        return raw[1:-1]
+    return raw
+
+
+def check_label(name: str) -> str:
+    return QUALITY_CHECK_LABELS.get(name, name)
+
+
 def main() -> int:
     configure_stdout_utf8()
     args = parse_args()
@@ -55,17 +70,35 @@ def main() -> int:
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
-    analysis_dir = reviews_dir(course_dir, exam_scope) / "题型解析"
+    review_root = reviews_dir(course_dir, exam_scope)
+    analysis_dir = review_root / "题型解析"
     if not analysis_dir.exists():
         raise SystemExit(f"Missing type-analysis directory: {analysis_dir}")
 
     reviews: list[dict] = []
     for path in sorted(analysis_dir.glob("*.md")):
         text = path.read_text(encoding="utf-8")
-        reviews.append(structural_review(relative_posix(path, repo), text))
+        review = structural_review(relative_posix(path, repo), text)
+        review["exam_type_id"] = extract_exam_type_id(text) or path.stem
+        review["path"] = review["file"]
+        reviews.append(review)
+
+    analysis_reports_dir = review_root / "analysis"
+    if analysis_reports_dir.exists():
+        for path in sorted(analysis_reports_dir.glob("*.md")):
+            # Gate only machine-seeded multi-dim reports; skip quality/coverage digests.
+            if path.name in {"质量门禁.md", "覆盖率检查.md"}:
+                continue
+            text = path.read_text(encoding="utf-8")
+            review = analysis_report_review(relative_posix(path, repo), text)
+            review["path"] = review["file"]
+            review["exam_type_id"] = ""
+            reviews.append(review)
 
     passed = [item for item in reviews if item["verdict"] == "pass"]
     failed = [item for item in reviews if item["verdict"] != "pass"]
+    type_failures = [item for item in failed if item.get("kind") != "analysis-report"]
+    analysis_failures = [item for item in failed if item.get("kind") == "analysis-report"]
     report = {
         "course": course_key,
         "exam_scope": exam_scope,
@@ -75,16 +108,32 @@ def main() -> int:
         "file_count": len(reviews),
         "pass_count": len(passed),
         "needs_revision_count": len(failed),
+        "type_needs_revision": [
+            {
+                "path": item["path"],
+                "exam_type_id": item.get("exam_type_id") or "",
+                "failed_checks": item["failed_checks"],
+            }
+            for item in type_failures
+        ],
+        "analysis_needs_revision": [
+            {
+                "path": item["path"],
+                "failed_checks": item["failed_checks"],
+            }
+            for item in analysis_failures
+        ],
         "reviews": reviews,
         "agent_note": (
-            "Agents should revise needs-revision files at most max_rounds times; "
-            "if still failing, set frontmatter quality: needs-review for humans."
+            "Agents should revise needs-revision type pages at most max_rounds times; "
+            "analysis-report failures should be fixed separately after Phase C. "
+            "If still failing, set frontmatter quality: needs-review for humans."
         ),
     }
     out_path = state_dir(repo, course_key, exam_scope) / "quality-reviews.json"
     write_json(out_path, report)
 
-    human_dir = reviews_dir(course_dir, exam_scope) / "analysis"
+    human_dir = analysis_reports_dir
     human_dir.mkdir(parents=True, exist_ok=True)
     lines = [
         "---",
@@ -97,23 +146,36 @@ def main() -> int:
         "",
         f"# {course_key} · {exam_scope} · 题型解析质量门禁",
         "",
-        f"- Files reviewed: {len(reviews)}",
-        f"- Pass: {len(passed)}",
-        f"- Needs revision: {len(failed)}",
-        f"- Max agent revision rounds: {args.max_rounds}",
+        f"- 检查文件数：{len(reviews)}",
+        f"- 通过：{len(passed)}",
+        f"- 需修订：{len(failed)}",
+        f"- 助手最多修订轮数：{args.max_rounds}",
         "",
-        "## Failures",
+        "## 失败项",
         "",
     ]
     if not failed:
-        lines.append("- None")
+        lines.append("- 无")
     else:
         for item in failed:
-            lines.append(f"- `{item['file']}` — {', '.join(item['failed_checks'])}")
+            labels = "、".join(check_label(name) for name in item["failed_checks"])
+            lines.append(f"- `{item['file']}` — {labels}")
     lines.append("")
     (human_dir / "质量门禁.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
-    print(json.dumps({"report": str(out_path), "pass_count": len(passed), "needs_revision_count": len(failed)}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "report": str(out_path),
+                "pass_count": len(passed),
+                "needs_revision_count": len(failed),
+                "type_needs_revision_count": len(type_failures),
+                "analysis_needs_revision_count": len(analysis_failures),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 1 if failed else 0
 
 

@@ -56,8 +56,10 @@ courses/<course-key>/reviews/<exam-scope-key>/
 │   └── <relative-paper-id>.json
 ├── fill-queue.json
 ├── quality-reviews.json
+├── skeleton-fingerprints.json
 └── cross-validation.json
 ```
+
 
 `<course-key>` is the course path under `courses/` (for example `linear-algebra` or `2026-fall/cs-101`), so semester-nested courses do not collide.
 `<exam-scope-key>` is the slugified exam-scope label (for example `期中` or `midterm`). Raw labels must not contain path separators (`/`, `\\`, `:`).
@@ -169,6 +171,9 @@ python student-os/scripts/build_exam_type_stats.py /path/to/vault \
 Produces:
 - `题型频率统计.md`
 - ranked skeletons under `题型解析/NN-<type-id>.md`
+- machine-only `skeleton-fingerprints.json` under census state (not in page frontmatter)
+
+题型解析 skeleton frontmatter 只保留短字段（含 `quality` / `source_summary`），**不**写入 `source_artifacts` 长路径数组或 `generated_fingerprint`。详细试卷列表放在频率统计或正文「来源依据」。
 
 `--validate` exits nonzero when annotations are missing, reference unknown type ids, have unknown/unmatched `type_counts` keys, or have invalid `type_counts` values (non-object, non-positive integer). On validation failure the frequency report is still refreshed, but skeleton write/reconcile/retire is skipped.
 
@@ -189,6 +194,12 @@ python student-os/scripts/review_type_analysis.py /path/to/vault \
 
 Writes `quality-reviews.json` and `analysis/质量门禁.md`. Exit code 1 means at least one file needs revision (max 2 agent rounds, then `quality: needs-review`).
 
+Phase B also flags Issue #51 output defects: bulky `source_artifacts` / `generated_fingerprint` in frontmatter, missing required short fields, broken Markdown tables from bare `|`, and English residue in user-facing analysis reports (`Seeded from`, `Paper | Reliability`, `unspecified`).
+
+`quality-reviews.json` separates `type_needs_revision`（题型解析）and `analysis_needs_revision`（`analysis/*.md`）。Run the gate again after Phase C so multi-dim drafts are covered.
+
+Agents filling pages: 中文优先；表格中行列式用 `$\lvert A\rvert$`；低频证据不足写「证据不足，需人工补充」并设 `quality: needs-review`。
+
 ### Phase 4c — Multi-dimensional analysis (Phase C)
 
 ```bash
@@ -197,7 +208,9 @@ python student-os/scripts/build_multi_dim_stats.py /path/to/vault \
   --exam-scope 期中
 ```
 
-Writes drafts under `reviews/<exam-scope-key>/analysis/` (co-occurrence, format roll-up, difficulty/reliability seeds). Agents refine difficulty stars and 选择/填空/计算 buckets.
+Writes drafts under `reviews/<exam-scope-key>/analysis/` (co-occurrence, format roll-up, difficulty/reliability). User-facing Markdown is Chinese-first（表头「试卷 / 可靠性」等；枚举显示为「答案卷 / 复习版 / 回忆版 / 未标注」）。Agents refine difficulty stars and 选择/填空/计算 buckets.
+
+After writing analysis drafts, re-run `review_type_analysis.py` and fix any `analysis_needs_revision` entries.
 
 ### Phase 4d — Deep-dive papers (Phase D)
 

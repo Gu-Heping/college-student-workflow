@@ -1,16 +1,15 @@
 ---
 type: exam-type-analysis
-course: {{course_name}}
-status: draft
-created: {{date}}
-updated: {{date}}
-tags: [course/{{course_slug}}, review, exam-census]
-review_scope: exam-census
-exam_scope: {{exam_scope}}
-exam_type_id: {{type_id}}
-exam_type_rank: {{rank}}
-source_artifacts: []
+course: "{{course_name}}"
+exam_scope: "{{exam_scope}}"
+exam_type_id: "{{type_id}}"
+exam_type_name: "{{type_name}}"
+rank: {{rank}}
+paper_count: {{paper_count}}
+must_know: {{must_know}}
 quality: draft
+status: active
+source_summary: "共 {{paper_count}} 份试卷；详见 题型频率统计.md"
 ---
 
 # {{rank}} · {{type_name}}
@@ -23,11 +22,15 @@ quality: draft
 >
 > **整合来源**：课本 § · 课后习题 · 真题年份题号
 
-## Census Signal
+## 普查信号
 
-- Appearance rate:
-- Question count (annotated):
-- Must-know tier:
+- 出现率：
+- 标注题量：
+- 必掌握：
+
+## 来源依据
+
+- 详见 `题型频率统计.md`；勿把长路径数组写入 frontmatter。
 
 ## 真卷对应题号
 
@@ -114,6 +117,8 @@ quality: draft
 | --- | --- | --- | --- |
 |  |  |  |  |
 
+> 表格单元格中的行列式/绝对值不要裸写 `|A|`；优先写 `$\lvert A\rvert$`，或确保 `|` 已转义为 `\|`。
+
 ## 例题精讲
 
 ### 例题 1（年份 题号）
@@ -156,8 +161,9 @@ quality: draft
 
 - 图号/题号统一标准：
 - 改编题须标注：原题号 + 改动内容 + 目的
+- 低频 / 证据不足时：写明「证据不足，需人工补充」，并把 `quality` 设为 `needs-review`；不要保留空模板段落。
 
-## Practice Targets
+## 练习目标
 
-- [ ] Rework one high-frequency instance
-- [ ] Recite the core method without notes
+- [ ] 重做一道高频真题
+- [ ] 不看笔记复述核心方法

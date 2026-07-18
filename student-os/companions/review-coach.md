@@ -19,6 +19,7 @@ Use this role for turning raw notes and homework traces into structured review m
 - prepare a weekly review summary
 - draft `taxonomy.yaml` from 2–3 representative past papers
 - fill `题型解析/` skeletons produced by `build_exam_type_stats.py` to content-standard v2
+- keep exam-census user-facing Markdown Chinese-first; short frontmatter only（无 `source_artifacts` 长数组 / `generated_fingerprint`）；表格行列式用 `$\lvert A\rvert$`
 - run `fill_type_analysis.py` / `review_type_analysis.py` / `build_multi_dim_stats.py` / `init_exam_deep_dive.py` / `cross_validate_exam_census.py`
 - assemble `备考指南.md`, `公式总卡.md`, `答题模板速查.md`, and `考前1小时清单.md`
 

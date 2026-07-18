@@ -11,7 +11,11 @@ from typing import Any
 
 from course_layout import configure_stdout_utf8
 from exam_census_utils import (
+    DIFFICULTY_DISPLAY,
+    FORMAT_DISPLAY,
+    RELIABILITY_DISPLAY,
     course_slug_of,
+    display_annotation_label,
     exam_scope_key,
     load_annotations,
     load_json,
@@ -124,9 +128,9 @@ def main() -> int:
         [
             f"# {course_key} · {exam_scope} · 题型关联分析",
             "",
-            "Pairs that co-occur on the same annotated paper (count = papers sharing both types).",
+            "同一份已标注试卷中共同出现的题型对（计数 = 同时含两种题型的试卷数）。",
             "",
-            "| Type A | Type B | Shared papers |",
+            "| 题型 A | 题型 B | 共现试卷数 |",
             "| --- | --- | ---: |",
         ]
     )
@@ -144,31 +148,33 @@ def main() -> int:
         [
             f"# {course_key} · {exam_scope} · 分题型频率统计",
             "",
-            "Mechanical roll-up of optional `paper_format` / `format` fields on annotations.",
-            "Agents may refine into 选择/填空/计算 buckets after reading papers.",
+            "根据标注中可选的 `paper_format` / `format` 字段汇总。",
+            "填写题型解析后，可再细分为选择 / 填空 / 计算等桶。",
             "",
-            "| Format label | Papers |",
+            "| 题型格式 | 试卷数 |",
             "| --- | ---: |",
         ]
     )
     if format_counter:
         for label, count in format_counter.most_common():
-            format_lines.append(f"| {md_table_cell(label)} | {count} |")
+            shown = display_annotation_label(label, FORMAT_DISPLAY)
+            format_lines.append(f"| {md_table_cell(shown)} | {count} |")
     else:
-        format_lines.append("| _(none annotated)_ | 0 |")
+        format_lines.append("| （暂无标注） | 0 |")
     format_lines.extend(
         [
             "",
-            "## Per-paper type lists",
+            "## 各卷题型列表",
             "",
-            "| Paper | Format | Types |",
+            "| 试卷 | 格式 | 题型 |",
             "| --- | --- | --- |",
         ]
     )
     for row in paper_rows:
         types = ", ".join(row["types"]) or "-"
+        format_shown = display_annotation_label(str(row["format"]), FORMAT_DISPLAY)
         format_lines.append(
-            f"| {md_table_cell(str(row['label']))} | {md_table_cell(str(row['format']))} | {md_table_cell(types)} |"
+            f"| {md_table_cell(str(row['label']))} | {md_table_cell(format_shown)} | {md_table_cell(types)} |"
         )
 
     diff_lines = frontmatter(course_key, exam_scope, "exam-difficulty-grading", today)
@@ -176,15 +182,16 @@ def main() -> int:
         [
             f"# {course_key} · {exam_scope} · 题型难度分级",
             "",
-            "Seeded from optional annotation `difficulty` / `difficulty_stars`. Agents should star each type after fill.",
+            "根据标注中可选的 `difficulty` / `difficulty_stars` 汇总；填写题型解析后可为各题型补星级。",
             "",
-            "| Paper | Difficulty | Types |",
+            "| 试卷 | 难度 | 题型 |",
             "| --- | --- | --- |",
         ]
     )
     for row in paper_rows:
+        diff_shown = display_annotation_label(str(row["difficulty"]), DIFFICULTY_DISPLAY)
         diff_lines.append(
-            f"| {md_table_cell(str(row['label']))} | {md_table_cell(str(row['difficulty']))} | "
+            f"| {md_table_cell(str(row['label']))} | {md_table_cell(diff_shown)} | "
             f"{md_table_cell(', '.join(row['types']) or '-')} |"
         )
 
@@ -193,15 +200,16 @@ def main() -> int:
         [
             f"# {course_key} · {exam_scope} · 卷源可靠性分级",
             "",
-            "Seeded from optional annotation `paper_reliability` / `reliability` "
-            "(answer-key / review-copy / recall / unspecified).",
+            "根据标注中可选的 `paper_reliability` / `reliability` 汇总"
+            "（答案卷 / 复习版 / 回忆版 / 未标注）。",
             "",
-            "| Paper | Reliability |",
+            "| 试卷 | 可靠性 |",
             "| --- | --- |",
         ]
     )
     for row in paper_rows:
-        rel_lines.append(f"| {md_table_cell(str(row['label']))} | {md_table_cell(str(row['reliability']))} |")
+        rel_shown = display_annotation_label(str(row["reliability"]), RELIABILITY_DISPLAY)
+        rel_lines.append(f"| {md_table_cell(str(row['label']))} | {md_table_cell(rel_shown)} |")
 
     written: list[str] = []
     skipped: list[str] = []
