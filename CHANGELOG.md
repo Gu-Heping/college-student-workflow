@@ -6,6 +6,7 @@
 
 ### Added
 
+- 为 GitHub 发布链路增加 `sanitize_and_post.py`，以及 `prepare_github_issue.py --check-stdin`：任意 issue / PR review / comment 正文可先脱敏再交给 `gh`；包装脚本仅在脱敏成功后才调用下游命令，避免无 `pipefail` 时管道仍创建空 body（Issue #40）。
 - 为 `student-os` 新增大规模试卷普查工作流（`exam-census`）：`init_exam_census.py` / `build_exam_type_stats.py`、题型 taxonomy/annotation 契约、频率统计与题型解析骨架生成，以及备考指南/公式总卡/答题模板/考前清单模板；配套 `exam-census-workflow.md`、命令入口与 review-coach/coordinator 路由。
 - 为 exam-census 增加 Phase A–E（Issue #41）：`fill_type_analysis.py` / `review_type_analysis.py` / `build_multi_dim_stats.py` / `init_exam_deep_dive.py` / `cross_validate_exam_census.py`、内容标准与零基础入口契约（`exam-census-quality.md`）、题型解析模板升级与 `analysis/` 产物。
 - 为 exam-census 增加多平台编排层（Issue #43）：`integrations/` 下 Claude Code JS workflow、Cursor `.mdc`、OpenCode/GitHub 薄适配，以及 `install_exam_census_adapters.py` 安装到学习 vault。
@@ -40,6 +41,7 @@
 
 ### Fixed
 
+- 修复 `prepare_github_issue.py --stdin` / `--check-only` 在仅有 privacy warning 时仍可能被裸管道接到空 body `gh` 调用的问题：warning 时完全不写 stdout 且非零退出，`--check-only` 对 warning 同样非零，并推荐用 `sanitize_and_post.py` 替代裸 `|` 管道（Issue #40）。
 - 修复 `repair_markdown_import.py` 在写入含 Windows/Unicode 路径的 `derived_from_import` 时，`re.sub` 把 JSON `\uXXXX` 当作 replacement 转义并崩溃的问题；改用 callable replacement，避免 `--repair` 在 Windows 中文路径下不可用。
 - 修复安装流程缺少可追踪安装元数据的问题，避免后续自更新无法判断安装来源、覆盖风险与回滚路径。
 - 修复自更新对 legacy symlink 安装、project-scoped copy 安装、manifest 缺失安装和 fork/local source 安装的兼容与安全边界，避免误触用户 vault 仓库或静默切回上游源。

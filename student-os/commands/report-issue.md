@@ -22,14 +22,21 @@ Expected outputs:
 - explicit confirmation before public posting
 - stored GitHub issue metadata after publish
 
-When the draft does not come from a local feedback entry, sanitize through:
+When the draft does not come from a local feedback entry, sanitize then post through the safe wrapper (do not use a bare `|` pipe into `gh` — held-back sanitization can still create an empty body without `pipefail`):
 
 ```bash
-python scripts/prepare_github_issue.py --stdin < draft.md \
-  | gh issue create --repo Gu-Heping/college-student-workflow -F -
+python scripts/sanitize_and_post.py -- \
+  gh issue create --repo Gu-Heping/college-student-workflow -F -
 ```
 
-- `--stdin` holds the draft back (non-zero exit, no stdout) when privacy warnings are present; re-run with `--allow-privacy-warnings` only after explicit user confirmation.
+For PR reviews or comments, use the same wrapper:
+
+```bash
+python scripts/sanitize_and_post.py -- gh pr review <n> --comment -F -
+python scripts/sanitize_and_post.py -- gh issue comment <n> --body-file -
+```
+
+- `--check-stdin` / `--stdin` on `prepare_github_issue.py` hold the draft back (non-zero exit, no stdout) when privacy warnings are present; re-run with `--allow-privacy-warnings` only after explicit user confirmation.
 - Always pin `--repo Gu-Heping/college-student-workflow` so the issue lands on the student-os tracker instead of the student's current/private repo.
 
-Do not call `gh issue create` directly on unsanitized text.
+Do not call `gh issue create`, `gh pr review`, or `gh issue comment` directly on unsanitized text.

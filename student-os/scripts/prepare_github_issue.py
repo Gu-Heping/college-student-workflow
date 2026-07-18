@@ -144,9 +144,22 @@ def format_privacy_messages(blockers: list[str], warnings: list[str]) -> str:
     return "\n".join(lines)
 
 
-def run_stdin_mode(args: argparse.Namespace) -> int:
-    raw = sys.stdin.read()
-    body, title = extract_stdin_payload(raw, args.stdin_format)
+def sanitize_stdin_payload(
+    raw: str,
+    *,
+    stdin_format: str = "text",
+    allow_privacy_warnings: bool = False,
+    check_only: bool = False,
+) -> tuple[int, str | None]:
+    """
+    Privacy-check and sanitize arbitrary stdin text.
+
+    Returns ``(exit_code, sanitized_output)``. ``sanitized_output`` is ``None``
+    when the draft is held back, blocked, or ``check_only`` is set — callers must
+    not feed empty output to ``gh`` (shell pipes without ``pipefail`` would still
+    create empty issue/review bodies).
+    """
+    body, title = extract_stdin_payload(raw, stdin_format)
     # Scan title-bearing metadata alongside the body so a sensitive title cannot
     # slip through a "safe" check when the body alone is harmless.
     scan_text = body if title is None else f"{title}\n{body}"
@@ -155,21 +168,23 @@ def run_stdin_mode(args: argparse.Namespace) -> int:
     messages = format_privacy_messages(blockers, warnings)
     if messages:
         print(messages, file=sys.stderr)
-    if args.check_only:
-        return 1 if blockers else 0
+    if check_only:
+        # Match hold-back semantics: warnings are also non-zero so a pre-flight
+        # check cannot be mistaken for "safe to post".
+        return (1 if blockers or warnings else 0), None
     if blockers:
         print(
             "Aborting: privacy blockers detected. Clean the draft before publishing.",
             file=sys.stderr,
         )
-        return 1
-    if warnings and not args.allow_privacy_warnings:
+        return 1, None
+    if warnings and not allow_privacy_warnings:
         print(
             "Holding draft: privacy warnings detected. Review the findings above and "
             "re-run with --allow-privacy-warnings to emit the sanitized draft.",
             file=sys.stderr,
         )
-        return 1
+        return 1, None
     sanitized_body = redact_sensitive_text(body)
     if title is not None:
         # Emit a fully sanitized JSON payload so no title-bearing field is left
@@ -179,14 +194,24 @@ def run_stdin_mode(args: argparse.Namespace) -> int:
             ensure_ascii=False,
             indent=2,
         )
-        sys.stdout.write(output)
         if not output.endswith("\n"):
-            sys.stdout.write("\n")
-        return 0
-    sys.stdout.write(sanitized_body)
+            output += "\n"
+        return 0, output
     if sanitized_body and not sanitized_body.endswith("\n"):
-        sys.stdout.write("\n")
-    return 0
+        sanitized_body += "\n"
+    return 0, sanitized_body
+
+
+def run_stdin_mode(args: argparse.Namespace) -> int:
+    exit_code, output = sanitize_stdin_payload(
+        sys.stdin.read(),
+        stdin_format=args.stdin_format,
+        allow_privacy_warnings=args.allow_privacy_warnings,
+        check_only=args.check_only,
+    )
+    if output is not None:
+        sys.stdout.write(output)
+    return exit_code
 
 
 def public_feedback_id(frontmatter: dict[str, str], feedback_path: Path) -> str:
@@ -395,42 +420,62 @@ def build_issue_body(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Prepare a GitHub issue draft from a student-os feedback entry, or sanitize arbitrary issue text via --stdin."
+        description=(
+            "Prepare a GitHub issue draft from a student-os feedback entry, or sanitize "
+            "arbitrary GitHub post text (issue, PR review, comment) via --stdin / --check-stdin."
+        )
     )
-    parser.add_argument("repo", nargs="?", help="Target repository root (required unless --stdin)")
-    parser.add_argument("feedback", nargs="?", help="Feedback path, relative to repo or absolute (required unless --stdin)")
+    parser.add_argument("repo", nargs="?", help="Target repository root (required unless --stdin/--check-stdin)")
+    parser.add_argument(
+        "feedback",
+        nargs="?",
+        help="Feedback path, relative to repo or absolute (required unless --stdin/--check-stdin)",
+    )
     parser.add_argument(
         "--stdin",
         action="store_true",
-        help="Read issue text from stdin, sanitize it, and write sanitized text to stdout.",
+        help="Read text from stdin, sanitize it, and write sanitized text to stdout.",
+    )
+    parser.add_argument(
+        "--check-stdin",
+        action="store_true",
+        help=(
+            "Alias for --stdin: accept arbitrary text (issue body, PR review, comment), "
+            "emit the sanitized version or exit non-zero (including privacy warnings) with no stdout."
+        ),
     )
     parser.add_argument(
         "--check-only",
         action="store_true",
-        help="With --stdin, only report privacy findings to stderr and exit non-zero when blockers exist.",
+        help=(
+            "With --stdin/--check-stdin, only report privacy findings to stderr and exit "
+            "non-zero when blockers or warnings exist (no rewrite)."
+        ),
     )
     parser.add_argument(
         "--stdin-format",
         choices=["text", "json"],
         default="text",
-        help="Input format for --stdin. json accepts gh-style {\"body\": \"...\"} payloads.",
+        help="Input format for --stdin/--check-stdin. json accepts gh-style {\"body\": \"...\"} payloads.",
     )
     parser.add_argument(
         "--allow-privacy-warnings",
         action="store_true",
-        help="With --stdin, emit the sanitized draft even when privacy warnings are present. "
+        help="With --stdin/--check-stdin, emit the sanitized draft even when privacy warnings are present. "
         "Without this flag warning-bearing drafts are held back (non-zero exit, no stdout).",
     )
     args = parser.parse_args()
 
+    if args.check_stdin:
+        args.stdin = True
     if args.check_only and not args.stdin:
-        raise SystemExit("--check-only requires --stdin")
+        raise SystemExit("--check-only requires --stdin or --check-stdin")
     if args.allow_privacy_warnings and not args.stdin:
-        raise SystemExit("--allow-privacy-warnings requires --stdin")
+        raise SystemExit("--allow-privacy-warnings requires --stdin or --check-stdin")
     if args.stdin:
         return run_stdin_mode(args)
     if not args.repo or not args.feedback:
-        raise SystemExit("repo and feedback are required unless --stdin is used")
+        raise SystemExit("repo and feedback are required unless --stdin/--check-stdin is used")
 
     repo = Path(args.repo).resolve()
     feedback_path = resolve_feedback_path(repo, args.feedback)
