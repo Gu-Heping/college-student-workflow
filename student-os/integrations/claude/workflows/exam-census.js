@@ -1,3 +1,12 @@
+/**
+ * EXPERIMENTAL — not installed by default.
+ * Prefer Claude skill/command: .claude/skills/exam-census/SKILL.md and
+ * .claude/commands/exam-census.md (/exam-census). Install this JS only with
+ * install_exam_census_adapters.py --include-experimental-claude-workflow.
+ *
+ * Claude Code custom Workflow({name}) / Workflow({scriptPath}) discovery for
+ * project .claude/workflows/*.js is not stable across environments.
+ */
 export const meta = {
   name: 'exam-census',
   description:

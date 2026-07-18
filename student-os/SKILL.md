@@ -193,6 +193,8 @@ When the request involves scanned PDFs, image-heavy materials, or legacy `.doc` 
 Use `references/exam-census-workflow.md` and `references/exam-census-quality.md`.
 Command entry: `commands/exam-census.md`.
 
+Claude Code vault adapters (recommended): install with `install_exam_census_adapters.py --platforms claude`, then run `/exam-census` via `.claude/skills/exam-census/SKILL.md` / `.claude/commands/exam-census.md`. Do **not** rely on `Workflow({name})` / `Workflow({scriptPath})` for custom `.claude/workflows/*.js` (experimental opt-in only).
+
 Short phase map (details in the reference):
 - **Prepare** — convert papers to `.pdf.md` sidecars (+ repair)
 - **Init / taxonomy / annotate / aggregate** — manifest, type catalog, per-paper JSON, frequency + skeletons
@@ -258,7 +260,9 @@ When a request targets one of the seed courses, read the matching course pack be
 - `references/pptx-workflow.md`
 - `references/exam-census-workflow.md`
 - `references/exam-census-quality.md`
-- `integrations/claude/workflows/exam-census.js` (Claude Code workflow template)
+- `integrations/claude/skills/exam-census/SKILL.md` (Claude Code skill entry; recommended)
+- `integrations/claude/commands/exam-census.md` (Claude Code `/exam-census` command)
+- `integrations/claude/workflows/exam-census.js` (experimental Claude workflow; opt-in install only)
 - `integrations/cursor/rules/exam-census.mdc` (Cursor rule template)
 
 If the course is not covered yet, follow the generic workflow and note that a course pack may be needed later.

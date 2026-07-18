@@ -94,6 +94,16 @@ Git 安全检查：
 请用 student-os 对这门课的历年试卷做 exam-census：先扫描试卷 markdown sidecar，建立题型 taxonomy，再统计高频题型，生成题型解析和备考资料包。每一步都先说明产物位置。
 ```
 
+Claude Code 推荐先安装 vault adapter，再用 `/exam-census`（skill/command 入口，不要依赖自定义 Workflow JS）：
+
+```bash
+python student-os/scripts/install_exam_census_adapters.py /path/to/vault --platforms claude
+```
+
+```text
+/exam-census vault="/path/to/vault" course="linear-algebra" examScope="期中"
+```
+
 周计划：
 
 ```text
