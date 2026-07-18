@@ -300,10 +300,11 @@ def render_frequency_report(
     return "\n".join(lines)
 
 
-def fingerprint_skeleton_body(text: str) -> str:
-    # Strip legacy machine-only frontmatter fields if present, then hash.
+def fingerprint_skeleton_body(text: str, *, keep_source_artifacts: bool = False) -> str:
+    # Strip machine-only fingerprint line, then hash.
     normalized = re.sub(r"(?m)^generated_fingerprint:\s*.*\n?", "", text)
-    normalized = re.sub(r"(?m)^source_artifacts:\s*\[.*\]\s*\n?", "", normalized)
+    if not keep_source_artifacts:
+        normalized = re.sub(r"(?m)^source_artifacts:\s*\[.*\]\s*\n?", "", normalized)
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
@@ -312,6 +313,13 @@ def extract_fingerprint(text: str) -> str | None:
     if not match:
         return None
     return match.group(1)
+
+
+def fingerprint_matches(text: str, expected: str) -> bool:
+    if fingerprint_skeleton_body(text) == expected:
+        return True
+    # Legacy skeletons hashed with the bulky source_artifacts line still present.
+    return fingerprint_skeleton_body(text, keep_source_artifacts=True) == expected
 
 
 def fingerprint_store_path(census_state: Path) -> Path:
@@ -335,6 +343,10 @@ def save_fingerprint_store(census_state: Path, store: dict[str, str]) -> None:
     write_json(fingerprint_store_path(census_state), store)
 
 
+def source_summary_text(paper_count: int) -> str:
+    return f"共 {paper_count} 份试卷；详见 题型频率统计.md"
+
+
 def render_type_skeleton(
     *,
     course_name: str,
@@ -347,7 +359,7 @@ def render_type_skeleton(
     repo: Path,
 ) -> str:
     paper_count = int(item["paper_count"])
-    source_summary = f"{paper_count} papers; see 题型频率统计.md"
+    source_summary = source_summary_text(paper_count)
     lines = [
         "---",
         "type: exam-type-analysis",
@@ -413,14 +425,24 @@ def extract_exam_type_id(text: str) -> str | None:
     return raw
 
 
+def extract_frontmatter_quality(text: str) -> str | None:
+    match = re.search(r"(?m)^quality:\s*(.+)$", text)
+    if not match:
+        return None
+    raw = match.group(1).strip()
+    if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
+        return raw[1:-1]
+    return raw
+
+
 def is_generated_skeleton(text: str, *, type_id: str | None = None, store: dict[str, str] | None = None) -> bool:
     expected = extract_fingerprint(text)
     if expected is None and store is not None and type_id:
         expected = store.get(type_id)
     if not expected:
-        # Heuristic fallback for legacy/partial files without fingerprints.
-        return "_(fill by review-coach)_" in text and "quality: draft" in text
-    return fingerprint_skeleton_body(text) == expected
+        # No trusted fingerprint → treat as user-owned (never overwrite from a weak heuristic).
+        return False
+    return fingerprint_matches(text, expected)
 
 
 def find_skeletons_by_type_id(analysis_dir: Path) -> dict[str, list[Path]]:
@@ -439,20 +461,48 @@ def find_skeletons_by_type_id(analysis_dir: Path) -> dict[str, list[Path]]:
     return mapping
 
 
-def update_rank_in_text(text: str, rank: int) -> str:
-    if re.search(r"(?m)^rank:\s*", text):
-        updated = re.sub(r"(?m)^rank:\s*.*$", f"rank: {rank}", text, count=1)
-    else:
-        updated = re.sub(r"(?m)^exam_type_rank:\s*.*$", f"rank: {rank}", text, count=1)
-        if updated == text and "exam_type_id:" in text:
-            updated = re.sub(
-                r"(?m)^(exam_type_id:\s*.*)$",
-                rf"\1\nrank: {rank}",
-                text,
-                count=1,
-            )
-    updated = re.sub(r"(?m)^#\s+\d+\s*·", f"# {rank:02d} ·", updated, count=1)
-    return updated
+def _split_frontmatter_and_body(text: str) -> tuple[str, str]:
+    if not text.startswith("---"):
+        return "", text
+    match = re.match(r"^---\r?\n(.*?)\r?\n---\s*(?:\r?\n)?(.*)$", text, flags=re.S)
+    if not match:
+        return "", text
+    return match.group(1), match.group(2)
+
+
+def update_census_metadata_in_text(
+    text: str,
+    *,
+    rank: int,
+    item: dict[str, Any],
+    course_name: str,
+    exam_scope: str,
+) -> str:
+    """Refresh generated census frontmatter while preserving the user-authored body."""
+    _old_fm, body = _split_frontmatter_and_body(text)
+    quality = extract_frontmatter_quality(text) or "draft"
+    paper_count = int(item["paper_count"])
+    source_summary = source_summary_text(paper_count)
+    frontmatter = "\n".join(
+        [
+            "---",
+            "type: exam-type-analysis",
+            f"course: {yaml_string(course_name)}",
+            f"exam_scope: {yaml_string(exam_scope)}",
+            f"exam_type_id: {yaml_string(item['id'])}",
+            f"exam_type_name: {yaml_string(str(item['name']))}",
+            f"rank: {rank}",
+            f"paper_count: {paper_count}",
+            f"must_know: {'true' if item['must_know'] else 'false'}",
+            f"quality: {quality}",
+            "status: active",
+            f"source_summary: {yaml_string(source_summary)}",
+            "---",
+            "",
+        ]
+    )
+    updated_body = re.sub(r"(?m)^#\s+\d+\s*·", f"# {rank:02d} ·", body, count=1)
+    return frontmatter + updated_body.lstrip("\n")
 
 
 def _archive_path(analysis_dir: Path, path: Path) -> Path:
@@ -480,11 +530,7 @@ def remove_or_archive_skeleton(
     store: dict[str, str] | None = None,
 ) -> str:
     """Delete unchanged generated skeletons; archive everything else."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        path.unlink(missing_ok=True)
-        return "deleted"
+    text = path.read_text(encoding="utf-8")
     resolved_type = type_id or extract_exam_type_id(text)
     if is_generated_skeleton(text, type_id=resolved_type, store=store):
         path.unlink(missing_ok=True)
@@ -504,11 +550,19 @@ def reconcile_skeleton(
     overwrite: bool,
     existing_by_type: dict[str, list[Path]],
     fingerprint_store: dict[str, str],
+    item: dict[str, Any],
+    course_name: str,
+    exam_scope: str,
 ) -> tuple[str, str | None]:
     """Write/reconcile one skeleton. Returns (action, path)."""
     analysis_dir.mkdir(parents=True, exist_ok=True)
     existing = list(existing_by_type.get(type_id, []))
     others = [path for path in existing if path.resolve() != target.resolve()]
+
+    def _is_user(path: Path) -> bool:
+        return not is_generated_skeleton(
+            path.read_text(encoding="utf-8"), type_id=type_id, store=fingerprint_store
+        )
 
     if not overwrite and others:
         # Alternate path already holds this type id — do not migrate or delete.
@@ -517,23 +571,49 @@ def reconcile_skeleton(
         return "skipped", str(others[-1])
 
     if overwrite and others:
-        user_sources = [
-            path
-            for path in others
-            if not is_generated_skeleton(
-                path.read_text(encoding="utf-8"), type_id=type_id, store=fingerprint_store
-            )
-        ]
-        if user_sources:
-            source = user_sources[-1]
-            migrated = update_rank_in_text(source.read_text(encoding="utf-8"), rank)
+        user_sources = [path for path in others if _is_user(path)]
+        target_is_user = target.exists() and _is_user(target)
+
+        if target_is_user:
+            # Protect the existing target; archive alternate paths first.
             for path in others:
                 remove_or_archive_skeleton(
                     analysis_dir, path, type_id=type_id, store=fingerprint_store
                 )
+            migrated = update_census_metadata_in_text(
+                target.read_text(encoding="utf-8"),
+                rank=rank,
+                item=item,
+                course_name=course_name,
+                exam_scope=exam_scope,
+            )
             write_text(target, migrated, overwrite=True)
             fingerprint_store.pop(type_id, None)
             return "migrated", str(target)
+
+        if user_sources:
+            # Prefer a single user source; archive every other alternate first.
+            source = user_sources[-1]
+            for path in others:
+                if path.resolve() == source.resolve():
+                    continue
+                remove_or_archive_skeleton(
+                    analysis_dir, path, type_id=type_id, store=fingerprint_store
+                )
+            migrated = update_census_metadata_in_text(
+                source.read_text(encoding="utf-8"),
+                rank=rank,
+                item=item,
+                course_name=course_name,
+                exam_scope=exam_scope,
+            )
+            remove_or_archive_skeleton(
+                analysis_dir, source, type_id=type_id, store=fingerprint_store
+            )
+            write_text(target, migrated, overwrite=True)
+            fingerprint_store.pop(type_id, None)
+            return "migrated", str(target)
+
         for path in others:
             remove_or_archive_skeleton(
                 analysis_dir, path, type_id=type_id, store=fingerprint_store
@@ -547,7 +627,17 @@ def reconcile_skeleton(
 
     if target_exists and not target_is_generated:
         if overwrite:
-            write_text(target, update_rank_in_text(target_text, rank), overwrite=True)
+            write_text(
+                target,
+                update_census_metadata_in_text(
+                    target_text,
+                    rank=rank,
+                    item=item,
+                    course_name=course_name,
+                    exam_scope=exam_scope,
+                ),
+                overwrite=True,
+            )
             fingerprint_store.pop(type_id, None)
             return "migrated", str(target)
         return "skipped", str(target)
@@ -693,6 +783,9 @@ def main() -> int:
                 overwrite=args.overwrite,
                 existing_by_type=existing_by_type,
                 fingerprint_store=fingerprint_store,
+                item=item,
+                course_name=course_name,
+                exam_scope=exam_scope,
             )
             if action == "written" and path:
                 written_skeletons.append(relative_posix(Path(path), repo))

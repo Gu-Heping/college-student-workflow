@@ -1568,6 +1568,7 @@ def exercise_exam_census(repo: Path) -> None:
     ):
         if required_field not in first_fm:
             raise AssertionError(f"Missing unified frontmatter field {required_field!r} in {first_skeleton}")
+    ensure_contains(first_skeleton, "共 3 份试卷；详见 题型频率统计.md")
 
     second_skeleton = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "题型解析" / "02-eigen-decomp.md"
     ensure_exists(second_skeleton)
@@ -2171,7 +2172,93 @@ def exercise_exam_census(repo: Path) -> None:
     ensure_contains(reliability_report, "| 试卷 | 可靠性 |")
     ensure_contains(reliability_report, "未标注")
 
-    # Phase B must catch Issue #51 defects (unescaped pipe / English residue) and pass after fix.
+    # Phase B CLI must catch Issue #51 analysis defects and pass after fix.
+    analysis_dir_reports = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "analysis"
+    bad_report_path = analysis_dir_reports / "题型关联分析.md"
+    good_report_backup = bad_report_path.read_text(encoding="utf-8")
+    bad_report_path.write_text(
+        "\n".join(
+            [
+                "---",
+                "type: exam-type-cooccurrence",
+                'course: "Linear Algebra"',
+                "status: draft",
+                "---",
+                "",
+                "# bad seed",
+                "",
+                "Seeded from optional annotation.",
+                "",
+                "| Paper | Reliability |",
+                "| --- | --- |",
+                "| demo | unspecified |",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    bad_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "review_type_analysis.py"),
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if bad_cli.returncode == 0:
+        raise AssertionError("Expected Phase B CLI to fail when analysis report has English residue")
+    bad_quality = json.loads((state_dir / "quality-reviews.json").read_text(encoding="utf-8"))
+    bad_analysis_hits = [
+        item
+        for item in bad_quality.get("analysis_needs_revision", [])
+        if item.get("path", "").endswith("题型关联分析.md")
+    ]
+    if not bad_analysis_hits:
+        raise AssertionError(f"Expected analysis_needs_revision for 题型关联分析.md, got: {bad_quality}")
+    bad_report_path.write_text(good_report_backup, encoding="utf-8", newline="\n")
+    fixed_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "review_type_analysis.py"),
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if fixed_cli.returncode == 0:
+        # Type skeletons are still incomplete, so CLI should still fail overall.
+        raise AssertionError("Expected Phase B CLI to keep failing on incomplete type pages")
+    fixed_quality = json.loads((state_dir / "quality-reviews.json").read_text(encoding="utf-8"))
+    if fixed_quality.get("analysis_needs_revision"):
+        raise AssertionError(
+            f"Expected analysis reports to pass after restore, got: {fixed_quality.get('analysis_needs_revision')}"
+        )
+    gate_md = analysis_dir_reports / "质量门禁.md"
+    ensure_contains(gate_md, "助手最多修订轮数")
+    ensure_contains(gate_md, "必含区块齐全")
+
+    # Direct reviewer helpers still cover table pipe fail/pass fixtures.
     quality_spec = importlib.util.spec_from_file_location(
         "exam_census_quality_issue51", STUDENT_OS_SCRIPTS / "exam_census_quality.py"
     )
@@ -2184,27 +2271,6 @@ def exercise_exam_census(repo: Path) -> None:
     finally:
         if sys.path and sys.path[0] == str(STUDENT_OS_SCRIPTS):
             sys.path.pop(0)
-    bad_analysis = "\n".join(
-        [
-            "---",
-            "type: exam-paper-reliability",
-            'course: "Linear Algebra"',
-            "status: draft",
-            "---",
-            "",
-            "# bad seed",
-            "",
-            "Seeded from optional annotation.",
-            "",
-            "| Paper | Reliability |",
-            "| --- | --- |",
-            "| demo | unspecified |",
-            "",
-        ]
-    )
-    bad_review = quality_mod.analysis_report_review("analysis/bad.md", bad_analysis)
-    if bad_review["verdict"] != "needs-revision" or "chinese_user_facing" not in bad_review["failed_checks"]:
-        raise AssertionError(f"Expected Phase B to fail English residue fixture, got: {bad_review}")
     bad_table_doc = "\n".join(
         [
             "---",
@@ -2233,29 +2299,9 @@ def exercise_exam_census(repo: Path) -> None:
         "| $|A|$ |",
         f"| {exam_census_utils.md_table_cell('$|A|$')} |",
     )
-    # structural_review still fails content checks; only assert markdown_tables passes after escape.
     fixed_table_review = quality_mod.structural_review("题型解析/fixed-table.md", fixed_table_doc)
     if not fixed_table_review["checks"]["markdown_tables"]["pass"]:
         raise AssertionError(f"Expected escaped table to pass markdown_tables check: {fixed_table_review}")
-    fixed_analysis = "\n".join(
-        [
-            "---",
-            "type: exam-paper-reliability",
-            'course: "Linear Algebra"',
-            "status: draft",
-            "---",
-            "",
-            "# 卷源可靠性",
-            "",
-            "| 试卷 | 可靠性 |",
-            "| --- | --- |",
-            "| demo | 未标注 |",
-            "",
-        ]
-    )
-    fixed_analysis_review = quality_mod.analysis_report_review("analysis/fixed.md", fixed_analysis)
-    if fixed_analysis_review["verdict"] != "pass":
-        raise AssertionError(f"Expected fixed Chinese analysis report to pass, got: {fixed_analysis_review}")
 
     deep = json.loads(
         run_script(

@@ -54,7 +54,10 @@ ENGLISH_RESIDUE_PATTERNS = (
     (re.compile(r"(?m)^\|\s*Paper\s*\|\s*Difficulty\s*\|"), "English table header: Paper | Difficulty"),
     (re.compile(r"(?m)^\|\s*Paper\s*\|\s*Format\s*\|"), "English table header: Paper | Format"),
     (re.compile(r"(?m)^\|\s*[^|\n]*\|\s*unspecified\s*\|"), "English value: unspecified"),
+    (re.compile(r"(?m)^#{1,6}\s+Common Pitfalls\b"), "English heading: Common Pitfalls"),
 )
+
+ALLOWED_TYPE_ANALYSIS_FRONTMATTER = set(REQUIRED_TYPE_ANALYSIS_FRONTMATTER) | {"source_summary"}
 
 QUALITY_CHECK_LABELS = {
     "badge": "有 badge / 元信息区（频率/分值/难度/来源）",
@@ -107,6 +110,9 @@ def frontmatter_shape_issues(text: str) -> list[str]:
     missing = [name for name in REQUIRED_TYPE_ANALYSIS_FRONTMATTER if name not in present]
     if missing:
         issues.append("missing required frontmatter fields: " + ", ".join(missing))
+    extras = sorted(name for name in present if name not in ALLOWED_TYPE_ANALYSIS_FRONTMATTER)
+    if extras:
+        issues.append("unexpected frontmatter fields: " + ", ".join(extras))
     return issues
 
 
@@ -242,11 +248,7 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
 
     quick_body = section_body_after(text, "一眼先记住")
     symbol_body = section_body_after(text, "符号") + "\n" + section_body_after(text, "术语")
-    pitfall_body = (
-        section_body_after(text, "最容易混")
-        or section_body_after(text, "Common Pitfalls")
-        or section_body_after(text, "易错点")
-    )
+    pitfall_body = section_body_after(text, "最容易混") or section_body_after(text, "易错点")
     formula_body = section_body_after(text, "最少必须记住的公式") or section_body_after(text, "本篇最少")
     decision_body = section_body_after(text, "方法选择") or section_body_after(text, "决策")
     if "├" in text and not decision_body:
@@ -297,13 +299,9 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
             else ["missing filled symbol/term table"],
         },
         "pitfalls": {
-            "pass": (("最容易混" in text) or ("Common Pitfalls" in text) or ("易错点" in text))
-            and has_substance(pitfall_body, min_chars=8),
+            "pass": (("最容易混" in text) or ("易错点" in text)) and has_substance(pitfall_body, min_chars=8),
             "issues": []
-            if (
-                (("最容易混" in text) or ("Common Pitfalls" in text) or ("易错点" in text))
-                and has_substance(pitfall_body, min_chars=8)
-            )
+            if ((("最容易混" in text) or ("易错点" in text)) and has_substance(pitfall_body, min_chars=8))
             else ["missing filled pitfalls block"],
         },
         "decision_tree": {
@@ -347,6 +345,7 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
     verdict = "pass" if not failed else "needs-revision"
     return {
         "file": path_label,
+        "kind": "type-analysis",
         "verdict": verdict,
         "checks": checks,
         "failed_checks": failed,
@@ -371,6 +370,7 @@ def analysis_report_review(path_label: str, text: str) -> dict[str, Any]:
     verdict = "pass" if not failed else "needs-revision"
     return {
         "file": path_label,
+        "kind": "analysis-report",
         "verdict": verdict,
         "checks": checks,
         "failed_checks": failed,

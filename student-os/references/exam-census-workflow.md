@@ -196,6 +196,8 @@ Writes `quality-reviews.json` and `analysis/质量门禁.md`. Exit code 1 means 
 
 Phase B also flags Issue #51 output defects: bulky `source_artifacts` / `generated_fingerprint` in frontmatter, missing required short fields, broken Markdown tables from bare `|`, and English residue in user-facing analysis reports (`Seeded from`, `Paper | Reliability`, `unspecified`).
 
+`quality-reviews.json` separates `type_needs_revision`（题型解析）and `analysis_needs_revision`（`analysis/*.md`）。Run the gate again after Phase C so multi-dim drafts are covered.
+
 Agents filling pages: 中文优先；表格中行列式用 `$\lvert A\rvert$`；低频证据不足写「证据不足，需人工补充」并设 `quality: needs-review`。
 
 ### Phase 4c — Multi-dimensional analysis (Phase C)
@@ -207,6 +209,8 @@ python student-os/scripts/build_multi_dim_stats.py /path/to/vault \
 ```
 
 Writes drafts under `reviews/<exam-scope-key>/analysis/` (co-occurrence, format roll-up, difficulty/reliability). User-facing Markdown is Chinese-first（表头「试卷 / 可靠性」等；枚举显示为「答案卷 / 复习版 / 回忆版 / 未标注」）。Agents refine difficulty stars and 选择/填空/计算 buckets.
+
+After writing analysis drafts, re-run `review_type_analysis.py` and fix any `analysis_needs_revision` entries.
 
 ### Phase 4d — Deep-dive papers (Phase D)
 

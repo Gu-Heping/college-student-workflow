@@ -317,9 +317,34 @@ RELIABILITY_DISPLAY = {
 }
 FORMAT_DISPLAY = {
     "unspecified": "未标注",
+    "choice": "选择",
+    "multiple-choice": "选择",
+    "mcq": "选择",
+    "select": "选择",
+    "fill": "填空",
+    "fill-in": "填空",
+    "blank": "填空",
+    "calculation": "计算",
+    "compute": "计算",
+    "short-answer": "简答",
+    "true-false": "判断",
+    "proof": "证明",
 }
 DIFFICULTY_DISPLAY = {
     "unspecified": "未标注",
+    "easy": "易",
+    "medium": "中",
+    "hard": "难",
+    "1": "★",
+    "2": "★★",
+    "3": "★★★",
+    "4": "★★★★",
+    "5": "★★★★★",
+    "*": "★",
+    "**": "★★",
+    "***": "★★★",
+    "****": "★★★★",
+    "*****": "★★★★★",
 }
 
 
@@ -421,6 +446,13 @@ def markdown_table_pipe_issues(text: str) -> list[str]:
             index += 1
             continue
         expected = header_cols
+        if sep_cols != expected:
+            issues.append(
+                f"table separator mismatch near line {index + 2}: "
+                f"expected {expected} columns, found {sep_cols}"
+            )
+            index += 1
+            continue
         row_index = index + 2
         while row_index < len(lines):
             row = lines[row_index]

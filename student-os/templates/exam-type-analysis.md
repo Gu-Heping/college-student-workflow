@@ -9,7 +9,7 @@ paper_count: {{paper_count}}
 must_know: {{must_know}}
 quality: draft
 status: active
-source_summary: "{{paper_count}} papers; see 题型频率统计.md"
+source_summary: "共 {{paper_count}} 份试卷；详见 题型频率统计.md"
 ---
 
 # {{rank}} · {{type_name}}

@@ -42,8 +42,8 @@ Fall back to a local checkout’s `student-os/scripts/`.
 4. **Annotate** — parallel by `manifest.batches` (one agent per batch); write `annotations/*.json` only
 5. **Aggregate** — `build_exam_type_stats.py --validate --overwrite` — **stop if nonzero**
 6. **Fill (A)** — `fill_type_analysis.py` then fill each queue item per `references/exam-census-quality.md` (parallel OK)
-7. **Quality (B)** — run `review_type_analysis.py` **once globally** after all fills; revise ≤2 rounds or set `quality: needs-review`
-8. **Multi-dim (C)** — `build_multi_dim_stats.py --overwrite`（面向用户的 analysis 报告中文优先）
+7. **Quality (B)** — run `review_type_analysis.py` **once globally** after all fills; revise ≤2 rounds or set `quality: needs-review`（只处理 `type_needs_revision`）
+8. **Multi-dim (C)** — `build_multi_dim_stats.py --overwrite`（面向用户的 analysis 报告中文优先）；然后**再跑** `review_type_analysis.py`，处理 `analysis_needs_revision`
 9. **Deep-dive (D)** — `init_exam_deep_dive.py --limit 2` then fill scaffolds
 10. **Prep pack** — 备考指南 / 公式总卡 / 答题模板 / 考前清单 with real links to `题型解析/`
 11. **Cross-val (E)** — `cross_validate_exam_census.py`

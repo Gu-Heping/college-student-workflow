@@ -4,10 +4,6 @@
 
 ## [Unreleased]
 
-### Fixed
-
-- 修复 exam-census 生成产物的可读性与质量门禁问题：精简题型解析 frontmatter、统一字段、中文化分析报告，并避免表格中的行列式 pipe 破坏 Markdown 表格。
-
 ### Changed
 
 - 整理人类入口、agent 路由和维护记录文档，补充“一句话发给 agent”的安装/使用示例、安全提醒、当前能力状态与维护规则。
@@ -49,6 +45,7 @@
 
 ### Fixed
 
+- 修复 exam-census 生成产物的可读性与质量门禁问题：精简题型解析 frontmatter、统一字段、中文化分析报告，并避免表格中的行列式 pipe 破坏 Markdown 表格。
 - 修复 `prepare_github_issue.py --stdin` / `--check-only` 在仅有 privacy warning 时仍可能被裸管道接到空 body `gh` 调用的问题：warning 时完全不写 stdout 且非零退出，`--check-only` 对 warning 同样非零，并推荐用 `sanitize_and_post.py` 替代裸 `|` 管道（Issue #40）。
 - 修复 `repair_markdown_import.py` 在写入含 Windows/Unicode 路径的 `derived_from_import` 时，`re.sub` 把 JSON `\uXXXX` 当作 replacement 转义并崩溃的问题；改用 callable replacement，避免 `--repair` 在 Windows 中文路径下不可用。
 - 修复安装流程缺少可追踪安装元数据的问题，避免后续自更新无法判断安装来源、覆盖风险与回滚路径。

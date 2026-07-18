@@ -241,7 +241,7 @@ const gate = await agent(
   [
     'Phase B: run review_type_analysis.py once for the whole course/scope.',
     `Command: python -B ${script('review_type_analysis.py')} ${baseFlags}`,
-    'Return needs_revision paths from quality-reviews.json (files with verdict needs-revision).',
+    'Return type_needs_revision from quality-reviews.json (kind=type-analysis only; ignore analysis-report until after Phase C).',
   ].join('\n'),
   {
     label: 'phase-quality-gate',
@@ -285,9 +285,9 @@ if (gate.needs_revision.length) {
 
   await agent(
     [
-      'Phase B re-check: run review_type_analysis.py once more after revisions.',
+      'Phase B re-check: run review_type_analysis.py once more after type-page revisions.',
       `Command: python -B ${script('review_type_analysis.py')} ${baseFlags}`,
-      'Summarize remaining needs-revision files.',
+      'Summarize remaining type_needs_revision files (ignore analysis-report until Phase C).',
     ].join('\n'),
     { label: 'phase-quality-recheck' },
   )
@@ -298,9 +298,53 @@ await agent(
     'Phase C: run build_multi_dim_stats.py with --overwrite.',
     `Command: python -B ${script('build_multi_dim_stats.py')} ${baseFlags} --overwrite`,
     'Then refine analysis drafts under reviews/<scope>/analysis/ if annotations include useful format/difficulty fields.',
+    'User-facing analysis Markdown must stay Chinese-first (no Seeded from / Paper | Reliability / unspecified).',
   ].join('\n'),
   { label: 'phase-multi-dim' },
 )
+
+const analysisGate = await agent(
+  [
+    'Phase C quality recheck: run review_type_analysis.py again after multi-dim drafts exist.',
+    `Command: python -B ${script('review_type_analysis.py')} ${baseFlags}`,
+    'Return analysis_needs_revision from quality-reviews.json (kind=analysis-report).',
+  ].join('\n'),
+  {
+    label: 'phase-analysis-quality-gate',
+    schema: {
+      type: 'object',
+      required: ['analysis_needs_revision'],
+      properties: {
+        analysis_needs_revision: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['path'],
+            properties: {
+              path: { type: 'string' },
+              failed_checks: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+      },
+    },
+  },
+)
+
+if (analysisGate.analysis_needs_revision.length) {
+  await pipeline(analysisGate.analysis_needs_revision, (item) =>
+    agent(
+      [
+        `Phase C analysis revision for ${item.path}.`,
+        `Failed checks: ${JSON.stringify(item.failed_checks || [])}`,
+        'Fix Chinese residue, table pipe escapes, and other analysis-report issues. Do not invent taxonomy.',
+        'Do NOT run review_type_analysis.py from this worker.',
+        `Vault: ${vault}`,
+      ].join('\n'),
+      { label: `revise-analysis-${String(item.path).split('/').pop()}` },
+    ),
+  )
+}
 
 await agent(
   [
