@@ -46,6 +46,7 @@
 
 ### Fixed
 
+- 修复 exam-census 排名互换时题型解析内容串位，以及 Phase C analysis 修订后缺少质量门禁终检的问题。
 - 修复 exam-census 生成产物的可读性与质量门禁问题：精简题型解析 frontmatter、统一字段、中文化分析报告，并避免表格中的行列式 pipe 破坏 Markdown 表格。
 - 修复 `prepare_github_issue.py --stdin` / `--check-only` 在仅有 privacy warning 时仍可能被裸管道接到空 body `gh` 调用的问题：warning 时完全不写 stdout 且非零退出，`--check-only` 对 warning 同样非零，并推荐用 `sanitize_and_post.py` 替代裸 `|` 管道（Issue #40）。
 - 修复 `repair_markdown_import.py` 在写入含 Windows/Unicode 路径的 `derived_from_import` 时，`re.sub` 把 JSON `\uXXXX` 当作 replacement 转义并崩溃的问题；改用 callable replacement，避免 `--repair` 在 Windows 中文路径下不可用。

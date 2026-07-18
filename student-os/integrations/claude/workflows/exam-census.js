@@ -15,6 +15,7 @@ export const meta = {
  *   skillScripts?: string // optional absolute path to student-os/scripts
  * }
  */
+async function runExamCensus() {
 const input = typeof args === 'undefined' || args === null ? {} : args
 
 const resolved = await agent(
@@ -344,6 +345,47 @@ if (analysisGate.analysis_needs_revision.length) {
       { label: `revise-analysis-${String(item.path).split('/').pop()}` },
     ),
   )
+
+  const analysisRecheck = await agent(
+    [
+      'Phase C analysis re-check: run review_type_analysis.py once more after analysis revisions.',
+      `Command: python -B ${script('review_type_analysis.py')} ${baseFlags}`,
+      'Return analysis_needs_revision from quality-reviews.json (kind=analysis-report).',
+      'If any remain, do not continue to Phase D.',
+    ].join('\n'),
+    {
+      label: 'phase-analysis-quality-recheck',
+      schema: {
+        type: 'object',
+        required: ['analysis_needs_revision'],
+        properties: {
+          analysis_needs_revision: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['path'],
+              properties: {
+                path: { type: 'string' },
+                failed_checks: { type: 'array', items: { type: 'string' } },
+              },
+            },
+          },
+        },
+      },
+    },
+  )
+
+  if (analysisRecheck.analysis_needs_revision.length) {
+    return {
+      status: 'blocked_analysis_quality',
+      vault,
+      course,
+      examScope,
+      semester,
+      scriptsDir,
+      analysis_needs_revision: analysisRecheck.analysis_needs_revision,
+    }
+  }
 }
 
 await agent(
@@ -395,3 +437,6 @@ return {
   aggregate: aggregate.summary,
   crossValidation: cross.summary,
 }
+}
+
+export default await runExamCensus()

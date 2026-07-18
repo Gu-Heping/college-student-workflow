@@ -1849,6 +1849,122 @@ def exercise_exam_census(repo: Path) -> None:
     ensure_exists(analysis_dir / "03-eigen-decomp.md")
     if (analysis_dir / "02-eigen-decomp.md").exists():
         raise AssertionError("Obsolete ranked skeleton 02-eigen-decomp.md should be retired after rerank")
+    ensure_contains(analysis_dir / "02-gaussian-elim.md", 'exam_type_id: "gaussian-elim"')
+    ensure_contains(analysis_dir / "03-eigen-decomp.md", 'exam_type_id: "eigen-decomp"')
+
+    # User-edited page must follow its type_id across rank swaps (no content cross-wiring).
+    for stem, payload in annotations.items():
+        (annotations_dir / f"{stem}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+    run_script(
+        "build_exam_type_stats.py",
+        str(repo),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期中",
+        "--overwrite",
+    )
+    eigen_at_02 = analysis_dir / "02-eigen-decomp.md"
+    ensure_exists(eigen_at_02)
+    eigen_at_02.write_text(
+        eigen_at_02.read_text(encoding="utf-8") + "\n## Unique Eigen Marker\n\nSWAP-TEST-EIGEN\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    boosted = dict(annotations["2021-期中-C"])
+    boosted["types_present"] = ["matrix-rank", "gaussian-elim"]
+    boosted["type_counts"] = {"matrix-rank": 1, "gaussian-elim": 1}
+    (annotations_dir / "2021-期中-C.json").write_text(
+        json.dumps(boosted, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    swap = json.loads(
+        run_script(
+            "build_exam_type_stats.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+            "--overwrite",
+        )
+    )
+    if [item["id"] for item in swap["ranked_types"][:3]] != ["matrix-rank", "gaussian-elim", "eigen-decomp"]:
+        raise AssertionError(f"Unexpected swap order: {swap['ranked_types']}")
+    if (analysis_dir / "02-eigen-decomp.md").exists():
+        raise AssertionError("Old 02-eigen-decomp.md must disappear after rank swap (moved, not copied)")
+    gaussian_page = (analysis_dir / "02-gaussian-elim.md").read_text(encoding="utf-8")
+    eigen_page = (analysis_dir / "03-eigen-decomp.md").read_text(encoding="utf-8")
+    if 'exam_type_id: "gaussian-elim"' not in gaussian_page or "SWAP-TEST-EIGEN" in gaussian_page:
+        raise AssertionError("Rank swap cross-wired eigen user content into gaussian page")
+    if 'exam_type_id: "eigen-decomp"' not in eigen_page or "SWAP-TEST-EIGEN" not in eigen_page:
+        raise AssertionError("Rank swap lost user-edited eigen content or wrong exam_type_id")
+    first_h1 = next((line for line in eigen_page.splitlines() if line.startswith("# ")), "")
+    if not first_h1.startswith("# 03 ·"):
+        raise AssertionError(f"Migrated eigen page first H1 rank was not refreshed: {first_h1!r}")
+
+    # Interrupted _reconcile_staging must be recovered, not wiped.
+    for stem, payload in annotations.items():
+        (annotations_dir / f"{stem}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+    run_script(
+        "build_exam_type_stats.py",
+        str(repo),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期中",
+        "--overwrite",
+    )
+    staging_dir = analysis_dir / "_reconcile_staging"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    staged_user = "\n".join(
+        [
+            "---",
+            "type: exam-type-analysis",
+            'course: "Linear Algebra"',
+            'exam_scope: "期中"',
+            'exam_type_id: "matrix-rank"',
+            'exam_type_name: "矩阵的秩"',
+            "rank: 1",
+            "paper_count: 3",
+            "must_know: true",
+            "quality: draft",
+            "status: active",
+            'source_summary: "共 3 份试卷；详见 题型频率统计.md"',
+            "---",
+            "",
+            "# 01 · 矩阵的秩",
+            "",
+            "## Recovered Staging Marker",
+            "",
+            "STAGING-RECOVERY-MARKER",
+            "",
+        ]
+    )
+    (staging_dir / "interrupted-user.md").write_text(staged_user + "\n", encoding="utf-8", newline="\n")
+    run_script(
+        "build_exam_type_stats.py",
+        str(repo),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期中",
+        "--overwrite",
+    )
+    recovered = (analysis_dir / "01-matrix-rank.md").read_text(encoding="utf-8")
+    if "STAGING-RECOVERY-MARKER" not in recovered:
+        raise AssertionError("Interrupted staging user content was not recovered on retry")
+    if staging_dir.exists() and any(staging_dir.iterdir()):
+        raise AssertionError("Staging directory should be empty after successful overwrite")
 
     # --validate should fail when an annotation is missing.
     (annotations_dir / "2021-期中-C.json").unlink()
