@@ -125,7 +125,8 @@ Current entry points: this file, `commands/exam-census.md`, and `references/exam
 
 1. Convert source PDFs with `materials_convert.py`.
 2. Repair low-quality imports when needed.
-3. Keep sidecars out of `reviews/` until distillation.
+3. If existing `.pdf.md` sidecars lack YAML frontmatter, run `ensure_frontmatter.py` (dry-run first, then `--apply`) before census init.
+4. Keep sidecars out of `reviews/` until distillation.
 
 ### Phase 0b — Initialize census state
 
