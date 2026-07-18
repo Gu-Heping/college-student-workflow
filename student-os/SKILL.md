@@ -23,6 +23,7 @@ Run this skill as the single entry point for a university knowledge repository. 
 | New course / homework / notes / lab / review sheet | Academic → `references/academic-workflow.md` + `commands/study.md` / `review.md` |
 | Import PDF/DOCX/PPTX/XLSX/images/legacy Office | File-handler → `references/file-handler.md` + `commands/import-file.md` / `materials-convert.md` |
 | Repair imported markdown | File-handler repair → `scripts/repair_markdown_import.py` or `materials_convert.py --repair` |
+| Fill missing `.pdf.md` YAML frontmatter | File-handler → `scripts/ensure_frontmatter.py` (dry-run first, then `--apply`) |
 | Exam type census / past-paper analysis / 题型普查 | Exam-census → `references/exam-census-workflow.md` (Phases 0–5 + A–E) + `commands/exam-census.md` |
 | Record a local problem about student-os | Feedback → `references/feedback-ops.md` + `commands/feedback.md` |
 | Publish to GitHub Issue | GitHub feedback → `references/github-feedback.md` + `commands/report-issue.md` |
@@ -59,6 +60,7 @@ Use these scripts when helpful:
 - `scripts/probe_materials.py` for per-file conversion probes used by `--method auto` and `--probe-only`.
 - `scripts/token_loader.py` for shared MinerU token lookup from CLI args, process env, and skill/cwd `.env` files.
 - `scripts/repair_markdown_import.py` for conservative cleanup of imported markdown plus repair summaries.
+- `scripts/ensure_frontmatter.py` for batch-prepending YAML frontmatter onto `.pdf.md` sidecars that lack it (default dry-run; `--apply` to write; UTF-8 only; never overwrites existing frontmatter).
 - `scripts/docx_to_md.py` for DOCX import into markdown reference drafts.
 - `scripts/xlsx_to_md.py` for XLSX import into markdown table summaries.
 - `scripts/pptx_to_md.py` for PPTX import into slide summaries.
@@ -168,6 +170,7 @@ Handle:
 - PDF to markdown import
 - mixed materials folder conversion, with MinerU API preferred for scans, images, and legacy Office files when a token is configured
 - imported markdown repair
+- missing YAML frontmatter on existing `.pdf.md` sidecars (`ensure_frontmatter.py`)
 - DOCX to markdown reference drafts
 - XLSX to markdown summaries
 - PPTX to slide summaries
@@ -176,6 +179,10 @@ Handle:
 `materials_convert.py` CLI reminder:
 - positional arg = **source file/dir only** (not vault)
 - `--method auto` (default) probes and routes; `--method local` forces local converters; `--method api` requires a MinerU token
+
+When already-imported `.pdf.md` sidecars lack YAML frontmatter (common before exam-census):
+- run `ensure_frontmatter.py <path> --dry-run` first, then `--apply` after confirmation
+- do not overwrite existing frontmatter; always use UTF-8
 
 When the request involves scanned PDFs, image-heavy materials, or legacy `.doc` / `.ppt` / `.xls` files:
 - check whether `MINERU_TOKEN` or `MINERU_API_TOKEN` is configured before defaulting to local conversion

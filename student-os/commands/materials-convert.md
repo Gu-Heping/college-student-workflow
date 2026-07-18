@@ -31,6 +31,12 @@ Repair mode:
 - add `--repair` to run the conservative markdown repair step immediately after conversion
 - add `--repair-only` to repair existing `.md` imports in place and emit `-repair-summary.md` files beside them
 
+Missing frontmatter cleanup:
+- When already-generated `.pdf.md` sidecars lack YAML frontmatter, run `ensure_frontmatter.py` before exam-census or review workflows
+- Default is dry-run (no writes); pass `--apply` only after confirming the planned paths
+- Never overwrites existing frontmatter; UTF-8 only
+- Example: `python student-os/scripts/ensure_frontmatter.py <papers-dir> --dry-run` then `--apply`
+
 Default route:
 - primary role: `file-operator`
 - coordinator remains responsible for final summary

@@ -36,6 +36,21 @@ python scripts/materials_convert.py /path/to/materials --method auto
 - This script does **not** take a separate vault argument.
 - Sidecars are written beside sources by default; use `--output-root` to mirror elsewhere.
 - After conversion, continue with course/review/planning workflows; use `--repair` or `repair_markdown_import.py` when imports need cleanup.
+- When existing `.pdf.md` sidecars are missing YAML frontmatter, run `ensure_frontmatter.py` first (prefer `--dry-run`, then `--apply`) before exam-census or review workflows. It only prepends metadata, never overwrites existing frontmatter, and always reads/writes UTF-8.
+
+```bash
+# Preview which sidecars need frontmatter (default: no writes)
+python student-os/scripts/ensure_frontmatter.py /path/to/papers --dry-run
+
+# Apply after confirming the plan
+python student-os/scripts/ensure_frontmatter.py /path/to/papers --apply
+```
+
+Agent one-liner:
+
+```text
+请检查这个目录下的 .pdf.md 文件是否缺少 YAML frontmatter。先 dry-run 列出会修改哪些文件，确认后再用 ensure_frontmatter.py 补齐；不要覆盖已有 frontmatter，必须使用 UTF-8。
+```
 
 ## Default landing zones
 

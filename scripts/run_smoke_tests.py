@@ -3691,6 +3691,147 @@ def assert_no_pycache(root: Path) -> None:
         raise AssertionError(f"Validation should not leave __pycache__ artifacts behind: {pycache_paths}")
 
 
+def verify_ensure_frontmatter(tmp_root: Path) -> None:
+    papers = tmp_root / "courses" / "linear-algebra" / "references" / "exams"
+    papers.mkdir(parents=True, exist_ok=True)
+
+    missing_name = "线性代数期中试卷.pdf.md"
+    missing_path = papers / missing_name
+    chinese_body = "# 线性代数期中试卷\n\n这是中文正文，用于确认 UTF-8 不乱码。\n"
+    missing_path.write_text(chinese_body, encoding="utf-8", newline="\n")
+
+    existing_path = papers / "已有frontmatter.pdf.md"
+    existing_text = (
+        "\n".join(
+            [
+                "---",
+                "type: pdf-import-note",
+                "course:",
+                "status: active",
+                "created:",
+                "updated:",
+                "tags: [import, pdf]",
+                'source_file: "已有frontmatter.pdf"',
+                "import_method: manual",
+                "repair_status:",
+                "derived_from_import:",
+                "---",
+                "",
+                "# Keep me",
+                "",
+            ]
+        )
+        + "\n"
+    )
+    existing_path.write_text(existing_text, encoding="utf-8", newline="\n")
+
+    repaired_path = papers / "repaired-sample.pdf.md"
+    repaired_body = "# Repaired sample body\n"
+    repaired_path.write_text(repaired_body, encoding="utf-8", newline="\n")
+    (papers / "repaired-sample.pdf-repair-summary.md").write_text(
+        "# Repair Summary\n\n- Example.\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (papers / "repaired-sample.pdf.raw.md").write_text("# raw\n", encoding="utf-8", newline="\n")
+
+    raw_only = papers / "orphan.raw.md"
+    raw_only.write_text("# orphan raw without frontmatter\n", encoding="utf-8", newline="\n")
+
+    missing_before = missing_path.read_bytes()
+    existing_before = existing_path.read_bytes()
+    repaired_before = repaired_path.read_bytes()
+
+    dry_payload = json.loads(run_script("ensure_frontmatter.py", str(papers), "--dry-run"))
+    for key in [
+        "scanned",
+        "would_update",
+        "updated",
+        "skipped_existing_frontmatter",
+        "skipped_unsupported",
+        "errors",
+    ]:
+        if key not in dry_payload:
+            raise AssertionError(f"ensure_frontmatter JSON missing field {key!r}: {dry_payload}")
+    if dry_payload["updated"]:
+        raise AssertionError("dry-run must not report updated files")
+    if missing_path.read_bytes() != missing_before:
+        raise AssertionError("dry-run must not modify files missing frontmatter")
+    if existing_path.read_bytes() != existing_before:
+        raise AssertionError("dry-run must not modify files with existing frontmatter")
+    if repaired_path.read_bytes() != repaired_before:
+        raise AssertionError("dry-run must not modify repaired-sample.pdf.md")
+    if dry_payload["scanned"] != 3:
+        raise AssertionError(f"Expected 3 scanned .pdf.md files by default, got: {dry_payload}")
+    if len(dry_payload["would_update"]) != 2:
+        raise AssertionError(f"Expected 2 would_update paths, got: {dry_payload}")
+    if dry_payload["skipped_existing_frontmatter"] != ["已有frontmatter.pdf.md"]:
+        raise AssertionError(f"Expected existing frontmatter skip, got: {dry_payload}")
+    if dry_payload["errors"]:
+        raise AssertionError(f"dry-run should have no errors: {dry_payload}")
+
+    apply_payload = json.loads(run_script("ensure_frontmatter.py", str(papers), "--apply"))
+    if apply_payload["would_update"]:
+        raise AssertionError("apply should leave would_update empty")
+    if sorted(apply_payload["updated"]) != sorted(
+        ["repaired-sample.pdf.md", "线性代数期中试卷.pdf.md"]
+    ):
+        raise AssertionError(f"Unexpected updated set: {apply_payload}")
+    if apply_payload["skipped_existing_frontmatter"] != ["已有frontmatter.pdf.md"]:
+        raise AssertionError(f"apply should still skip existing frontmatter: {apply_payload}")
+
+    missing_after = missing_path.read_text(encoding="utf-8")
+    if not missing_after.startswith("---\n"):
+        raise AssertionError("applied frontmatter must start at file beginning")
+    if 'source_file: "线性代数期中试卷.pdf"' not in missing_after:
+        raise AssertionError(f"source_file inference failed:\n{missing_after}")
+    if "这是中文正文，用于确认 UTF-8 不乱码。" not in missing_after:
+        raise AssertionError("UTF-8 Chinese body was corrupted after apply")
+    if not missing_after.endswith(chinese_body) and chinese_body not in missing_after:
+        raise AssertionError("body content must be preserved after prepend")
+    if 'course: "linear-algebra"' not in missing_after:
+        raise AssertionError(f"course should be inferred from courses/<course>/ path:\n{missing_after}")
+
+    if existing_path.read_text(encoding="utf-8") != existing_text:
+        raise AssertionError("existing frontmatter file content must remain unchanged")
+
+    repaired_after = repaired_path.read_text(encoding="utf-8")
+    if "repair_status: repaired" not in repaired_after:
+        raise AssertionError(f"repair summary should set repair_status: repaired:\n{repaired_after}")
+    if "derived_from_import:" not in repaired_after or "repaired-sample.pdf.raw.md" not in repaired_after:
+        raise AssertionError(f"derived_from_import should point at sibling .raw.md:\n{repaired_after}")
+    if repaired_body not in repaired_after:
+        raise AssertionError("repaired sample body must be preserved")
+
+    # Second apply is a no-op: all .pdf.md now have frontmatter.
+    noop_payload = json.loads(run_script("ensure_frontmatter.py", str(papers), "--apply"))
+    if noop_payload["updated"] or noop_payload["would_update"]:
+        raise AssertionError(f"second apply should update nothing: {noop_payload}")
+    if sorted(noop_payload["skipped_existing_frontmatter"]) != sorted(
+        ["repaired-sample.pdf.md", "已有frontmatter.pdf.md", "线性代数期中试卷.pdf.md"]
+    ):
+        raise AssertionError(f"second apply skip set unexpected: {noop_payload}")
+
+    raw_payload = json.loads(
+        run_script("ensure_frontmatter.py", str(papers), "--include-raw", "--dry-run")
+    )
+    if "orphan.raw.md" not in raw_payload["would_update"]:
+        raise AssertionError(f"--include-raw should plan orphan.raw.md update: {raw_payload}")
+    if raw_only.read_text(encoding="utf-8") != "# orphan raw without frontmatter\n":
+        raise AssertionError("--include-raw dry-run must not modify .raw.md")
+
+    raw_apply = json.loads(run_script("ensure_frontmatter.py", str(raw_only), "--include-raw", "--apply"))
+    if raw_apply["updated"] != ["orphan.raw.md"]:
+        raise AssertionError(f"single-file --include-raw apply failed: {raw_apply}")
+    raw_text = raw_only.read_text(encoding="utf-8")
+    if "type: imported-reference" not in raw_text:
+        raise AssertionError(f".raw.md should use imported-reference type:\n{raw_text}")
+
+    wrapper_payload = json.loads(run_root_script("ensure_frontmatter.py", str(papers), "--dry-run"))
+    if wrapper_payload["scanned"] != 3:
+        raise AssertionError(f"root wrapper should match student-os script: {wrapper_payload}")
+
+
 def verify_token_loader(tmp_root: Path) -> None:
     module = load_student_os_script_module("token_loader.py", "student_os_token_loader_smoke")
     install_module = load_root_script_module("install_student_os.py", "student_os_install_dotenv_smoke")
@@ -4201,6 +4342,7 @@ def main() -> int:
         verify_update_source_override_and_project_copy_detection(tmp_root / "update-override-demo")
         verify_self_update_workflow(tmp_root / "self-update-demo")
         verify_token_loader(tmp_root / "token-loader-demo")
+        verify_ensure_frontmatter(tmp_root / "ensure-frontmatter-demo")
 
         if args.refresh_examples:
             EXAMPLES_ROOT.mkdir(parents=True, exist_ok=True)
@@ -4225,6 +4367,7 @@ def main() -> int:
     print("OK update-override-demo")
     print("OK self-update-demo")
     print("OK token-loader-demo")
+    print("OK ensure-frontmatter-demo")
     if args.refresh_examples:
         print(f"REFRESHED {EXAMPLES_ROOT}")
     return 0

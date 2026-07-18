@@ -82,6 +82,12 @@ Git 安全检查：
 请把这个课程资料文件夹里的 PDF/DOCX/PPTX/XLSX 转成可读的 Markdown 资料。先检查文件类型和是否需要 OCR，不要删除原文件，不要覆盖已有笔记。
 ```
 
+补齐导入 sidecar 的 YAML frontmatter：
+
+```text
+请检查这个目录下的 .pdf.md 文件是否缺少 YAML frontmatter。先 dry-run 列出会修改哪些文件，确认后再用 ensure_frontmatter.py 补齐；不要覆盖已有 frontmatter，必须使用 UTF-8。
+```
+
 考试题型普查：
 
 ```text
@@ -165,6 +171,10 @@ python student-os/scripts/group_git_changes.py /path/to/vault
 
 # 批量转换资料（positional 参数是资料源目录/文件，不是 vault）
 python student-os/scripts/materials_convert.py /path/to/materials --method auto
+
+# 已有 .pdf.md 缺少 YAML frontmatter 时，先 dry-run 再 apply 补齐（UTF-8）
+python student-os/scripts/ensure_frontmatter.py /path/to/papers --dry-run
+python student-os/scripts/ensure_frontmatter.py /path/to/papers --apply
 
 # 考试题型普查（需先有试卷的 .pdf.md sidecar）
 python student-os/scripts/init_exam_census.py /path/to/vault --course <course> --exam-scope 期中
