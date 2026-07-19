@@ -2678,6 +2678,55 @@ def exercise_exam_census(repo: Path) -> None:
     if "teaching_scaffolding" not in weak_teach_review["failed_checks"]:
         raise AssertionError(f"Expected teaching_scaffolding failure, got: {weak_teach_review}")
 
+    # Blank 【方法引用】 must not count via cross-line \\S+ match onto the next heading.
+    blank_method_doc = rich_doc.replace(
+        "**方法引用**：【方法引用】2分钟下笔模板 步骤 1",
+        "**方法引用**：【方法引用】",
+    )
+    for i in range(2, 6):
+        blank_method_doc = blank_method_doc.replace(
+            f"**方法引用**：【方法引用】2分钟下笔模板 步骤 {i}",
+            "**方法引用**：【方法引用】",
+        )
+    blank_method_review = quality_mod.structural_review("题型解析/blank-method.md", blank_method_doc)
+    if blank_method_review["checks"]["worked_examples"]["pass"]:
+        raise AssertionError("Expected blank same-line 【方法引用】 to fail worked_examples")
+    if blank_method_review["checks"]["method_reference"]["pass"]:
+        raise AssertionError("Expected blank same-line 【方法引用】 to fail method_reference")
+
+    # Evidence-short + needs-review relaxes quantity gates; same counts without the marker still fail.
+    short_base = "\n".join(
+        _fm_header()
+        + ["## 例题精讲", ""]
+        + _example_block(1)
+        + _example_block(2)
+        + ["## 自测题", ""]
+        + _self_test_block(1)
+        + ["## 来源校对说明", "", f"- {quality_mod.EVIDENCE_SHORT_MARKER}", ""]
+    )
+    short_relaxed = short_base.replace("quality: draft", "quality: needs-review")
+    short_relaxed_review = quality_mod.structural_review("题型解析/short-relaxed.md", short_relaxed)
+    if not short_relaxed_review["checks"]["worked_examples"]["pass"]:
+        raise AssertionError(
+            f"Expected evidence-short needs-review path to pass worked_examples: "
+            f"{short_relaxed_review['checks']['worked_examples']}"
+        )
+    if not short_relaxed_review["checks"]["self_tests"]["pass"]:
+        raise AssertionError(
+            f"Expected evidence-short needs-review path to pass self_tests: "
+            f"{short_relaxed_review['checks']['self_tests']}"
+        )
+    if not short_relaxed_review["checks"]["method_reference"]["pass"]:
+        raise AssertionError(
+            f"Expected evidence-short needs-review path to pass method_reference: "
+            f"{short_relaxed_review['checks']['method_reference']}"
+        )
+    short_strict_review = quality_mod.structural_review("题型解析/short-strict.md", short_base)
+    if short_strict_review["checks"]["worked_examples"]["pass"] or short_strict_review["checks"]["self_tests"]["pass"]:
+        raise AssertionError(
+            f"Expected 2+1 without needs-review to fail quantity checks: {short_strict_review['checks']}"
+        )
+
     deep = json.loads(
         run_script(
             "init_exam_deep_dive.py",

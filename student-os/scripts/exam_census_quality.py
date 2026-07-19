@@ -62,13 +62,17 @@ ENGLISH_RESIDUE_PATTERNS = (
 
 ALLOWED_TYPE_ANALYSIS_FRONTMATTER = set(REQUIRED_TYPE_ANALYSIS_FRONTMATTER) | {"source_summary"}
 
-TEACHING_REASON_RE = re.compile(r"(为什么|原因|因此|所以|验算|易错)")
+TEACHING_REASON_RE = re.compile(
+    r"(为什么这么做|先做什么，为什么|为什么|验算|易错点对比|错法|正法)"
+)
+METHOD_REF_RE = re.compile(r"(?m)【方法引用】[^\S\r\n]*\S+")
 SOURCE_LINE_RE = re.compile(r"来源\s*[：:]")
 VAGUE_SOURCE_RE = re.compile(r"来源\s*[：:]\s*(真题|待补|待补充|TBD|TODO)?\s*$", re.I | re.M)
 FABRICATED_RE = re.compile(r"(自编题|模拟题)")
 BLOCKQUOTE_TABLE_RE = re.compile(r"(?m)^>\s*\|")
 DETAILS_BLOCK_RE = re.compile(r"(?is)<details\b[^>]*>.*?</details>")
 DISPLAY_MATH_RE = re.compile(r"\$\$")
+EVIDENCE_SHORT_MARKER = "证据不足，需人工补充"
 
 QUALITY_CHECK_LABELS = {
     "badge": "有 badge / 元信息区（频率/分值/难度/来源）",
@@ -264,11 +268,35 @@ def _example_has_solution(block: str) -> bool:
 
 
 def _example_has_method_ref(block: str) -> bool:
-    return bool(re.search(r"【方法引用】\s*\S+", block)) and "步骤 _" not in block and "步骤 X" not in block
+    if "步骤 _" in block or "步骤 X" in block:
+        return False
+    return bool(METHOD_REF_RE.search(block))
+
+
+def count_method_references(text: str) -> int:
+    return len(METHOD_REF_RE.findall(text))
 
 
 def _example_has_teaching(block: str) -> bool:
     return bool(TEACHING_REASON_RE.search(block))
+
+
+def frontmatter_quality_value(text: str) -> str:
+    block = extract_frontmatter_block(text)
+    if not block:
+        return ""
+    match = re.search(r"(?m)^quality:\s*(.+)$", block)
+    if not match:
+        return ""
+    raw = match.group(1).strip()
+    if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
+        return raw[1:-1].strip()
+    return raw
+
+
+def is_evidence_short_page(text: str) -> bool:
+    """True when the page documents insufficient evidence and asks for human review."""
+    return frontmatter_quality_value(text) == "needs-review" and EVIDENCE_SHORT_MARKER in text
 
 
 def count_filled_examples(text: str) -> int:
@@ -387,7 +415,11 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
     example_count = count_filled_examples(text)
     self_test_count = count_filled_self_tests(text)
     placeholder_issues = unresolved_placeholders(text)
-    method_ref_count = len(re.findall(r"【方法引用】\s*\S+", text))
+    method_ref_count = count_method_references(text)
+    evidence_short = is_evidence_short_page(text)
+    min_examples = 1 if evidence_short else MIN_WORKED_EXAMPLES
+    min_self_tests = 1 if evidence_short else MIN_SELF_TESTS
+    min_method_refs = 1 if evidence_short else MIN_WORKED_EXAMPLES
     has_verification = bool(re.search(r"(验证|校验|验算|verify)", text, re.I)) and has_substance(
         "\n".join(line for line in text.splitlines() if re.search(r"(验证|校验|验算|verify)", line, re.I)),
         min_chars=4,
@@ -418,6 +450,12 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
         and "{{" not in meta_body[:120]
     )
 
+    def _count_issue(kind: str, needed: int, found: int) -> list[str]:
+        if found >= needed:
+            return []
+        suffix = " (evidence-short / needs-review path)" if evidence_short else ""
+        return [f"need >={needed} filled {kind}, found {found}{suffix}"]
+
     checks = {
         "required_sections": {
             "pass": not missing_sections,
@@ -428,20 +466,20 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
             "issues": entry_issues,
         },
         "worked_examples": {
-            "pass": example_count >= MIN_WORKED_EXAMPLES,
-            "issues": []
-            if example_count >= MIN_WORKED_EXAMPLES
-            else [
-                f"need >={MIN_WORKED_EXAMPLES} filled worked examples with source/method refs/teaching, found {example_count}"
-            ],
+            "pass": example_count >= min_examples,
+            "issues": _count_issue(
+                "worked examples with source/method refs/teaching",
+                min_examples,
+                example_count,
+            ),
         },
         "self_tests": {
-            "pass": self_test_count >= MIN_SELF_TESTS,
-            "issues": []
-            if self_test_count >= MIN_SELF_TESTS
-            else [
-                f"need >={MIN_SELF_TESTS} filled self-tests with source/prompt/answer, found {self_test_count}"
-            ],
+            "pass": self_test_count >= min_self_tests,
+            "issues": _count_issue(
+                "self-tests with source/prompt/answer",
+                min_self_tests,
+                self_test_count,
+            ),
         },
         "badge": {
             "pass": badge_ok,
@@ -476,10 +514,8 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
             else ["missing filled must-remember formulas"],
         },
         "method_reference": {
-            "pass": method_ref_count >= MIN_WORKED_EXAMPLES,
-            "issues": []
-            if method_ref_count >= MIN_WORKED_EXAMPLES
-            else [f"need >={MIN_WORKED_EXAMPLES} 【方法引用】entries with content, found {method_ref_count}"],
+            "pass": method_ref_count >= min_method_refs,
+            "issues": _count_issue("【方法引用】entries with content", min_method_refs, method_ref_count),
         },
         "verification_steps": {
             "pass": has_verification,
