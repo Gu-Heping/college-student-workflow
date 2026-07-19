@@ -27,6 +27,9 @@ ENTRY_LAYER_MARKERS = [
     "不会做时先写什么拿步骤分",
 ]
 
+MIN_WORKED_EXAMPLES = 5
+MIN_SELF_TESTS = 4
+
 # Canonical short frontmatter for 题型解析 pages (Issue #51).
 REQUIRED_TYPE_ANALYSIS_FRONTMATTER = [
     "type",
@@ -59,6 +62,14 @@ ENGLISH_RESIDUE_PATTERNS = (
 
 ALLOWED_TYPE_ANALYSIS_FRONTMATTER = set(REQUIRED_TYPE_ANALYSIS_FRONTMATTER) | {"source_summary"}
 
+TEACHING_REASON_RE = re.compile(r"(为什么|原因|因此|所以|验算|易错)")
+SOURCE_LINE_RE = re.compile(r"来源\s*[：:]")
+VAGUE_SOURCE_RE = re.compile(r"来源\s*[：:]\s*(真题|待补|待补充|TBD|TODO)?\s*$", re.I | re.M)
+FABRICATED_RE = re.compile(r"(自编题|模拟题)")
+BLOCKQUOTE_TABLE_RE = re.compile(r"(?m)^>\s*\|")
+DETAILS_BLOCK_RE = re.compile(r"(?is)<details\b[^>]*>.*?</details>")
+DISPLAY_MATH_RE = re.compile(r"\$\$")
+
 QUALITY_CHECK_LABELS = {
     "badge": "有 badge / 元信息区（频率/分值/难度/来源）",
     "quick_lookup": "有「一眼先记住」速查表",
@@ -66,17 +77,33 @@ QUALITY_CHECK_LABELS = {
     "pitfalls": "有最容易混的 N 件事",
     "decision_tree": "有方法选择流程/决策树",
     "formulas": "有最少必须记住的公式",
-    "worked_examples": "有 2 道以上例题（含方法引用与实质解析）",
-    "self_tests": "有 2 道以上自测题（含答案）",
+    "worked_examples": f"有 ≥{MIN_WORKED_EXAMPLES} 道例题（含来源、方法引用与实质解析）",
+    "self_tests": f"有 ≥{MIN_SELF_TESTS} 道自测题（含来源、题目与答案）",
     "entry_layer": "零基础入口四问齐全且非空",
     "required_sections": "必含区块齐全",
-    "method_reference": "例题解析含【方法引用】",
+    "method_reference": f"例题解析含 ≥{MIN_WORKED_EXAMPLES} 处【方法引用】",
     "verification_steps": "含验证相关步骤/小节",
     "no_placeholders": "无未替换模板占位符",
     "frontmatter_shape": "题型解析 frontmatter 精简且字段齐全",
     "markdown_tables": "Markdown 表格列数未被裸 | 破坏",
     "chinese_user_facing": "面向用户文档无英文残留",
+    "source_grounding": "例题/自测题均有真题来源，避免 AI 编造",
+    "render_safe_markdown": "Markdown/LaTeX 在 Obsidian/GitHub 中可渲染",
+    "teaching_scaffolding": "有步骤原因、选择逻辑、易错对比和验算",
 }
+
+FILL_QUEUE_INSTRUCTIONS = [
+    "Fill this page to content-standard v2 (see references/exam-census-quality.md).",
+    "题型解析面向中文学生：正文与表格中文优先；表格中行列式写 $\\lvert A\\rvert$，勿裸写 |A|。",
+    "frontmatter 只保留短元数据（含 quality），不要写入 source_artifacts 长路径数组或 generated_fingerprint。",
+    "输出必须像辅导老师讲义，不是知识清单。每个关键步骤都要说明为什么这么做；必须包含方法选择逻辑、易错对比、验算方式、不会做时的步骤分策略。",
+    "所有例题和自测题必须来自 manifest/annotations 中命中该题型的 source_papers。禁止自行编造题目。每道题必须标注来源，格式为：来源：YYYY-YYYY 第X学期 第X题；如果 annotations 缺题号，写“来源：<试卷名>，题号待人工校对”。",
+    f"默认要求至少 {MIN_WORKED_EXAMPLES} 道例题 + {MIN_SELF_TESTS} 道自测题。若该题型命中的真题实例少于 {MIN_WORKED_EXAMPLES + MIN_SELF_TESTS} 个，则尽量覆盖全部实例；不足部分不得编造，必须写“证据不足，需人工补充”，并设置 quality: needs-review。",
+    "统一标题层级。例题统一用“### 例题 N（来源：...）”；自测统一用“### 自测 N（来源：...）”。不要使用引用块内表格。不要在 <details> 中使用 $$ 块级公式；更推荐不用 <details>，答案直接写在正文。",
+    "从 annotations / 原文 sidecar 中查题号，不要猜。fill-queue 的 source_instances 若已有 exam_label / question_id，优先使用。",
+    "Answer the zero-foundation entry four questions before deeper theory.",
+    "Assign every annotated past-paper instance of this type to 例题精讲 or 自测题.",
+]
 
 
 def extract_frontmatter_block(text: str) -> str:
@@ -182,30 +209,100 @@ def section_body_after(text: str, marker: str) -> str:
     return "\n".join(collected)
 
 
+def _split_example_blocks(text: str) -> list[str]:
+    return re.split(r"(?m)^###\s*(?:例题|Example)\b", text)[1:]
+
+
+def _split_self_test_blocks(text: str) -> list[str]:
+    return re.split(r"(?m)^###\s*(?:自测|Self[- ]?test)\b", text, flags=re.I)[1:]
+
+
+def _concrete_source_value(value: str) -> bool:
+    cleaned = value.strip().strip("*").strip()
+    if not cleaned:
+        return False
+    if cleaned in {"真题", "待补", "待补充", "TBD", "TODO"}:
+        return False
+    if "YYYY" in cleaned or "第X学期" in cleaned or "第X题" in cleaned:
+        return False
+    # Require at least a paper/year cue, or explicit 题号待人工校对 with a paper name.
+    if "题号待人工校对" in cleaned and len(cleaned) >= 6:
+        return True
+    if re.search(r"\d{4}", cleaned):
+        return True
+    if re.search(r"(期中|期末|学期|试卷|第\s*\d+\s*题)", cleaned):
+        return True
+    return len(cleaned) >= 4
+
+
+def _block_has_source(block: str) -> bool:
+    heading_line = block.splitlines()[0] if block.strip() else ""
+    paren = re.search(r"（来源：([^）]*)）", heading_line)
+    if paren and _concrete_source_value(paren.group(1)):
+        return True
+    for match in SOURCE_LINE_RE.finditer(block):
+        # Take the rest of the line as the source value.
+        line_end = block.find("\n", match.end())
+        tail = block[match.end() : line_end if line_end >= 0 else None]
+        if _concrete_source_value(tail):
+            return True
+    return False
+
+
+def _example_has_prompt(block: str) -> bool:
+    for marker in ("题目原文", "题目：", "题目"):
+        if marker in block and has_substance(block.split(marker, 1)[-1][:400], min_chars=6):
+            return True
+    return has_substance(block[:500], min_chars=40)
+
+
+def _example_has_solution(block: str) -> bool:
+    for marker in ("完整解析", "解析", "Solution"):
+        if marker in block and has_substance(block.split(marker, 1)[-1][:600], min_chars=12):
+            return True
+    return False
+
+
+def _example_has_method_ref(block: str) -> bool:
+    return bool(re.search(r"【方法引用】\s*\S+", block)) and "步骤 _" not in block and "步骤 X" not in block
+
+
+def _example_has_teaching(block: str) -> bool:
+    return bool(TEACHING_REASON_RE.search(block))
+
+
 def count_filled_examples(text: str) -> int:
-    blocks = re.split(r"(?m)^###\s*(?:例题|Example)\b", text)[1:]
     filled = 0
-    for block in blocks:
-        has_prompt = ("题目" in block and has_substance(block.split("题目", 1)[-1][:400], min_chars=6)) or has_substance(
-            block[:500], min_chars=40
-        )
-        has_solution = ("解析" in block and has_substance(block.split("解析", 1)[-1][:600], min_chars=12)) or (
-            "Solution" in block and has_substance(block.split("Solution", 1)[-1][:600], min_chars=12)
-        )
-        has_method_ref = bool(re.search(r"【方法引用】\s*\S+", block)) and "步骤 _" not in block
-        if has_prompt and has_solution and has_method_ref:
+    for block in _split_example_blocks(text):
+        if (
+            _block_has_source(block)
+            and _example_has_prompt(block)
+            and _example_has_solution(block)
+            and _example_has_method_ref(block)
+            and _example_has_teaching(block)
+        ):
             filled += 1
     return filled
 
 
+def _self_test_has_prompt(block: str) -> bool:
+    for marker in ("**题目**", "题目：", "题目"):
+        if marker in block and has_substance(block.split(marker, 1)[-1][:400], min_chars=6):
+            return True
+    return has_substance(block[:400], min_chars=20)
+
+
+def _self_test_has_answer(block: str) -> bool:
+    for marker in ("答案与解析", "答案", "Answer"):
+        if marker in block and has_substance(block.split(marker, 1)[-1][:500], min_chars=6):
+            return True
+    return False
+
+
 def count_filled_self_tests(text: str) -> int:
-    blocks = re.split(r"(?m)^###\s*(?:自测|Self[- ]?test)\b", text, flags=re.I)[1:]
     filled = 0
-    for block in blocks:
-        has_answer = ("答案" in block and has_substance(block.split("答案", 1)[-1][:500], min_chars=6)) or (
-            "Answer" in block and has_substance(block.split("Answer", 1)[-1][:500], min_chars=6)
-        )
-        if has_answer and has_substance(block[:400], min_chars=20):
+    for block in _split_self_test_blocks(text):
+        if _block_has_source(block) and _self_test_has_prompt(block) and _self_test_has_answer(block):
             filled += 1
     return filled
 
@@ -231,6 +328,59 @@ def entry_layer_issues(text: str) -> list[str]:
     return issues
 
 
+def source_grounding_issues(text: str) -> list[str]:
+    issues: list[str] = []
+    example_blocks = _split_example_blocks(text)
+    self_test_blocks = _split_self_test_blocks(text)
+    if not example_blocks and not self_test_blocks:
+        return ["no worked examples or self-tests to ground"]
+
+    for index, block in enumerate(example_blocks, start=1):
+        if not _block_has_source(block):
+            issues.append(f"例题 {index} missing concrete 来源")
+        elif VAGUE_SOURCE_RE.search(block):
+            issues.append(f"例题 {index} has vague 来源 label")
+        if FABRICATED_RE.search(block) and "改编" not in block and "原题" not in block:
+            issues.append(f"例题 {index} looks fabricated without adaptation basis")
+
+    for index, block in enumerate(self_test_blocks, start=1):
+        if not _block_has_source(block):
+            issues.append(f"自测 {index} missing concrete 来源")
+        elif VAGUE_SOURCE_RE.search(block):
+            issues.append(f"自测 {index} has vague 来源 label")
+        if FABRICATED_RE.search(block) and "改编" not in block and "原题" not in block:
+            issues.append(f"自测 {index} looks fabricated without adaptation basis")
+
+    return issues
+
+
+def render_safe_markdown_issues(text: str) -> list[str]:
+    issues: list[str] = []
+    if BLOCKQUOTE_TABLE_RE.search(text):
+        issues.append("blockquote contains Markdown table rows (> | ... |)")
+    for block in DETAILS_BLOCK_RE.findall(text):
+        if DISPLAY_MATH_RE.search(block):
+            issues.append("<details> contains display math $$ ... $$")
+            break
+    return issues
+
+
+def teaching_scaffolding_issues(text: str) -> list[str]:
+    issues: list[str] = []
+    has_decision = ("方法选择树" in text) or ("决策流程" in text) or ("├" in text) or ("方法选择" in text)
+    if not has_decision:
+        issues.append("missing 方法选择树 / 决策流程")
+    if not TEACHING_REASON_RE.search(text) and "为什么这么做" not in text:
+        issues.append("missing why/reason teaching explanations")
+    if not re.search(r"(易错点|错法|正法|最容易混)", text):
+        issues.append("missing 易错点 / 错法 vs 正法")
+    if not re.search(r"(验算|校验|验证|检查方式)", text):
+        issues.append("missing 验算 / 检查方式")
+    if "不会做时先写什么拿步骤分" not in text:
+        issues.append("missing 不会做时先写什么拿步骤分")
+    return issues
+
+
 def structural_review(path_label: str, text: str) -> dict[str, Any]:
     missing_sections = missing_required_sections(text)
     entry_issues = entry_layer_issues(text)
@@ -245,6 +395,9 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
     fm_issues = frontmatter_shape_issues(text)
     table_issues = markdown_table_pipe_issues(text)
     residue_issues = english_residue_issues(text)
+    source_issues = source_grounding_issues(text)
+    render_issues = render_safe_markdown_issues(text)
+    teaching_issues = teaching_scaffolding_issues(text)
 
     quick_body = section_body_after(text, "一眼先记住")
     symbol_body = section_body_after(text, "符号") + "\n" + section_body_after(text, "术语")
@@ -257,8 +410,12 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
     decision_ok = (("├" in text) or ("方法选择" in text) or ("决策" in text)) and has_substance(
         decision_body, min_chars=6
     )
-    badge_ok = ("考试频率" in text and has_substance(section_body_after(text, "元信息") or text.split("考试频率", 1)[-1][:200], min_chars=6)) or (
-        "> **" in text and "难度" in text and "{{" not in text.split("考试频率", 1)[-1][:80]
+    meta_body = section_body_after(text, "元信息") or text
+    badge_ok = (
+        (("频率" in meta_body) or ("考试频率" in text))
+        and ("难度" in meta_body or "难度" in text)
+        and has_substance(meta_body[:240], min_chars=6)
+        and "{{" not in meta_body[:120]
     )
 
     checks = {
@@ -271,16 +428,20 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
             "issues": entry_issues,
         },
         "worked_examples": {
-            "pass": example_count >= 2,
+            "pass": example_count >= MIN_WORKED_EXAMPLES,
             "issues": []
-            if example_count >= 2
-            else [f"need >=2 filled worked examples with method refs, found {example_count}"],
+            if example_count >= MIN_WORKED_EXAMPLES
+            else [
+                f"need >={MIN_WORKED_EXAMPLES} filled worked examples with source/method refs/teaching, found {example_count}"
+            ],
         },
         "self_tests": {
-            "pass": self_test_count >= 2,
+            "pass": self_test_count >= MIN_SELF_TESTS,
             "issues": []
-            if self_test_count >= 2
-            else [f"need >=2 filled self-tests with answers, found {self_test_count}"],
+            if self_test_count >= MIN_SELF_TESTS
+            else [
+                f"need >={MIN_SELF_TESTS} filled self-tests with source/prompt/answer, found {self_test_count}"
+            ],
         },
         "badge": {
             "pass": badge_ok,
@@ -315,10 +476,10 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
             else ["missing filled must-remember formulas"],
         },
         "method_reference": {
-            "pass": method_ref_count >= 2,
+            "pass": method_ref_count >= MIN_WORKED_EXAMPLES,
             "issues": []
-            if method_ref_count >= 2
-            else [f"need >=2 【方法引用】entries with content, found {method_ref_count}"],
+            if method_ref_count >= MIN_WORKED_EXAMPLES
+            else [f"need >={MIN_WORKED_EXAMPLES} 【方法引用】entries with content, found {method_ref_count}"],
         },
         "verification_steps": {
             "pass": has_verification,
@@ -339,6 +500,18 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
         "chinese_user_facing": {
             "pass": not residue_issues,
             "issues": residue_issues,
+        },
+        "source_grounding": {
+            "pass": not source_issues,
+            "issues": source_issues,
+        },
+        "render_safe_markdown": {
+            "pass": not render_issues,
+            "issues": render_issues,
+        },
+        "teaching_scaffolding": {
+            "pass": not teaching_issues,
+            "issues": teaching_issues,
         },
     }
     failed = [name for name, payload in checks.items() if not payload["pass"]]

@@ -206,10 +206,11 @@ Produces:
 
 ### Phase 4 — Fill type analyses (Phase A)
 
-1. Run `fill_type_analysis.py` to write `fill-queue.json` (ranked skeletons + source papers + required sections).
+1. Run `fill_type_analysis.py` to write `fill-queue.json` (ranked skeletons + `source_papers` / `source_instances` + required sections + fill instructions).
 2. Assign one agent per type analysis (pipeline with Phase B preferred: fill → review immediately).
 3. Fill using `templates/exam-type-analysis.md` and `references/exam-census-quality.md` (content standard v2 + zero-foundation entry).
 4. Assign every annotated past-paper instance of the type to 例题精讲 or 自测题.
+5. Defaults: **≥5 例题** + **≥4 自测**；每题标注 `来源：...`；禁止编造；禁止引用块内表格与 `<details>` 内 `$$`。
 
 ### Phase 4b — Quality gate (Phase B)
 
@@ -221,11 +222,11 @@ python student-os/scripts/review_type_analysis.py /path/to/vault \
 
 Writes `quality-reviews.json` and `analysis/质量门禁.md`. Exit code 1 means at least one file needs revision (max 2 agent rounds, then `quality: needs-review`).
 
-Phase B also flags Issue #51 output defects: bulky `source_artifacts` / `generated_fingerprint` in frontmatter, missing required short fields, broken Markdown tables from bare `|`, and English residue in user-facing analysis reports (`Seeded from`, `Paper | Reliability`, `unspecified`).
+Phase B also flags Issue #51 / #63 output defects: bulky `source_artifacts` / `generated_fingerprint` in frontmatter, missing required short fields, broken Markdown tables from bare `|`, English residue in user-facing analysis reports (`Seeded from`, `Paper | Reliability`, `unspecified`), insufficient worked examples / self-tests (`≥5` / `≥4`), missing concrete 来源, render-unsafe Markdown (`> |` tables / `$$` inside `<details>`), and weak teaching scaffolding.
 
 `quality-reviews.json` separates `type_needs_revision`（题型解析）and `analysis_needs_revision`（`analysis/*.md`）。Run the gate again after Phase C so multi-dim drafts are covered.
 
-Agents filling pages: 中文优先；表格中行列式用 `$\lvert A\rvert$`；低频证据不足写「证据不足，需人工补充」并设 `quality: needs-review`。
+Agents filling pages: 中文优先；像辅导老师讲义（为什么 / 选方法 / 易错对比 / 验算）；表格中行列式用 `$\lvert A\rvert$`；低频证据不足写「证据不足，需人工补充」并设 `quality: needs-review`。
 
 ### Phase 4c — Multi-dimensional analysis (Phase C)
 

@@ -5,6 +5,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -2236,6 +2237,19 @@ def exercise_exam_census(repo: Path) -> None:
         raise AssertionError(f"Expected skill-relative quality_reference, got: {fill_queue.get('quality_reference')}")
     if not fill_queue["items"][0].get("source_papers"):
         raise AssertionError("Expected source_papers on fill-queue items")
+    if not fill_queue["items"][0].get("source_instances"):
+        raise AssertionError("Expected source_instances on fill-queue items")
+    fill_instructions = "\n".join(fill_queue["items"][0].get("instructions") or [])
+    for needle in (
+        "禁止自行编造",
+        "至少 5 道例题",
+        "4 道自测题",
+        "必须标注来源",
+        "不要在 <details> 中使用 $$",
+        "不要使用引用块内表格",
+    ):
+        if needle not in fill_instructions:
+            raise AssertionError(f"Expected fill instructions to include {needle!r}, got: {fill_instructions}")
 
     review_result = subprocess.run(
         [
@@ -2418,6 +2432,251 @@ def exercise_exam_census(repo: Path) -> None:
     fixed_table_review = quality_mod.structural_review("题型解析/fixed-table.md", fixed_table_doc)
     if not fixed_table_review["checks"]["markdown_tables"]["pass"]:
         raise AssertionError(f"Expected escaped table to pass markdown_tables check: {fixed_table_review}")
+
+    # --- Issue #63: fill template / prompt / quality-gate contracts ---
+    template_path = ROOT / "student-os" / "templates" / "exam-type-analysis.md"
+    template_text = template_path.read_text(encoding="utf-8")
+    if re.search(r"(?m)^>\s*\|", template_text):
+        raise AssertionError("exam-type-analysis.md must not use blockquote tables (> | ... |)")
+    if re.search(r"(?is)<details\b[^>]*>.*?\$\$.*?\$\$.*?</details>", template_text):
+        raise AssertionError("exam-type-analysis.md must not place $$ inside <details>")
+    if quality_mod.MIN_WORKED_EXAMPLES != 5 or quality_mod.MIN_SELF_TESTS != 4:
+        raise AssertionError(
+            f"Expected MIN_WORKED_EXAMPLES=5 / MIN_SELF_TESTS=4, got "
+            f"{quality_mod.MIN_WORKED_EXAMPLES}/{quality_mod.MIN_SELF_TESTS}"
+        )
+
+    def _fm_header() -> list[str]:
+        return [
+            "---",
+            "type: exam-type-analysis",
+            'course: "Linear Algebra"',
+            'exam_scope: "期中"',
+            'exam_type_id: "matrix-rank"',
+            'exam_type_name: "矩阵的秩"',
+            "rank: 1",
+            "paper_count: 9",
+            "must_know: true",
+            "quality: draft",
+            "status: active",
+            'source_summary: "共 9 份试卷"',
+            "---",
+            "",
+            "# 1 · 矩阵的秩",
+            "",
+            "## 元信息",
+            "",
+            "**频率**：90%",
+            "**分值**：12",
+            "**难度**：⭐⭐",
+            "**来源**：2018-2024 期中真题",
+            "",
+            "## 真卷对应题号",
+            "",
+            "| 题号 | 考点 | 本页先看 | 类型(背/手推) | 高危 |",
+            "| --- | --- | --- | --- | --- |",
+            "| 3 | 秩 | 是 | 手推 | 否 |",
+            "",
+            "## 考前速记",
+            "",
+            "### 一眼先记住",
+            "",
+            "| 看到什么 | 先写什么 |",
+            "| --- | --- |",
+            "| 求秩 | 行阶梯 |",
+            "",
+            "### 本页符号先认清",
+            "",
+            "| 符号 | 意思 |",
+            "| --- | --- |",
+            "| r(A) | 矩阵的秩 |",
+            "",
+            "### 这几个术语先认清",
+            "",
+            "| 术语 | 最短解释 |",
+            "| --- | --- |",
+            "| 行阶梯 | 阶梯形矩阵 |",
+            "",
+            "### 本题型最容易混的 N 件事",
+            "",
+            "1. 把行列式非零当成充分必要条件时漏掉奇异情形",
+            "",
+            "## 本页最佳使用指引",
+            "",
+            "- 先看入口四问再做例题",
+            "",
+            "## 零基础先看这里",
+            "",
+            "### 这类题考试到底在考什么",
+            "",
+            "- 考查把矩阵化到行阶梯后读出非零行数",
+            "",
+            "### 30秒认题",
+            "",
+            "| 看到什么特征 | 先按什么想 |",
+            "| --- | --- |",
+            "| 求 r(A) | 行变换 |",
+            "",
+            "### 2分钟下笔模板",
+            "",
+            "1. 写出矩阵",
+            "2. 做行变换",
+            "3. 数非零行",
+            "",
+            "### 不会做时先写什么拿步骤分",
+            "",
+            "- 先写初等行变换记号并保留中间矩阵",
+            "",
+            "## 知识讲解 + 方法总结",
+            "",
+            "### 方法选择树 / 决策流程",
+            "",
+            "```text",
+            "看题目特征 → 选方法：",
+            "├─ 求秩 → 行阶梯",
+            "└─ 判断满秩 → 看行列式或主元",
+            "```",
+            "",
+            "### 最少必须记住的公式",
+            "",
+            "| 公式 | 什么时候用 | 先算什么 | 最容易错 |",
+            "| --- | --- | --- | --- |",
+            "| r(A)=非零行数 | 行阶梯后 | 主元位置 | 漏掉零行 |",
+            "",
+        ]
+
+    def _example_block(index: int, *, with_source: bool = True, with_teaching: bool = True) -> list[str]:
+        source = f"来源：201{index}-201{index + 1} 第1学期 第{index}题" if with_source else "来源："
+        heading_source = source if with_source else "来源：真题"
+        why = "因为要把未知元消掉；因此再数主元；最后验算非零行。" if with_teaching else "按模板计算。"
+        return [
+            f"### 例题 {index}（{heading_source}）",
+            "",
+            f"**题目来源**：{source}",
+            "",
+            "**题目原文/摘录**：",
+            "",
+            f"求矩阵 A_{index} 的秩。",
+            "",
+            "**看到题目先判断什么**：",
+            "",
+            "- 先判断能否直接行变换",
+            "",
+            f"**方法引用**：【方法引用】2分钟下笔模板 步骤 {index}",
+            "",
+            "**完整解析**：",
+            "",
+            f"1. 先做什么，为什么：先写增广结构，{why}",
+            "2. 再做什么，为什么：继续消元得到阶梯",
+            "3. 如何验算：回代检查主元个数",
+            "",
+            "**易错点对比**：",
+            "",
+            "- 错法：直接套行列式",
+            "- 正法：先化行阶梯",
+            "",
+            "**技巧总结**：",
+            "",
+            "- 主元位置决定秩",
+            "",
+        ]
+
+    def _self_test_block(index: int, *, with_source: bool = True) -> list[str]:
+        source = f"来源：202{index}-202{index + 1} 第2学期 第{index}题" if with_source else ""
+        heading = f"来源：202{index}-202{index + 1} 第2学期 第{index}题" if with_source else "年份 题号"
+        return [
+            f"### 自测 {index}（{heading}）",
+            "",
+            f"**题目来源**：{source}" if source else "**题目来源**：",
+            "",
+            "**题目**：",
+            "",
+            f"判断 B_{index} 是否满秩。",
+            "",
+            "**提示**：",
+            "",
+            "- 看主元",
+            "",
+            "**答案与解析**：",
+            "",
+            f"答案：满秩。解析：行阶梯后有 {index} 个主元，因此 r= {index}。",
+            "",
+        ]
+
+    thin_doc = "\n".join(
+        _fm_header()
+        + ["## 例题精讲", ""]
+        + _example_block(1)
+        + _example_block(2)
+        + ["## 自测题", ""]
+        + _self_test_block(1)
+        + _self_test_block(2)
+        + ["## 来源校对说明", "", "- 已校对", ""]
+    )
+    thin_review = quality_mod.structural_review("题型解析/thin.md", thin_doc)
+    if thin_review["verdict"] != "needs-revision":
+        raise AssertionError(f"Expected 2+2 page to need revision, got: {thin_review}")
+    if thin_review["checks"]["worked_examples"]["pass"] or thin_review["checks"]["self_tests"]["pass"]:
+        raise AssertionError(f"Expected quantity checks to fail for 2+2 page: {thin_review['checks']}")
+
+    rich_doc = "\n".join(
+        _fm_header()
+        + ["## 例题精讲", ""]
+        + [line for i in range(1, 6) for line in _example_block(i)]
+        + ["## 自测题", ""]
+        + [line for i in range(1, 5) for line in _self_test_block(i)]
+        + ["## 来源校对说明", "", "- 已校对", ""]
+    )
+    rich_review = quality_mod.structural_review("题型解析/rich.md", rich_doc)
+    if not rich_review["checks"]["worked_examples"]["pass"]:
+        raise AssertionError(f"Expected 5 filled examples to pass worked_examples: {rich_review['checks']['worked_examples']}")
+    if not rich_review["checks"]["self_tests"]["pass"]:
+        raise AssertionError(f"Expected 4 filled self-tests to pass self_tests: {rich_review['checks']['self_tests']}")
+    if not rich_review["checks"]["source_grounding"]["pass"]:
+        raise AssertionError(f"Expected grounded sources to pass: {rich_review['checks']['source_grounding']}")
+    if not rich_review["checks"]["teaching_scaffolding"]["pass"]:
+        raise AssertionError(f"Expected teaching scaffolding to pass: {rich_review['checks']['teaching_scaffolding']}")
+
+    no_source_doc = "\n".join(
+        _fm_header()
+        + ["## 例题精讲", ""]
+        + [line for i in range(1, 6) for line in _example_block(i, with_source=False)]
+        + ["## 自测题", ""]
+        + [line for i in range(1, 5) for line in _self_test_block(i, with_source=False)]
+        + ["## 来源校对说明", "", "- 已校对", ""]
+    )
+    no_source_review = quality_mod.structural_review("题型解析/no-source.md", no_source_doc)
+    if "source_grounding" not in no_source_review["failed_checks"]:
+        raise AssertionError(f"Expected source_grounding failure without 来源, got: {no_source_review}")
+
+    details_math_doc = rich_doc + "\n<details>\n<summary>答案</summary>\n\n$$\nA=1\n$$\n\n</details>\n"
+    details_review = quality_mod.structural_review("题型解析/details-math.md", details_math_doc)
+    if "render_safe_markdown" not in details_review["failed_checks"]:
+        raise AssertionError(f"Expected render_safe_markdown for details+$$, got: {details_review}")
+
+    quote_table_doc = rich_doc.replace(
+        "## 元信息\n\n**频率**：90%",
+        "## 元信息\n\n> **元信息**\n> | 项目 | 内容 |\n> | --- | --- |\n> | 频率 | 96% |\n\n**频率**：90%",
+    )
+    quote_review = quality_mod.structural_review("题型解析/quote-table.md", quote_table_doc)
+    if "render_safe_markdown" not in quote_review["failed_checks"]:
+        raise AssertionError(f"Expected render_safe_markdown for blockquote table, got: {quote_review}")
+
+    weak_teach_doc = rich_doc
+    weak_teach_doc = weak_teach_doc.replace("### 方法选择树 / 决策流程", "### 方法罗列")
+    weak_teach_doc = weak_teach_doc.replace("├─ 求秩 → 行阶梯", "- 求秩")
+    weak_teach_doc = weak_teach_doc.replace("└─ 判断满秩 → 看行列式或主元", "- 判断满秩")
+    weak_teach_doc = weak_teach_doc.replace("### 不会做时先写什么拿步骤分", "### 临时提示")
+    weak_teach_doc = weak_teach_doc.replace("**易错点对比**：", "**备注**：")
+    weak_teach_doc = weak_teach_doc.replace("- 错法：直接套行列式", "- 注意书写")
+    weak_teach_doc = weak_teach_doc.replace("- 正法：先化行阶梯", "- 保持整洁")
+    weak_teach_doc = weak_teach_doc.replace("3. 如何验算：回代检查主元个数", "3. 写出结果")
+    weak_teach_doc = weak_teach_doc.replace("因为要把未知元消掉；因此再数主元；最后验算非零行。", "按模板计算。")
+    weak_teach_doc = weak_teach_doc.replace("本题型最容易混的 N 件事", "本题型常见提醒")
+    weak_teach_doc = weak_teach_doc.replace("1. 把行列式非零当成充分必要条件时漏掉奇异情形", "1. 注意书写格式")
+    weak_teach_review = quality_mod.structural_review("题型解析/weak-teach.md", weak_teach_doc)
+    if "teaching_scaffolding" not in weak_teach_review["failed_checks"]:
+        raise AssertionError(f"Expected teaching_scaffolding failure, got: {weak_teach_review}")
 
     deep = json.loads(
         run_script(
