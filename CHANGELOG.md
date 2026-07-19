@@ -6,6 +6,7 @@
 
 ### Changed
 
+- 完善 exam-census prep pack 四层结构：新增/升级备考指南、公式总卡、答题模板速查、考前1小时清单模板，并在 cross-validation 中校验四层资料包完整性。
 - 将 exam-census 题型解析提升到 content standard v3：七段式结构（核心概念/核心方法/自测答案分章/快速得分/易错清单）、fill prompt 与软质量门禁对齐（Issue #65）。
 - 强化 exam-census Phase A Fill 的模板、prompt 与质量门禁：要求例题/自测题来自真题来源，提升数量下限，禁止不兼容 Markdown/LaTeX 格式，并增加教学支架检查。
 - 整理人类入口、agent 路由和维护记录文档，补充“一句话发给 agent”的安装/使用示例、安全提醒、当前能力状态与维护规则。

@@ -195,22 +195,37 @@ python "$SCRIPTS/init_exam_deep_dive.py" "${BASE[@]}" --limit 2
 
 填写 `真题精析/` 骨架。
 
-### 10. Prep pack
+### 10. Phase 5 — Prep pack 四层资料包
+
+**前置：** Phase B 质量门禁已通过。本阶段**不要**重写 `题型解析/` 正文；只汇总与分层。
+
+先读取：`题型频率统计.md`、`题型解析/*.md`、`quality-reviews.json`、已有 `cross-validation.json`。
 
 在 `reviews/<exam-scope-key>/` 写 / 更新：
 
-- `备考指南.md`
-- `公式总卡.md`
-- `答题模板速查.md`
-- `考前1小时清单.md`
+| 层级 | 文件 | 模板 |
+| --- | --- | --- |
+| L1 | `备考指南.md` | `templates/exam-prep-guide.md` |
+| L2 | `题型解析/*.md` | 已由 Phase A/B 完成（仅链接） |
+| L3 | `公式总卡.md` / `答题模板速查.md` | `formula-cheat-sheet.md` / `answer-template-quickref.md` |
+| L4 | `考前1小时清单.md` | `pre-exam-one-hour-checklist.md` |
 
-须含到 `题型解析/` 的真实链接。可参考已安装 student-os 的 `templates/exam-prep-guide.md` 等。
+生成规则：
+- 备考指南必须链接所有 P0/P1 题型解析，并链接公式总卡、答题模板速查、考前1小时清单。
+- 公式总卡从题型解析公式表提取，不要编造；回链 `题型解析/`。
+- 答题模板速查从「2分钟下笔模板 / 快速得分技巧」提取；含 `[条件]` / `[表达式]` / `[答案]`。
+- 考前1小时清单链接 L1/L3 与高频题型解析；含 60-45 / 45-30 / 30-15 / 15-5 / 5-0。
+- 证据不足写「证据不足，需人工补充」；不做 90% 表格密度硬门禁。
 
 ### 11. Phase E — Cross-val
+
+Prep pack 生成后**再跑一次**：
 
 ```bash
 python "$SCRIPTS/cross_validate_exam_census.py" "${BASE[@]}"
 ```
+
+检查覆盖率 + 四层文件 / frontmatter / 层级链接 / 最低内容结构。
 
 ## 质量要求
 

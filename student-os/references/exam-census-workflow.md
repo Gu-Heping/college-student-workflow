@@ -136,8 +136,8 @@ One-screen map (agents should announce artifact paths before each step):
 | **B** Quality | Structural gate, ≤2 revision rounds | `review_type_analysis.py` |
 | **C** Multi-dim | Co-occurrence / difficulty drafts | `build_multi_dim_stats.py` |
 | **D** Deep-dive | 1–2 representative paper walkthroughs | `init_exam_deep_dive.py` |
-| Prep pack | 备考指南 / 公式总卡 / 答题模板 / 考前清单 | templates + review-coach |
-| **E** Cross-val | Coverage / link traceability | `cross_validate_exam_census.py` |
+| **5** Prep pack | L1–L4 四层资料包（须在 Phase B 通过后） | templates + review-coach |
+| **E** Cross-val | Coverage + prep-pack 四层完整性（prep pack 后再跑） | `cross_validate_exam_census.py` |
 
 Current entry points: this file, `commands/exam-census.md`, and `references/exam-census-quality.md` (content standard). Prefer those over inventing a parallel checklist.
 
@@ -259,17 +259,46 @@ python student-os/scripts/cross_validate_exam_census.py /path/to/vault \
   --exam-scope 期中
 ```
 
-Writes `cross-validation.json` and `analysis/覆盖率检查.md` (missing skeletons, empty type lists, prep-guide link gaps).
+Writes `cross-validation.json` and `analysis/覆盖率检查.md` (missing skeletons, empty type lists, prep-guide link gaps, **Prep pack 四层结构**).
 
-### Phase 5 — Exam prep pack
+**Preferred:** run Phase E **after Phase 5**, so L1/L3/L4 files exist and `ok` can be true.
 
-Create or update:
-- `备考指南.md` ← `templates/exam-prep-guide.md`
-- `公式总卡.md` ← `templates/formula-cheat-sheet.md` (prefer extracting from type-analysis formula tables)
-- `答题模板速查.md` ← `templates/answer-template-quickref.md` (prefer extracting from 2分钟下笔模板)
-- `考前1小时清单.md` ← `templates/pre-exam-one-hour-checklist.md`
+Optional early diagnostic after Aggregate/A–D is fine for skeleton coverage, but expect `ok: false` / nonzero exit until prep-pack files are created — do not treat that as a hard stop before Phase 5.
 
-Planning-assistant may help with day sequencing; review-coach owns content quality. Re-run Phase E after the prep pack exists.
+### Phase 5 — Prep pack 四层资料包
+
+**前置：** Phase B 题型解析质量门禁已通过（`review_type_analysis.py` 无 blocking `needs-revision`）。不要在门禁失败时硬写备考包。
+
+四层契约：
+
+| 层级 | 文件 | 用途 |
+| --- | --- | --- |
+| L1 | `备考指南.md` | 全局规划：考什么、优先级、时间分配、如何使用整套资料 |
+| L2 | `题型解析/*.md` | 逐题型深入（content standard v3；本阶段只汇总链接，不重写正文） |
+| L3 | `公式总卡.md` + `答题模板速查.md` | 速查：公式/适用场景/易错；2分钟下笔模板/填空骨架/抢分句式 |
+| L4 | `考前1小时清单.md` | 最后 60 分钟冲刺（精确到分钟） |
+
+先读取：
+- `题型频率统计.md`
+- `题型解析/*.md`
+- `quality-reviews.json`
+- `cross-validation.json`（若已有）
+
+然后生成/更新（模板 → 产物）：
+- L1 `备考指南.md` ← `templates/exam-prep-guide.md`
+- L3 `公式总卡.md` ← `templates/formula-cheat-sheet.md`
+- L3 `答题模板速查.md` ← `templates/answer-template-quickref.md`
+- L4 `考前1小时清单.md` ← `templates/pre-exam-one-hour-checklist.md`
+
+生成规则：
+- 备考指南必须链接所有 P0/P1 题型解析，并链接 L3/L4。
+- 公式总卡必须从题型解析公式表提取，不要编造公式；回链 `题型解析/`。
+- 答题模板速查必须从「2分钟下笔模板 / 快速得分技巧」提取；含 `[条件]` / `[表达式]` / `[答案]` 等填空占位符。
+- 考前1小时清单必须链接备考指南、公式总卡、答题模板速查和高频题型解析；含 60-45 / 45-30 / 30-15 / 15-5 / 5-0。
+- 证据不足时写「证据不足，需人工补充」，不要强行补内容。
+- **不要**为过门禁把自然语言硬塞进破表格；不做「90% 表格密度」硬计算，只要求关键章节与关键表存在。
+
+Planning-assistant may help with day sequencing; review-coach owns content quality. **Re-run Phase E after the prep pack exists.**
 
 ## Parallelism and failure handling
 

@@ -1,42 +1,43 @@
 ---
 type: answer-template-quickref
-course: {{course_name}}
-status: draft
-created: {{date}}
-updated: {{date}}
-tags: [course/{{course_slug}}, review, exam-census]
+course: "{{course_name}}"
+exam_scope: "{{exam_scope}}"
+status: active
 review_scope: exam-census
-exam_scope: {{exam_scope}}
-source_artifacts: []
 ---
 
 # {{course_name}} · {{exam_scope}} · 答题模板速查
 
-## General Answer Shape
+## 使用方式
 
-1. State the goal / unknown.
-2. Choose the method linked to the census type.
-3. Write intermediate checks that graders reward.
-4. Box the final claim.
+| 场景 | 该看哪里 |
+| --- | --- |
+| 完全不会下笔 | 看「保底步骤分模板」 |
+| 知道方法但不会写过程 | 看「标准答题模板」 |
+| 时间不够 | 看「30 秒抢分句式」 |
 
-## Per-Type Templates
+> 优先从各 [题型解析/](题型解析/) 的「2分钟下笔模板 / 快速得分技巧」提取；不要编造模板。填空占位符用 `[条件]` / `[表达式]` / `[值]` / `[答案]`。证据不足写「证据不足，需人工补充」。
 
-### {{type_name}}
+## 标准答题模板
 
-**Opening**
+| 题型 | 看到什么 | 第一句写什么 | 填空式模板 | 来源 |
+| --- | --- | --- | --- | --- |
+| | | | 由[条件]，可得[结论]。因此[答案]。 | [题型解析/](题型解析/) |
 
-- 
+## 保底步骤分模板
 
-**Core steps**
-
-- 
-
-**Closing check**
-
-- 
-
-## Time Box Hints
-
-| Type | Suggested minutes | Skip condition |
+| 题型 | 完全不会时先写什么 | 能拿的步骤分 |
 | --- | --- | --- |
-|  |  |  |
+| | 写出[条件]与目标[答案]的关系 | |
+
+## 30 秒抢分句式
+
+| 场景 | 可直接写的句式 | 注意 |
+| --- | --- | --- |
+| | 由[条件]可知[结论] | |
+
+## 常见扣分写法
+
+| 错误写法 | 正确写法 | 原因 |
+| --- | --- | --- |
+| | | |

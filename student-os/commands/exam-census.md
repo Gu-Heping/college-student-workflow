@@ -24,7 +24,8 @@ Before any writing phase: inspect Git in the **learning vault** (not the skill s
 | B Quality | Structural quality gate (`review_type_analysis.py`) |
 | C Multi-dim | Drafts under `analysis/` |
 | D Deep-dive | Representative paper walkthroughs |
-| E Cross-val | Coverage / traceability after prep pack |
+| 5 Prep pack | L1–L4 四层资料包（须在 Phase B 通过后） |
+| E Cross-val | Coverage + prep-pack 四层完整性（prep pack 后再跑） |
 
 Full checklist below; narrative detail in `references/exam-census-workflow.md`.
 
@@ -61,7 +62,7 @@ If adapters are not installed, follow this command’s stage checklist and call 
 8. **Multi-dim (C)** — `build_multi_dim_stats.py --overwrite` drafts under `analysis/`（中文表头/枚举显示）；完成后**再跑一次** `review_type_analysis.py` 专门检查 `analysis_needs_revision`；修订后再跑一次确认清空。
 
 9. **Deep-dive (D)** — `init_exam_deep_dive.py` scaffolds 1–2 representative paper walkthroughs.
-10. **Prep pack** — 备考指南 / 公式总卡 / 答题模板 / 考前清单（含到 `题型解析/` 的真实链接）。
-11. **Cross-val (E)** — `cross_validate_exam_census.py` coverage report（prep pack 之后再跑）。
+10. **Phase 5 Prep pack** — 四层资料包：L1 `备考指南.md`、L2 `题型解析/`（不重写正文）、L3 `公式总卡.md` + `答题模板速查.md`、L4 `考前1小时清单.md`。从频率统计与题型解析提取；证据不足写「证据不足，需人工补充」。
+11. **Cross-val (E)** — `cross_validate_exam_census.py`：覆盖率 + prep pack 四层文件/链接/最低结构（prep pack 之后再跑）。
 
 See `references/exam-census-workflow.md` and `references/exam-census-quality.md`.

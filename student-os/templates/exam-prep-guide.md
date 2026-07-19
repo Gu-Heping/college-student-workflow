@@ -1,39 +1,58 @@
 ---
 type: exam-prep-guide
-course: {{course_name}}
-status: draft
-created: {{date}}
-updated: {{date}}
-tags: [course/{{course_slug}}, review, exam-census]
+course: "{{course_name}}"
+exam_scope: "{{exam_scope}}"
+status: active
 review_scope: exam-census
-exam_scope: {{exam_scope}}
-source_artifacts: []
 ---
 
 # {{course_name}} · {{exam_scope}} · 备考指南
 
-## How To Use This Pack
+## 怎么使用这套资料
 
-- Start from `题型频率统计.md` (data, not vibes).
-- Drill must-know types first via `题型解析/`.
-- Keep `公式总卡.md` and `答题模板速查.md` nearby while reworking papers.
+| 层级 | 文件 | 什么时候用 | 目标 |
+| --- | --- | --- | --- |
+| L1 | [备考指南.md](备考指南.md) | 开始复习前 | 明确范围、优先级、时间分配 |
+| L2 | [题型解析/](题型解析/) | 学某个题型时 | 掌握概念、方法、例题、自测 |
+| L3 | [公式总卡.md](公式总卡.md) / [答题模板速查.md](答题模板速查.md) | 考前背诵 / 做题卡壳时 | 快速查公式和答题套路 |
+| L4 | [考前1小时清单.md](考前1小时清单.md) | 考前最后 60 分钟 | 极限冲刺 |
 
-## Priority Ladder
+## 考试范围与资料状态
 
-1. Must-know types (≥ appearance threshold)
-2. Medium-frequency types that still recur
-3. Rare / once-off types (timeboxed)
+| 项目 | 内容 |
+| --- | --- |
+| 试卷数量 | |
+| 题型数量 | |
+| 已完成题型解析 | |
+| 仍需人工校对 | |
 
-## Study Sequence
+> 从 `题型频率统计.md` 与 `题型解析/*.md` 汇总；证据不足时写「证据不足，需人工补充」，不要编造。
 
-| Day focus | Type links | Practice target |
+## 题型优先级
+
+| 优先级 | 题型 | 出现率 | 建议投入时间 | 入口 |
+| --- | --- | ---: | --- | --- |
+| P0 | | | | [题型解析/](题型解析/) |
+| P1 | | | | |
+| P2 | | | | |
+
+## 复习时间分配
+
+| 时间总量 | 先做什么 | 目标 |
 | --- | --- | --- |
-|  |  |  |
+| 1 小时 | 扫 P0 题型入口 + [公式总卡.md](公式总卡.md) | 知道考什么、先背什么 |
+| 3 小时 | 完整过 1–2 个 P0 [题型解析/](题型解析/) + 自测 | 会认题、会下笔 |
+| 1 天 | P0/P1 题型解析 + [答题模板速查.md](答题模板速查.md) | 模板能默写 |
+| 3 天 | 全套 L2 + 套卷练习 + [考前1小时清单.md](考前1小时清单.md) | 冲刺就绪 |
 
-## Weak Spots To Watch
+## 复习路线
 
-- 
+```text
+先看高频题型 → 背公式总卡 → 套答题模板 → 自测 → 考前1小时清单
+```
 
-## Source Papers
+## 风险提示
 
-- 
+- 证据不足题型：
+- OCR / 题号需人工校对：
+- 不建议押题过度依赖：
