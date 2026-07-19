@@ -6,6 +6,7 @@
 
 ### Changed
 
+- exam-census fill 为「核心概念」注入教材候选路径（`concept_sources`），并要求教材引用或「未参考指定教材」声明（Issue #65）。
 - 完善 exam-census prep pack 四层结构：新增/升级备考指南、公式总卡、答题模板速查、考前1小时清单模板，并在 cross-validation 中校验四层资料包完整性。
 - 将 exam-census 题型解析提升到 content standard v3：七段式结构（核心概念/核心方法/自测答案分章/快速得分/易错清单）、fill prompt 与软质量门禁对齐（Issue #65）。
 - 强化 exam-census Phase A Fill 的模板、prompt 与质量门禁：要求例题/自测题来自真题来源，提升数量下限，禁止不兼容 Markdown/LaTeX 格式，并增加教学支架检查。
@@ -71,6 +72,7 @@
 - 修复中文课程名、中文学期名和中文作业标题会退化成 `course`、`semester` 等 ASCII 兜底 slug 的问题，避免真实知识库中的路径冲突和不可读目录名。
 - 修复 Unicode slug 规则把组合附加符号误当作分隔符的问题，避免印地语等脚本的课程名和学期名在脚手架路径中被打碎。
 - 修复 Windows 下脚手架脚本与 smoke harness 处理 Unicode 路径输出时的编码不一致问题，避免非 GBK 路径名触发 `UnicodeEncodeError` 或 `UnicodeDecodeError`。
+- 修复 exam-census `concept_sources` 未覆盖课程本地 `教材课件/`、`课件/`、`教材/`、`slides/`、`lectures/` 目录的问题，使核心概念能引用课程教材/课件 sidecar（Issue #69）。
 
 ## [0.6.0] - 2026-07-03
 

@@ -21,6 +21,165 @@ from exam_census_utils import (
     write_json,
 )
 
+# Subdirs under courses/<course>/references/ that usually hold exam papers, not textbooks.
+_EXAM_REFERENCE_DIR_NAMES = frozenset(
+    {
+        "exams",
+        "exam",
+        "试卷",
+        "真题",
+        "文本",
+        "text",
+        "markdown",
+        "md",
+        "past-papers",
+        "papers",
+    }
+)
+
+# Course-local directories that commonly hold lecture slides / textbooks / handouts.
+_LECTURE_MATERIAL_DIR_NAMES = (
+    "教材课件",
+    "课件",
+    "教材",
+    "slides",
+    "lectures",
+)
+
+_TEXTBOOK_NAME_HINTS = ("教材", "textbook", "讲义", "课本")
+_EXAM_FILENAME_HINTS = (
+    "midterm",
+    "final",
+    "exam",
+    "quiz",
+    "期中",
+    "期末",
+    "真题",
+    "试卷",
+    "测验",
+    "答案",
+    "ans",
+    "answer",
+    "past-paper",
+    "pastpaper",
+)
+_REPAIR_ARTIFACT_SUFFIXES = (".raw.md", "-repair-summary.md")
+
+
+def discover_concept_sources(
+    repo: Path,
+    course_dir: Path,
+    course_key: str,
+) -> list[dict[str, str]]:
+    """Find textbook / lecture-note markdown sidecars agents should open for 核心概念.
+
+    Scans, in order:
+      - course references/ (excluding exam-paper subdirectories)
+      - vault references/textbooks/
+      - course-local lecture-material dirs: 教材课件/, 课件/, 教材/, slides/, lectures/
+
+    Returns repo-relative paths only (no file bodies) to keep fill-queue small.
+    """
+    roots: list[tuple[str, Path]] = []
+    course_refs = course_dir / "references"
+    if course_refs.is_dir():
+        roots.append(("course_refs", course_refs))
+    vault_textbooks = repo / "references" / "textbooks"
+    if vault_textbooks.is_dir():
+        roots.append(("vault_textbooks", vault_textbooks))
+    for material_name in _LECTURE_MATERIAL_DIR_NAMES:
+        lecture_dir = course_dir / material_name
+        if lecture_dir.is_dir():
+            roots.append(("lecture_material", lecture_dir))
+
+    slug_tokens = [
+        part.lower()
+        for part in re.split(r"[/_\-\s]+", course_key)
+        if part and part.lower() not in {"courses", "course"}
+    ]
+    # Prefer human course folder name fragments too (e.g. 线性代数).
+    if course_dir.name and course_dir.name.lower() not in {t.lower() for t in slug_tokens}:
+        slug_tokens.append(course_dir.name.lower())
+
+    found: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    # Directory segments that should never be treated as concept sources.
+    excluded_dir_names = {n.lower() for n in _EXAM_REFERENCE_DIR_NAMES} | {
+        "reviews",
+        "review",
+        "exam papers",
+        "exampapers",
+        "papers",
+        "期中",
+        "期末",
+        "答案",
+        "answers",
+        "ans",
+    }
+
+    def _is_repair_artifact(name: str) -> bool:
+        lower = name.lower()
+        return any(lower.endswith(suffix) for suffix in _REPAIR_ARTIFACT_SUFFIXES) or ".raw." in lower
+
+    def _looks_like_exam_paper(name: str) -> bool:
+        lower = name.lower()
+        return any(hint in lower for hint in _EXAM_FILENAME_HINTS)
+
+    def _filename_matches_course(name: str, *, require_course_token: bool = False) -> bool:
+        name_l = name.lower()
+        hint_hit = any(hint in name_l for hint in _TEXTBOOK_NAME_HINTS)
+        slug_hit = any(token in name_l for token in slug_tokens if len(token) >= 4)
+        if require_course_token:
+            # Shared vault textbooks/ must mention this course (avoid cross-course leaks).
+            return slug_hit
+        return hint_hit or slug_hit
+
+    def _under_excluded_dir(path: Path) -> bool:
+        """True when any ancestor under the course is an exam/review/answer directory."""
+        try:
+            rel_parts = path.relative_to(course_dir).parts
+        except ValueError:
+            try:
+                rel_parts = path.relative_to(repo).parts
+            except ValueError:
+                return False
+        return any(
+            (part.lower() in excluded_dir_names) or _looks_like_exam_paper(part)
+            for part in rel_parts[:-1]
+        )
+
+    def consider(path: Path, *, kind: str) -> None:
+        if not path.is_file():
+            return
+        name = path.name
+        # We only ingest markdown sidecars derived from PDF/office imports.
+        if not name.endswith(".pdf.md"):
+            return
+        if _is_repair_artifact(name):
+            return
+        if _looks_like_exam_paper(name):
+            return
+        if _under_excluded_dir(path):
+            return
+        if kind == "lecture_material":
+            # Lecture-material dirs are explicitly for course handouts/slides/textbooks.
+            # Accept any non-exam PDF sidecar; directory-level exclusions already applied.
+            pass
+        elif not _filename_matches_course(name, require_course_token=(kind == "vault_textbooks")):
+            return
+        rel = relative_posix(path, repo)
+        if rel in seen:
+            return
+        seen.add(rel)
+        found.append({"path": rel, "label": path.name})
+
+    for kind, root in roots:
+        for child in sorted(root.rglob("*.pdf.md")):
+            consider(child, kind=kind)
+
+    return found
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -186,6 +345,19 @@ def main() -> int:
     annotations, _aliases, _errors = load_annotations_for_manifest(
         census_state / "annotations", papers
     )
+    concept_sources = discover_concept_sources(repo, course_dir, course_key)
+    if concept_sources:
+        concept_note = (
+            "Open concept_sources markdown sidecars before writing 核心概念; "
+            "cite them as 参考：<filename> 第X章…"
+        )
+    else:
+        concept_note = (
+            "No textbook sidecars discovered under course references/, "
+            "references/textbooks/, or course lecture-material dirs "
+            "(教材课件/, 课件/, 教材/, slides/, lectures/); "
+            "write 基于考纲整理，未参考指定教材 in 核心概念."
+        )
     items: list[dict] = []
     for path in sorted(analysis_dir.glob("*.md")):
         text = path.read_text(encoding="utf-8")
@@ -200,6 +372,7 @@ def main() -> int:
                 "sources": sources,
                 "source_papers": source_papers,
                 "source_instances": source_instances,
+                "concept_sources": concept_sources,
                 "required_sections": REQUIRED_SECTION_HEADINGS,
                 "entry_layer_markers": ENTRY_LAYER_MARKERS,
                 "instructions": list(FILL_QUEUE_INSTRUCTIONS),
@@ -216,13 +389,19 @@ def main() -> int:
         "phase": "A",
         "item_count": len(items),
         "items": items,
+        "concept_sources": concept_sources,
+        "concept_sources_note": concept_note,
         "quality_reference": "references/exam-census-quality.md",
         "template": "templates/exam-type-analysis.md",
     }
     write_json(queue_path, payload)
     print(
         json.dumps(
-            {"queue": str(queue_path), **{k: payload[k] for k in ("course", "exam_scope", "item_count")}},
+            {
+                "queue": str(queue_path),
+                **{k: payload[k] for k in ("course", "exam_scope", "item_count")},
+                "concept_source_count": len(concept_sources),
+            },
             ensure_ascii=False,
             indent=2,
         )

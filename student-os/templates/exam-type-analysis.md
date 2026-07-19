@@ -82,11 +82,19 @@ source_summary: "共 {{paper_count}} 份试卷；详见 题型频率统计.md"
 
 -
 
+### 意义 / 直观理解
+
+-
+
 ### 易混淆概念对比
 
 | 概念 A | 概念 B | 怎么区分 |
 | --- | --- | --- |
 |  |  |  |
+
+### 教材 / 考纲来源
+
+- {{concept_source_citation_or_disclaimer}}
 
 ## 核心方法
 

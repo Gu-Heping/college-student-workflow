@@ -2413,6 +2413,30 @@ def exercise_exam_census(repo: Path) -> None:
         "--validate",
         "--overwrite",
     )
+    # Textbook sidecar under course references/ (not exams/) should appear in concept_sources.
+    textbook_sidecar = (
+        repo / "courses" / "linear-algebra" / "references" / "线性代数教材.pdf.md"
+    )
+    textbook_sidecar.parent.mkdir(parents=True, exist_ok=True)
+    textbook_sidecar.write_text(
+        "\n".join(
+            [
+                "---",
+                'course: "Linear Algebra"',
+                "---",
+                "",
+                "# 线性代数教材",
+                "",
+                "## 第1章 行列式与秩",
+                "",
+                "秩的定义……",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     fill_payload = json.loads(
         run_script(
             "fill_type_analysis.py",
@@ -2425,10 +2449,17 @@ def exercise_exam_census(repo: Path) -> None:
     )
     if fill_payload.get("item_count", 0) < 1:
         raise AssertionError(f"Expected fill queue items, got: {fill_payload}")
+    if fill_payload.get("concept_source_count", 0) < 1:
+        raise AssertionError(f"Expected concept_source_count >= 1, got: {fill_payload}")
     ensure_exists(state_dir / "fill-queue.json")
     fill_queue = json.loads((state_dir / "fill-queue.json").read_text(encoding="utf-8"))
     if fill_queue.get("quality_reference") != "references/exam-census-quality.md":
         raise AssertionError(f"Expected skill-relative quality_reference, got: {fill_queue.get('quality_reference')}")
+    concept_paths = [str(item.get("path") or "") for item in (fill_queue.get("concept_sources") or [])]
+    if not any("线性代数教材.pdf.md" in path.replace("\\", "/") for path in concept_paths):
+        raise AssertionError(f"Expected textbook in concept_sources, got: {concept_paths}")
+    if not fill_queue["items"][0].get("concept_sources"):
+        raise AssertionError("Expected per-item concept_sources on fill-queue items")
     if not fill_queue["items"][0].get("source_papers"):
         raise AssertionError("Expected source_papers on fill-queue items")
     if not fill_queue["items"][0].get("source_instances"):
@@ -2447,9 +2478,200 @@ def exercise_exam_census(repo: Path) -> None:
         "自测答案",
         "快速得分技巧",
         "[表达式]",
+        "concept_sources",
+        "未参考指定教材",
+        "参考：",
     ):
         if needle not in fill_instructions:
             raise AssertionError(f"Expected fill instructions to include {needle!r}, got: {fill_instructions}")
+
+    # Without textbook candidates, concept_sources is empty but disclaimer guidance remains.
+    textbook_sidecar.unlink()
+    empty_book_payload = json.loads(
+        run_script(
+            "fill_type_analysis.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+        )
+    )
+    empty_book_file = json.loads((state_dir / "fill-queue.json").read_text(encoding="utf-8"))
+    if empty_book_payload.get("concept_source_count", 0) != 0:
+        raise AssertionError(
+            f"Expected concept_source_count 0 after removing textbook, got: {empty_book_payload}"
+        )
+    if empty_book_file.get("concept_sources"):
+        raise AssertionError(
+            f"Expected empty concept_sources after removing textbook, got: {empty_book_file.get('concept_sources')}"
+        )
+    if "未参考指定教材" not in str(empty_book_file.get("concept_sources_note") or ""):
+        raise AssertionError(
+            f"Expected disclaimer note when no textbooks, got: {empty_book_file.get('concept_sources_note')}"
+        )
+    # Restore textbook for later consumers of this fixture.
+    textbook_sidecar.write_text(
+        "\n".join(
+            [
+                "---",
+                'course: "Linear Algebra"',
+                "---",
+                "",
+                "# 线性代数教材",
+                "",
+                "## 第1章 行列式与秩",
+                "",
+                "秩的定义……",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    # Exam-like / repair artifacts / unrelated textbooks must not enter concept_sources.
+    (repo / "courses" / "linear-algebra" / "references" / "linear-algebra-2019-midterm.pdf.md").write_text(
+        "# exam\n", encoding="utf-8", newline="\n"
+    )
+    (repo / "courses" / "linear-algebra" / "references" / "线性代数教材.pdf.raw.md").write_text(
+        "# raw\n", encoding="utf-8", newline="\n"
+    )
+    vault_books = repo / "references" / "textbooks"
+    vault_books.mkdir(parents=True, exist_ok=True)
+    (vault_books / "calculus-textbook.pdf.md").write_text("# calc\n", encoding="utf-8", newline="\n")
+    (vault_books / "linear-algebra-notes.pdf.md").write_text("# la\n", encoding="utf-8", newline="\n")
+    run_script(
+        "fill_type_analysis.py",
+        str(repo),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期中",
+    )
+    filtered_queue = json.loads((state_dir / "fill-queue.json").read_text(encoding="utf-8"))
+    filtered_paths = [str(item.get("path") or "").replace("\\", "/") for item in (filtered_queue.get("concept_sources") or [])]
+    if any("midterm" in path for path in filtered_paths):
+        raise AssertionError(f"Exam-like filename must not enter concept_sources: {filtered_paths}")
+    if any(".raw.md" in path for path in filtered_paths):
+        raise AssertionError(f"Repair raw sidecar must not enter concept_sources: {filtered_paths}")
+    if any("calculus-textbook" in path for path in filtered_paths):
+        raise AssertionError(f"Unrelated vault textbook must not enter concept_sources: {filtered_paths}")
+    if not any("线性代数教材.pdf.md" in path for path in filtered_paths):
+        raise AssertionError(f"Expected course textbook retained in concept_sources: {filtered_paths}")
+    if not any("linear-algebra-notes.pdf.md" in path for path in filtered_paths):
+        raise AssertionError(f"Expected course-matching vault textbook in concept_sources: {filtered_paths}")
+
+    # Issue #69: course-local lecture-material directories feed concept_sources.
+    lecture_material_dir = repo / "courses" / "linear-algebra" / "教材课件"
+    lecture_material_dir.mkdir(parents=True, exist_ok=True)
+    (lecture_material_dir / "1-2 n阶行列式.pdf.md").write_text(
+        "\n".join(
+            [
+                "---",
+                'course: "Linear Algebra"',
+                "---",
+                "",
+                "# 1-2 n阶行列式",
+                "",
+                "## 行列式的定义",
+                "",
+                "行列式是一个数……",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    # Exam-like / answer files inside lecture-material dirs must still be excluded.
+    (lecture_material_dir / "期中试卷.pdf.md").write_text("# 期中试卷\n", encoding="utf-8", newline="\n")
+    (lecture_material_dir / "答案.pdf.md").write_text("# 答案\n", encoding="utf-8", newline="\n")
+    # Files under reviews/<scope>/文本/ must not leak into concept_sources.
+    review_text_dir = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "文本"
+    review_text_dir.mkdir(parents=True, exist_ok=True)
+    (review_text_dir / "review-handout.pdf.md").write_text("# review\n", encoding="utf-8", newline="\n")
+    run_script(
+        "fill_type_analysis.py",
+        str(repo),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期中",
+    )
+    lecture_queue = json.loads((state_dir / "fill-queue.json").read_text(encoding="utf-8"))
+    lecture_paths = [str(item.get("path") or "").replace("\\", "/") for item in (lecture_queue.get("concept_sources") or [])]
+    if not any("教材课件/1-2 n阶行列式.pdf.md" in path for path in lecture_paths):
+        raise AssertionError(f"Expected lecture-material sidecar in concept_sources: {lecture_paths}")
+    if any("期中试卷.pdf.md" in path for path in lecture_paths):
+        raise AssertionError(f"Exam-paper sidecar must not enter concept_sources: {lecture_paths}")
+    if any("答案.pdf.md" in path for path in lecture_paths):
+        raise AssertionError(f"Answer sidecar must not enter concept_sources: {lecture_paths}")
+    if any("review-handout.pdf.md" in path for path in lecture_paths):
+        raise AssertionError(f"Review-text sidecar must not enter concept_sources: {lecture_paths}")
+
+    # Without any textbook candidates, concept_sources is empty and the disclaimer remains.
+    saved_course_textbook = repo / "courses" / "linear-algebra" / "references" / "线性代数教材.pdf.md"
+    saved_course_textbook_text = (
+        saved_course_textbook.read_text(encoding="utf-8") if saved_course_textbook.exists() else ""
+    )
+    saved_vault_textbook = repo / "references" / "textbooks" / "linear-algebra-notes.pdf.md"
+    saved_vault_textbook_text = (
+        saved_vault_textbook.read_text(encoding="utf-8") if saved_vault_textbook.exists() else ""
+    )
+    shutil.rmtree(lecture_material_dir)
+    if saved_course_textbook.exists():
+        saved_course_textbook.unlink()
+    if saved_vault_textbook.exists():
+        saved_vault_textbook.unlink()
+    empty_lecture_payload = json.loads(
+        run_script(
+            "fill_type_analysis.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+        )
+    )
+    empty_lecture_file = json.loads((state_dir / "fill-queue.json").read_text(encoding="utf-8"))
+    if empty_lecture_payload.get("concept_source_count", 0) != 0:
+        raise AssertionError(
+            f"Expected concept_source_count 0 after removing textbooks, got: {empty_lecture_payload}"
+        )
+    if empty_lecture_file.get("concept_sources"):
+        raise AssertionError(
+            f"Expected empty concept_sources after removing textbooks, got: {empty_lecture_file.get('concept_sources')}"
+        )
+    if "未参考指定教材" not in str(empty_lecture_file.get("concept_sources_note") or ""):
+        raise AssertionError(
+            f"Expected disclaimer note when no concept sources, got: {empty_lecture_file.get('concept_sources_note')}"
+        )
+    # Restore for any later consumers of this fixture.
+    lecture_material_dir.mkdir(parents=True, exist_ok=True)
+    (lecture_material_dir / "1-2 n阶行列式.pdf.md").write_text(
+        "\n".join(
+            [
+                "---",
+                'course: "Linear Algebra"',
+                "---",
+                "",
+                "# 1-2 n阶行列式",
+                "",
+                "## 行列式的定义",
+                "",
+                "行列式是一个数……",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    if saved_course_textbook_text:
+        saved_course_textbook.write_text(saved_course_textbook_text, encoding="utf-8", newline="\n")
+    if saved_vault_textbook_text:
+        saved_vault_textbook.write_text(saved_vault_textbook_text, encoding="utf-8", newline="\n")
 
     review_result = subprocess.run(
         [
@@ -2646,9 +2868,17 @@ def exercise_exam_census(repo: Path) -> None:
         "## 自测答案",
         "## 快速得分技巧",
         "## 易错点与检查清单",
+        "### 意义 / 直观理解",
+        "### 教材 / 考纲来源",
     ):
         if required_heading not in template_text:
             raise AssertionError(f"v3 template missing {required_heading}")
+    if "{{concept_source_citation_or_disclaimer}}" not in template_text:
+        raise AssertionError("exam-type-analysis.md must use concept_source placeholder")
+    if "未参考指定教材" in template_text:
+        raise AssertionError(
+            "exam-type-analysis.md must not embed disclaimer phrase that bypasses concept gate"
+        )
     if quality_mod.MIN_WORKED_EXAMPLES != 5 or quality_mod.MIN_SELF_TESTS != 4:
         raise AssertionError(
             f"Expected MIN_WORKED_EXAMPLES=5 / MIN_SELF_TESTS=4, got "
@@ -2725,6 +2955,10 @@ def exercise_exam_census(repo: Path) -> None:
             "| 概念 A | 概念 B | 怎么区分 |",
             "| --- | --- | --- |",
             "| 秩 | 行列式 | 秩看主元，行列式看可逆 |",
+            "",
+            "### 教材 / 考纲来源",
+            "",
+            "- 基于考纲整理，未参考指定教材",
             "",
             "## 核心方法",
             "",
@@ -2901,6 +3135,55 @@ def exercise_exam_census(repo: Path) -> None:
     ):
         if not rich_review["checks"][v3_check]["pass"]:
             raise AssertionError(f"Expected rich v3 page to pass {v3_check}: {rich_review['checks'][v3_check]}")
+
+    # Short concept without textbook cite / disclaimer must fail concept_explanation.
+    bare_concept_doc = rich_doc.replace(
+        "- 基于考纲整理，未参考指定教材",
+        "- （待补）",
+    )
+    bare_concept_review = quality_mod.structural_review("题型解析/bare-concept.md", bare_concept_doc)
+    if "concept_explanation" not in bare_concept_review["failed_checks"]:
+        raise AssertionError(
+            f"Expected concept_explanation failure without textbook cite/disclaimer, got: {bare_concept_review}"
+        )
+    # Citation without literal 教材/textbook words must still pass.
+    cited_concept_doc = rich_doc.replace(
+        "- 基于考纲整理，未参考指定教材",
+        "- 参考：linear-algebra-done-right.pdf.md 第1章",
+    )
+    cited_concept_review = quality_mod.structural_review("题型解析/cited-concept.md", cited_concept_doc)
+    if not cited_concept_review["checks"]["concept_explanation"]["pass"]:
+        raise AssertionError(
+            f"Expected textbook citation to pass concept_explanation: "
+            f"{cited_concept_review['checks']['concept_explanation']}"
+        )
+    # When concept_sources exist, disclaimer alone is not enough.
+    disclaimer_with_sources = quality_mod.structural_review(
+        "题型解析/disclaimer-with-sources.md",
+        rich_doc,
+        concept_sources=[{"path": "courses/linear-algebra/references/线性代数教材.pdf.md", "label": "线性代数教材.pdf.md"}],
+    )
+    if "concept_explanation" not in disclaimer_with_sources["failed_checks"]:
+        raise AssertionError(
+            f"Expected concept_explanation failure for disclaimer while sources exist, got: {disclaimer_with_sources}"
+        )
+    # Unfilled template placeholder / instructional default must not pass as a disclaimer.
+    template_default_doc = rich_doc.replace(
+        "- 基于考纲整理，未参考指定教材",
+        "- {{concept_source_citation_or_disclaimer}}",
+    )
+    template_default_review = quality_mod.structural_review(
+        "题型解析/template-default-concept.md",
+        template_default_doc,
+    )
+    if "concept_explanation" not in template_default_review["failed_checks"]:
+        raise AssertionError(
+            f"Expected concept_explanation failure for unfilled template placeholder, got: {template_default_review}"
+        )
+    if "no_placeholders" not in template_default_review["failed_checks"]:
+        raise AssertionError(
+            f"Expected no_placeholders failure for unfilled concept placeholder, got: {template_default_review}"
+        )
 
     no_source_doc = "\n".join(
         _fm_header()

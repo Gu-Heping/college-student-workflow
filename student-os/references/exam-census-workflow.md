@@ -206,11 +206,12 @@ Produces:
 
 ### Phase 4 — Fill type analyses (Phase A)
 
-1. Run `fill_type_analysis.py` to write `fill-queue.json` (ranked skeletons + `source_papers` / `source_instances` + required sections + fill instructions).
+1. Run `fill_type_analysis.py` to write `fill-queue.json` (ranked skeletons + `source_papers` / `source_instances` + `concept_sources` textbook candidates + required sections + fill instructions).
 2. Assign one agent per type analysis (pipeline with Phase B preferred: fill → review immediately).
-3. Fill using `templates/exam-type-analysis.md` and `references/exam-census-quality.md` (**content standard v3** + zero-foundation entry).
-4. Assign every annotated past-paper instance of the type to 例题精讲 or 自测题.
-5. Defaults: **≥5 例题** + **≥4 自测**；每题标注 `来源：...`；例题标难度星；自测答案独立成章；禁止编造；禁止引用块内表格与 `<details>` 内 `$$`；考前速记含 ASCII `├` 决策树。
+3. Before writing 核心概念, open `concept_sources` when present. Sources include course `references/` (excluding exam subdirs), vault `references/textbooks/`, and course-local lecture-material dirs: `教材课件/`, `课件/`, `教材/`, `slides/`, `lectures/`. Cite `参考：…` or write `基于考纲整理，未参考指定教材`.
+4. Fill using `templates/exam-type-analysis.md` and `references/exam-census-quality.md` (**content standard v3** + zero-foundation entry).
+5. Assign every annotated past-paper instance of the type to 例题精讲 or 自测题.
+6. Defaults: **≥5 例题** + **≥4 自测**；每题标注 `来源：...`；例题标难度星；自测答案独立成章；禁止编造；禁止引用块内表格与 `<details>` 内 `$$`；考前速记含 ASCII `├` 决策树。
 
 ### Phase 4b — Quality gate (Phase B)
 
@@ -222,7 +223,7 @@ python student-os/scripts/review_type_analysis.py /path/to/vault \
 
 Writes `quality-reviews.json` and `analysis/质量门禁.md`. Exit code 1 means at least one file needs revision (max 2 agent rounds, then `quality: needs-review`).
 
-Phase B also flags Issue #51 / #63 / #65 output defects: bulky `source_artifacts` / `generated_fingerprint` in frontmatter, missing required short fields, broken Markdown tables from bare `|`, English residue in user-facing analysis reports (`Seeded from`, `Paper | Reliability`, `unspecified`), insufficient worked examples / self-tests (`≥5` / `≥4`), missing concrete 来源, render-unsafe Markdown (`> |` tables / `$$` inside `<details>`), weak teaching scaffolding, and v3 soft gaps（核心概念 / 核心方法 / 快速得分技巧 / 易错对比表 / 难度星 / 自测答案分章 / 填空模板）.
+Phase B also flags Issue #51 / #63 / #65 output defects: bulky `source_artifacts` / `generated_fingerprint` in frontmatter, missing required short fields, broken Markdown tables from bare `|`, English residue in user-facing analysis reports (`Seeded from`, `Paper | Reliability`, `unspecified`), insufficient worked examples / self-tests (`≥5` / `≥4`), missing concrete 来源, render-unsafe Markdown (`> |` tables / `$$` inside `<details>`), weak teaching scaffolding, and v3 soft gaps（核心概念须教材引用或「未参考指定教材」 / 核心方法 / 快速得分技巧 / 易错对比表 / 难度星 / 自测答案分章 / 填空模板）.
 
 `quality-reviews.json` separates `type_needs_revision`（题型解析）and `analysis_needs_revision`（`analysis/*.md`）。Run the gate again after Phase C so multi-dim drafts are covered.
 

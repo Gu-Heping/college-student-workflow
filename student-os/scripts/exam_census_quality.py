@@ -99,7 +99,7 @@ QUALITY_CHECK_LABELS = {
     "source_grounding": "例题/自测题均有真题来源，避免 AI 编造",
     "render_safe_markdown": "Markdown/LaTeX 在 Obsidian/GitHub 中可渲染",
     "teaching_scaffolding": "有步骤原因、选择逻辑、易错对比和验算",
-    "concept_explanation": "有核心概念（定义或对比）",
+    "concept_explanation": "有核心概念（定义/意义/对比，且有教材引用或未参考声明）",
     "core_methods": "有核心方法（适用场景/步骤）",
     "scoring_strategy": "有快速得分技巧（按时间分档）",
     "error_comparison": "有易错点对比表（错误/正确/原因）",
@@ -114,7 +114,9 @@ FILL_QUEUE_INSTRUCTIONS = [
     "frontmatter 只保留短元数据（含 quality），不要写入 source_artifacts 长路径数组或 generated_fingerprint。",
     "输出必须像辅导老师讲义，不是知识清单。每个关键步骤都要说明为什么这么做；必须包含方法选择逻辑、易错对比、验算方式、不会做时的步骤分策略。",
     "考前速记必须含 ASCII 方法选择决策树（使用 ├─ / └─），以及关键公式表。",
-    "必须填写「核心概念」（定义 + 易混对比表）与「核心方法」（适用场景→步骤→关键技巧 + 选择速查）。",
+    "必须填写「核心概念」：正式定义 + 几何/代数（或学科等价）意义 + 易混对比表；写之前先打开 fill-queue 的 concept_sources（若非空）。有教材时标注「参考：<教材文件名> 第X章…」；无教材候选时必须写「基于考纲整理，未参考指定教材」。",
+    "必须填写「核心方法」（适用场景→步骤→关键技巧 + 选择速查）。",
+    "教材中的典型例题仅可作补充说明；例题精讲与自测题的主来源仍是 source_papers，禁止编造真题。",
     "2分钟下笔模板与答题骨架优先使用填空式占位符，如 [表达式]、[值]、[答案]。",
     "所有例题和自测题必须来自 manifest/annotations 中命中该题型的 source_papers。禁止自行编造题目。每道题必须标注来源，格式为：来源：YYYY-YYYY 第X学期 第X题；如果 annotations 缺题号，写“来源：<试卷名>，题号待人工校对”。",
     f"默认要求至少 {MIN_WORKED_EXAMPLES} 道例题 + {MIN_SELF_TESTS} 道自测题。若该题型命中的真题实例少于 {MIN_WORKED_EXAMPLES + MIN_SELF_TESTS} 个，则尽量覆盖全部实例；不足部分不得编造，必须写“证据不足，需人工补充”，并设置 quality: needs-review。",
@@ -519,7 +521,18 @@ def teaching_scaffolding_issues(text: str) -> list[str]:
     return issues
 
 
-def concept_explanation_issues(text: str) -> list[str]:
+CONCEPT_TEXTBOOK_CITE_RE = re.compile(
+    r"(参考\s*[：:]\s*\S+|教材\s*[：:]|来自教材|见教材)",
+    re.I,
+)
+CONCEPT_NO_TEXTBOOK_RE = re.compile(r"(基于考纲整理|未参考指定教材)")
+
+
+def concept_explanation_issues(
+    text: str,
+    *,
+    concept_sources: list[dict[str, str]] | None = None,
+) -> list[str]:
     if not re.search(r"(?m)^#{1,6}\s+核心概念\b", text):
         return ["missing 核心概念 section"]
     body = section_body_after_heading(text, "核心概念")
@@ -527,6 +540,21 @@ def concept_explanation_issues(text: str) -> list[str]:
         return ["empty 核心概念 section"]
     if not (("定义" in body) or ("对比" in body) or ("|" in body)):
         return ["核心概念 missing 定义/对比 content"]
+    has_cite = bool(CONCEPT_TEXTBOOK_CITE_RE.search(body))
+    has_disclaimer = bool(CONCEPT_NO_TEXTBOOK_RE.search(body))
+    sources = list(concept_sources or [])
+    if sources:
+        if not has_cite:
+            return [
+                "核心概念 missing textbook citation (参考：…) "
+                f"while concept_sources has {len(sources)} candidate(s)"
+            ]
+        return []
+    if not (has_cite or has_disclaimer):
+        return [
+            "核心概念 missing textbook citation (参考：…) "
+            "or disclaimer (基于考纲整理，未参考指定教材)"
+        ]
     return []
 
 
@@ -644,7 +672,12 @@ def fill_in_answer_template_issues(text: str) -> list[str]:
     return ["missing fill-in answer template placeholders like [表达式] / [答案]"]
 
 
-def structural_review(path_label: str, text: str) -> dict[str, Any]:
+def structural_review(
+    path_label: str,
+    text: str,
+    *,
+    concept_sources: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     missing_sections = missing_required_sections(text)
     entry_issues = entry_layer_issues(text)
     example_count = count_filled_examples(text)
@@ -665,7 +698,7 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
     source_issues = source_grounding_issues(text)
     render_issues = render_safe_markdown_issues(text)
     teaching_issues = teaching_scaffolding_issues(text)
-    concept_issues = concept_explanation_issues(text)
+    concept_issues = concept_explanation_issues(text, concept_sources=concept_sources)
     methods_issues = core_methods_issues(text)
     scoring_issues = scoring_strategy_issues(text)
     error_issues = error_comparison_issues(text)
