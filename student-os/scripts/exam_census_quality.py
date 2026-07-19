@@ -7,15 +7,19 @@ from typing import Any
 
 from exam_census_utils import markdown_table_pipe_issues
 
-# Required top-level sections in filled type-analysis pages (content standard v2).
+# Required top-level sections in filled type-analysis pages (content standard v3).
 REQUIRED_SECTION_HEADINGS = [
     "元信息",
     "真卷对应题号",
     "考前速记",
-    "本页最佳使用指引",
-    "知识讲解",
+    "核心概念",
+    "核心方法",
+    "零基础先看这里",
     "例题精讲",
     "自测题",
+    "自测答案",
+    "快速得分技巧",
+    "易错点与检查清单",
     "来源校对说明",
 ]
 
@@ -29,6 +33,7 @@ ENTRY_LAYER_MARKERS = [
 
 MIN_WORKED_EXAMPLES = 5
 MIN_SELF_TESTS = 4
+MIN_DIFFICULTY_STARRED_EXAMPLES = 3
 
 # Canonical short frontmatter for 题型解析 pages (Issue #51).
 REQUIRED_TYPE_ANALYSIS_FRONTMATTER = [
@@ -78,13 +83,13 @@ QUALITY_CHECK_LABELS = {
     "badge": "有 badge / 元信息区（频率/分值/难度/来源）",
     "quick_lookup": "有「一眼先记住」速查表",
     "symbols": "有术语/符号解释",
-    "pitfalls": "有最容易混的 N 件事",
-    "decision_tree": "有方法选择流程/决策树",
-    "formulas": "有最少必须记住的公式",
+    "pitfalls": "有最容易混的 N 件事或易错清单",
+    "decision_tree": "有 ASCII 方法选择决策树（含 ├）",
+    "formulas": "有关键公式表",
     "worked_examples": f"有 ≥{MIN_WORKED_EXAMPLES} 道例题（含来源、方法引用与实质解析）",
-    "self_tests": f"有 ≥{MIN_SELF_TESTS} 道自测题（含来源、题目与答案）",
+    "self_tests": f"有 ≥{MIN_SELF_TESTS} 道自测题（含来源、题目；答案在独立章）",
     "entry_layer": "零基础入口四问齐全且非空",
-    "required_sections": "必含区块齐全",
+    "required_sections": "必含区块齐全（content standard v3）",
     "method_reference": f"例题解析含 ≥{MIN_WORKED_EXAMPLES} 处【方法引用】",
     "verification_steps": "含验证相关步骤/小节",
     "no_placeholders": "无未替换模板占位符",
@@ -94,16 +99,29 @@ QUALITY_CHECK_LABELS = {
     "source_grounding": "例题/自测题均有真题来源，避免 AI 编造",
     "render_safe_markdown": "Markdown/LaTeX 在 Obsidian/GitHub 中可渲染",
     "teaching_scaffolding": "有步骤原因、选择逻辑、易错对比和验算",
+    "concept_explanation": "有核心概念（定义或对比）",
+    "core_methods": "有核心方法（适用场景/步骤）",
+    "scoring_strategy": "有快速得分技巧（按时间分档）",
+    "error_comparison": "有易错点对比表（错误/正确/原因）",
+    "difficulty_stars": f"至少 {MIN_DIFFICULTY_STARRED_EXAMPLES} 道例题标注难度星级",
+    "self_test_answer_separation": "自测题与自测答案分章（先试后看）",
+    "fill_in_answer_template": "有填空式答题模板占位符",
 }
 
 FILL_QUEUE_INSTRUCTIONS = [
-    "Fill this page to content-standard v2 (see references/exam-census-quality.md).",
-    "题型解析面向中文学生：正文与表格中文优先；表格中行列式写 $\\lvert A\\rvert$，勿裸写 |A|。",
+    "Fill this page to content-standard v3 (see references/exam-census-quality.md).",
+    "题型解析面向中文学生：表格为主、段落为辅；表格中行列式写 $\\lvert A\\rvert$，勿裸写 |A|。",
     "frontmatter 只保留短元数据（含 quality），不要写入 source_artifacts 长路径数组或 generated_fingerprint。",
     "输出必须像辅导老师讲义，不是知识清单。每个关键步骤都要说明为什么这么做；必须包含方法选择逻辑、易错对比、验算方式、不会做时的步骤分策略。",
+    "考前速记必须含 ASCII 方法选择决策树（使用 ├─ / └─），以及关键公式表。",
+    "必须填写「核心概念」（定义 + 易混对比表）与「核心方法」（适用场景→步骤→关键技巧 + 选择速查）。",
+    "2分钟下笔模板与答题骨架优先使用填空式占位符，如 [表达式]、[值]、[答案]。",
     "所有例题和自测题必须来自 manifest/annotations 中命中该题型的 source_papers。禁止自行编造题目。每道题必须标注来源，格式为：来源：YYYY-YYYY 第X学期 第X题；如果 annotations 缺题号，写“来源：<试卷名>，题号待人工校对”。",
     f"默认要求至少 {MIN_WORKED_EXAMPLES} 道例题 + {MIN_SELF_TESTS} 道自测题。若该题型命中的真题实例少于 {MIN_WORKED_EXAMPLES + MIN_SELF_TESTS} 个，则尽量覆盖全部实例；不足部分不得编造，必须写“证据不足，需人工补充”，并设置 quality: needs-review。",
-    "统一标题层级。例题统一用“### 例题 N（来源：...）”；自测统一用“### 自测 N（来源：...）”。不要使用引用块内表格。不要在 <details> 中使用 $$ 块级公式；更推荐不用 <details>，答案直接写在正文。",
+    "例题按难度递增，标题或正文标注难度星级（⭐…⭐⭐⭐⭐⭐）。",
+    "统一标题层级。例题统一用“### 例题 N（来源：... · 难度：⭐...）”；自测统一用“### 自测 N（来源：...）”。自测题区只放题目与提示；答案写在独立章节「## 自测答案」。",
+    "「快速得分技巧」按时间充裕/紧张/几乎不够/完全不会分档；「易错点与检查清单」使用表格列：易错点 | 错误做法 | 正确做法 | 原因。",
+    "不要使用引用块内表格。不要在 <details> 中使用 $$ 块级公式；不要用 <details> 藏答案。",
     "从 annotations / 原文 sidecar 中查题号，不要猜。fill-queue 的 source_instances 若已有 exam_label / question_id，优先使用。",
     "Answer the zero-foundation entry four questions before deeper theory.",
     "Assign every annotated past-paper instance of this type to 例题精讲 or 自测题.",
@@ -213,12 +231,52 @@ def section_body_after(text: str, marker: str) -> str:
     return "\n".join(collected)
 
 
+def section_body_after_heading(text: str, heading_substr: str) -> str:
+    """Like section_body_after, but only matches AT{1,6} headings containing heading_substr."""
+    lines = text.splitlines()
+    start = None
+    start_level = 2
+    for index, line in enumerate(lines):
+        heading = re.match(r"^(#{1,6})\s+(.*)$", line)
+        if heading and heading_substr in heading.group(2):
+            start = index + 1
+            start_level = len(heading.group(1))
+            break
+    if start is None:
+        return ""
+    collected: list[str] = []
+    for line in lines[start:]:
+        heading = re.match(r"^(#{1,6})\s+", line)
+        if heading and len(heading.group(1)) <= start_level:
+            break
+        collected.append(line)
+    return "\n".join(collected)
+
+
 def _split_example_blocks(text: str) -> list[str]:
     return re.split(r"(?m)^###\s*(?:例题|Example)\b", text)[1:]
 
 
+def _questions_section(text: str) -> str:
+    """Body of ## 自测题 until the next same-level heading (通常是 ## 自测答案)."""
+    return section_body_after_heading(text, "自测题")
+
+
+def _answers_section(text: str) -> str:
+    return section_body_after_heading(text, "自测答案")
+
+
 def _split_self_test_blocks(text: str) -> list[str]:
-    return re.split(r"(?m)^###\s*(?:自测|Self[- ]?test)\b", text, flags=re.I)[1:]
+    """Question blocks only（排除 ### 自测 N 答案）."""
+    section = _questions_section(text) or text
+    return re.split(r"(?m)^###\s*(?:自测|Self[- ]?test)\s+\d+(?!\s*答案)\b", section, flags=re.I)[1:]
+
+
+def _split_self_test_answer_blocks(text: str) -> list[str]:
+    section = _answers_section(text)
+    if not section.strip():
+        return []
+    return re.split(r"(?m)^###\s*自测\s+\d+\s*答案\b", section)[1:]
 
 
 def _concrete_source_value(value: str) -> bool:
@@ -328,11 +386,28 @@ def _self_test_has_answer(block: str) -> bool:
 
 
 def count_filled_self_tests(text: str) -> int:
+    question_blocks = _split_self_test_blocks(text)
+    answer_blocks = _split_self_test_answer_blocks(text)
     filled = 0
-    for block in _split_self_test_blocks(text):
-        if _block_has_source(block) and _self_test_has_prompt(block) and _self_test_has_answer(block):
+    for index, block in enumerate(question_blocks):
+        if not (_block_has_source(block) and _self_test_has_prompt(block)):
+            continue
+        paired = answer_blocks[index] if index < len(answer_blocks) else ""
+        if _self_test_has_answer(paired) or _self_test_has_answer(block):
             filled += 1
     return filled
+
+
+def count_starred_examples(text: str) -> int:
+    starred = 0
+    for block in _split_example_blocks(text):
+        heading = block.splitlines()[0] if block.strip() else ""
+        blob = heading + "\n" + "\n".join(block.splitlines()[:12])
+        if re.search(r"⭐{2,}|难度\s*[：:].*⭐", blob):
+            starred += 1
+        elif re.search(r"(?m)^\*\*难度\*\*\s*[：:].*⭐", blob):
+            starred += 1
+    return starred
 
 
 def unresolved_placeholders(text: str) -> list[str]:
@@ -400,13 +475,86 @@ def teaching_scaffolding_issues(text: str) -> list[str]:
         issues.append("missing 方法选择树 / 决策流程")
     if not TEACHING_REASON_RE.search(text) and "为什么这么做" not in text:
         issues.append("missing why/reason teaching explanations")
-    if not re.search(r"(易错点|错法|正法|最容易混)", text):
+    if not re.search(r"(易错点|错法|正法|最容易混|错误做法)", text):
         issues.append("missing 易错点 / 错法 vs 正法")
     if not re.search(r"(验算|校验|验证|检查方式)", text):
         issues.append("missing 验算 / 检查方式")
     if "不会做时先写什么拿步骤分" not in text:
         issues.append("missing 不会做时先写什么拿步骤分")
     return issues
+
+
+def concept_explanation_issues(text: str) -> list[str]:
+    if not re.search(r"(?m)^#{1,6}\s+核心概念\b", text):
+        return ["missing 核心概念 section"]
+    body = section_body_after_heading(text, "核心概念")
+    if not has_substance(body, min_chars=8):
+        return ["empty 核心概念 section"]
+    if not (("定义" in body) or ("对比" in body) or ("|" in body)):
+        return ["核心概念 missing 定义/对比 content"]
+    return []
+
+
+def core_methods_issues(text: str) -> list[str]:
+    if not re.search(r"(?m)^#{1,6}\s+核心方法\b", text):
+        return ["missing 核心方法 section"]
+    body = section_body_after_heading(text, "核心方法")
+    if not has_substance(body, min_chars=8):
+        return ["empty 核心方法 section"]
+    if "适用场景" not in body and "方法选择" not in body:
+        return ["核心方法 missing 适用场景 / 方法选择 cues"]
+    return []
+
+
+def scoring_strategy_issues(text: str) -> list[str]:
+    if not re.search(r"(?m)^#{1,6}\s+快速得分技巧\b", text):
+        return ["missing 快速得分技巧 section"]
+    body = section_body_after_heading(text, "快速得分技巧")
+    if not has_substance(body, min_chars=8):
+        return ["empty 快速得分技巧 section"]
+    if not re.search(r"(时间充裕|时间紧张|几乎不够|完全不会|时间不够)", body):
+        return ["快速得分技巧 missing time-tier cues"]
+    return []
+
+
+def error_comparison_issues(text: str) -> list[str]:
+    checklist = section_body_after_heading(text, "易错点与检查清单") or section_body_after_heading(
+        text, "易错点"
+    )
+    blob = checklist or ""
+    if not blob.strip():
+        return ["missing 易错点与检查清单 section"]
+    if not (("错误做法" in blob) and ("正确做法" in blob) and ("原因" in blob)):
+        return ["missing page-level 错误做法 / 正确做法 / 原因 comparison table"]
+    if not has_substance(blob, min_chars=12):
+        return ["empty 易错点与检查清单 section"]
+    return []
+
+
+def difficulty_stars_issues(text: str, *, min_needed: int = MIN_DIFFICULTY_STARRED_EXAMPLES) -> list[str]:
+    starred = count_starred_examples(text)
+    if starred >= min_needed:
+        return []
+    return [f"need >={min_needed} worked examples with difficulty stars, found {starred}"]
+
+
+def self_test_answer_separation_issues(text: str) -> list[str]:
+    issues: list[str] = []
+    if not re.search(r"(?m)^#{1,6}\s+自测答案\b", text):
+        issues.append("missing ## 自测答案 section")
+    questions = _questions_section(text)
+    # Fail when the questions section still embeds substantial inline answers.
+    if "答案与解析" in questions:
+        after = questions.split("答案与解析", 1)[-1][:400]
+        if has_substance(after, min_chars=8):
+            issues.append("自测题 section still contains inline 答案与解析; move answers to 自测答案")
+    return issues
+
+
+def fill_in_answer_template_issues(text: str) -> list[str]:
+    if re.search(r"\[[^\]\n]{1,24}\]", text):
+        return []
+    return ["missing fill-in answer template placeholders like [表达式] / [答案]"]
 
 
 def structural_review(path_label: str, text: str) -> dict[str, Any]:
@@ -430,18 +578,32 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
     source_issues = source_grounding_issues(text)
     render_issues = render_safe_markdown_issues(text)
     teaching_issues = teaching_scaffolding_issues(text)
+    concept_issues = concept_explanation_issues(text)
+    methods_issues = core_methods_issues(text)
+    scoring_issues = scoring_strategy_issues(text)
+    error_issues = error_comparison_issues(text)
+    star_needed = 1 if evidence_short else MIN_DIFFICULTY_STARRED_EXAMPLES
+    star_issues = difficulty_stars_issues(text, min_needed=star_needed)
+    separation_issues = self_test_answer_separation_issues(text)
+    fill_in_issues = fill_in_answer_template_issues(text)
 
     quick_body = section_body_after(text, "一眼先记住")
     symbol_body = section_body_after(text, "符号") + "\n" + section_body_after(text, "术语")
-    pitfall_body = section_body_after(text, "最容易混") or section_body_after(text, "易错点")
-    formula_body = section_body_after(text, "最少必须记住的公式") or section_body_after(text, "本篇最少")
+    pitfall_body = (
+        section_body_after(text, "易错点与检查清单")
+        or section_body_after(text, "最容易混")
+        or section_body_after(text, "易错点")
+    )
+    formula_body = (
+        section_body_after(text, "关键公式表")
+        or section_body_after(text, "最少必须记住的公式")
+        or section_body_after(text, "本篇最少")
+    )
     decision_body = section_body_after(text, "方法选择") or section_body_after(text, "决策")
     if "├" in text and not decision_body:
         idx = text.find("├")
         decision_body = text[idx : idx + 160]
-    decision_ok = (("├" in text) or ("方法选择" in text) or ("决策" in text)) and has_substance(
-        decision_body, min_chars=6
-    )
+    decision_ok = ("├" in text) and has_substance(decision_body, min_chars=6)
     meta_body = section_body_after(text, "元信息") or text
     badge_ok = (
         (("频率" in meta_body) or ("考试频率" in text))
@@ -505,13 +667,19 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
         },
         "decision_tree": {
             "pass": decision_ok,
-            "issues": [] if decision_ok else ["missing filled decision tree"],
+            "issues": [] if decision_ok else ["missing ASCII decision tree with ├"],
         },
         "formulas": {
-            "pass": (("最少必须记住的公式" in text) or ("本篇最少" in text)) and has_substance(formula_body, min_chars=8),
+            "pass": (
+                ("关键公式表" in text) or ("最少必须记住的公式" in text) or ("本篇最少" in text)
+            )
+            and has_substance(formula_body, min_chars=8),
             "issues": []
-            if ((("最少必须记住的公式" in text) or ("本篇最少" in text)) and has_substance(formula_body, min_chars=8))
-            else ["missing filled must-remember formulas"],
+            if (
+                (("关键公式表" in text) or ("最少必须记住的公式" in text) or ("本篇最少" in text))
+                and has_substance(formula_body, min_chars=8)
+            )
+            else ["missing filled key formulas table"],
         },
         "method_reference": {
             "pass": method_ref_count >= min_method_refs,
@@ -548,6 +716,34 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
         "teaching_scaffolding": {
             "pass": not teaching_issues,
             "issues": teaching_issues,
+        },
+        "concept_explanation": {
+            "pass": not concept_issues,
+            "issues": concept_issues,
+        },
+        "core_methods": {
+            "pass": not methods_issues,
+            "issues": methods_issues,
+        },
+        "scoring_strategy": {
+            "pass": not scoring_issues,
+            "issues": scoring_issues,
+        },
+        "error_comparison": {
+            "pass": not error_issues,
+            "issues": error_issues,
+        },
+        "difficulty_stars": {
+            "pass": not star_issues,
+            "issues": star_issues,
+        },
+        "self_test_answer_separation": {
+            "pass": not separation_issues,
+            "issues": separation_issues,
+        },
+        "fill_in_answer_template": {
+            "pass": not fill_in_issues,
+            "issues": fill_in_issues,
         },
     }
     failed = [name for name, payload in checks.items() if not payload["pass"]]
