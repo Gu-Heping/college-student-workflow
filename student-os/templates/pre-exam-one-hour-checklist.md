@@ -1,33 +1,47 @@
 ---
 type: pre-exam-one-hour-checklist
-course: {{course_name}}
-status: draft
-created: {{date}}
-updated: {{date}}
-tags: [course/{{course_slug}}, review, exam-census]
+course: "{{course_name}}"
+exam_scope: "{{exam_scope}}"
+status: active
 review_scope: exam-census
-exam_scope: {{exam_scope}}
-source_artifacts: []
 ---
 
 # {{course_name}} · {{exam_scope}} · 考前1小时清单
 
-## 0–15 min · Warm Scan
+## 最后 60 分钟怎么用
 
-- [ ] Skim `题型频率统计.md` must-know row
-- [ ] Recite top 3 method outlines out loud
+| 时间 | 做什么 | 文件 | 目标 |
+| --- | --- | --- | --- |
+| 60-45 分钟 | 看 P0 高频题型 | [备考指南.md](备考指南.md) / [题型解析/](题型解析/) | 确认最常考方法 |
+| 45-30 分钟 | 背公式 | [公式总卡.md](公式总卡.md) | 只背会用的 |
+| 30-15 分钟 | 背答题模板 | [答题模板速查.md](答题模板速查.md) | 保步骤分 |
+| 15-5 分钟 | 看易错清单 | [题型解析/](题型解析/) / 本清单 | 避免低级错 |
+| 5-0 分钟 | 停止刷题，只看 checklist | 本文件 | 稳住 |
 
-## 15–40 min · Targeted Drills
+> 内容从频率统计与题型解析汇总；证据不足写「证据不足，需人工补充」，不要临时学新内容或编造。
 
-- [ ] One must-know type from `题型解析/`
-- [ ] One medium-frequency type if time remains
+## 必看题型
 
-## 40–55 min · Formula And Template Flash
+| 优先级 | 题型 | 为什么必看 | 链接 |
+| --- | --- | --- | --- |
+| P0 | | | [题型解析/](题型解析/) |
 
-- [ ] `公式总卡.md`
-- [ ] `答题模板速查.md` openings/closings
+## 最后只背这些公式
 
-## 55–60 min · Logistics
+| 公式 | 用法 | 易错 |
+| --- | --- | --- |
+| | | |
 
-- [ ] Calculator / allowed notes / ID / seating
-- [ ] Sleep cue: stop new problems
+## 最后只记这些答题模板
+
+| 题型 | 模板 |
+| --- | --- |
+| | |
+
+## 最后检查
+
+- [ ] 高频题型入口看过
+- [ ] 公式总卡看过
+- [ ] 答题模板看过
+- [ ] 易错点看过
+- [ ] 不再临时学新内容

@@ -183,6 +183,200 @@ def ensure_exists(path: Path) -> None:
         raise AssertionError(f"Expected path to exist: {path}")
 
 
+def _run_cross_validate(repo: Path, course: str = "linear-algebra", exam_scope: str = "期中") -> tuple[int, dict]:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "cross_validate_exam_census.py"),
+            str(repo),
+            "--course",
+            course,
+            "--exam-scope",
+            exam_scope,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    payload: dict = {}
+    stdout = (result.stdout or "").strip()
+    if stdout:
+        try:
+            payload = json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            raise AssertionError(f"cross_validate stdout not JSON: {stdout[:500]}") from exc
+    return result.returncode, payload
+
+
+def write_minimal_prep_pack(reviews_root: Path, skeleton_names: list[str]) -> None:
+    """Write L1/L3/L4 files that satisfy Phase E prep-pack mechanical checks."""
+    reviews_root.mkdir(parents=True, exist_ok=True)
+    type_rows = []
+    for name in skeleton_names:
+        type_id = name.split("-", 1)[-1].removesuffix(".md") if "-" in name else name
+        type_rows.append(
+            f"| P0 | {type_id} | high | 1h | [题型解析/{name}](题型解析/{name}) |"
+        )
+    if not type_rows:
+        type_rows.append("| P0 | sample | — | — | [题型解析/](题型解析/) |")
+    type_table = "\n".join(type_rows)
+    first_skel = skeleton_names[0] if skeleton_names else ""
+    first_link = f"[题型解析/{first_skel}](题型解析/{first_skel})" if first_skel else "[题型解析/](题型解析/)"
+
+    (reviews_root / "备考指南.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "type: exam-prep-guide",
+                'course: "linear-algebra"',
+                'exam_scope: "期中"',
+                "status: active",
+                "review_scope: exam-census",
+                "---",
+                "",
+                "# linear-algebra · 期中 · 备考指南",
+                "",
+                "## 怎么使用这套资料",
+                "",
+                "| 层级 | 文件 | 什么时候用 | 目标 |",
+                "| --- | --- | --- | --- |",
+                "| L1 | [备考指南.md](备考指南.md) | 开始前 | 规划 |",
+                "| L2 | [题型解析/](题型解析/) | 学题型 | 深入 |",
+                "| L3 | [公式总卡.md](公式总卡.md) / [答题模板速查.md](答题模板速查.md) | 速查 | 背诵 |",
+                "| L4 | [考前1小时清单.md](考前1小时清单.md) | 考前1h | 冲刺 |",
+                "",
+                "## 题型优先级",
+                "",
+                "| 优先级 | 题型 | 出现率 | 建议投入时间 | 入口 |",
+                "| --- | --- | ---: | --- | --- |",
+                type_table,
+                "",
+                "## 复习时间分配",
+                "",
+                "| 时间总量 | 先做什么 | 目标 |",
+                "| --- | --- | --- |",
+                "| 1 小时 | P0 + 公式总卡 | 定向 |",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (reviews_root / "公式总卡.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "type: formula-cheat-sheet",
+                'course: "linear-algebra"',
+                'exam_scope: "期中"',
+                "status: active",
+                "review_scope: exam-census",
+                "---",
+                "",
+                "# linear-algebra · 期中 · 公式总卡",
+                "",
+                "## 高频公式速查",
+                "",
+                "| 题型 | 看到什么 | 公式 / 结论 | 先算什么 | 最容易错 | 来源 |",
+                "| --- | --- | --- | --- | --- | --- |",
+                f"| matrix-rank | 秩 | $\\lvert A\\rvert$ | 化阶梯 | 漏零行 | {first_link} |",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (reviews_root / "答题模板速查.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "type: answer-template-quickref",
+                'course: "linear-algebra"',
+                'exam_scope: "期中"',
+                "status: active",
+                "review_scope: exam-census",
+                "---",
+                "",
+                "# linear-algebra · 期中 · 答题模板速查",
+                "",
+                "## 标准答题模板",
+                "",
+                "| 题型 | 看到什么 | 第一句写什么 | 填空式模板 | 来源 |",
+                "| --- | --- | --- | --- | --- |",
+                f"| matrix-rank | 求秩 | 先化阶梯 | 由[条件]，得[表达式]=[答案]。 | {first_link} |",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (reviews_root / "考前1小时清单.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "type: pre-exam-one-hour-checklist",
+                'course: "linear-algebra"',
+                'exam_scope: "期中"',
+                "status: active",
+                "review_scope: exam-census",
+                "---",
+                "",
+                "# linear-algebra · 期中 · 考前1小时清单",
+                "",
+                "## 最后 60 分钟怎么用",
+                "",
+                "| 时间 | 做什么 | 文件 | 目标 |",
+                "| --- | --- | --- | --- |",
+                "| 60-45 分钟 | P0 | [备考指南.md](备考指南.md) / [题型解析/](题型解析/) | 方法 |",
+                "| 45-30 分钟 | 公式 | [公式总卡.md](公式总卡.md) | 背诵 |",
+                "| 30-15 分钟 | 模板 | [答题模板速查.md](答题模板速查.md) | 步骤分 |",
+                f"| 15-5 分钟 | 易错 | {first_link} | 避坑 |",
+                "| 5-0 分钟 | checklist | 本文件 | 稳住 |",
+                "",
+                "## 最后检查",
+                "",
+                "- [ ] 高频题型入口看过",
+                "- [ ] 公式总卡看过",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+
+def assert_prep_pack_templates() -> None:
+    templates = ROOT / "student-os" / "templates"
+    expected = {
+        "exam-prep-guide.md": "exam-prep-guide",
+        "formula-cheat-sheet.md": "formula-cheat-sheet",
+        "answer-template-quickref.md": "answer-template-quickref",
+        "pre-exam-one-hour-checklist.md": "pre-exam-one-hour-checklist",
+    }
+    for filename, type_name in expected.items():
+        path = templates / filename
+        ensure_exists(path)
+        text = path.read_text(encoding="utf-8")
+        if f"type: {type_name}" not in text and f'type: "{type_name}"' not in text:
+            raise AssertionError(f"{filename} missing frontmatter type: {type_name}")
+        if filename == "exam-prep-guide.md":
+            for needle in ("怎么使用这套资料", "题型优先级", "复习时间分配", "L1", "L2", "L3", "L4"):
+                if needle not in text:
+                    raise AssertionError(f"{filename} missing {needle!r}")
+        if filename == "pre-exam-one-hour-checklist.md":
+            for slot in ("60-45", "45-30", "30-15", "15-5", "5-0"):
+                if slot not in text:
+                    raise AssertionError(f"{filename} missing time slot {slot}")
+
+
 def copy_repo(src: Path, dest: Path) -> None:
     if dest.exists():
         shutil.rmtree(dest)
@@ -2926,6 +3120,27 @@ def exercise_exam_census(repo: Path) -> None:
     if not any(deep_dir.glob("*-精析.md")):
         raise AssertionError("Expected at least one deep-dive markdown under 真题精析/")
 
+    assert_prep_pack_templates()
+    reviews_midterm = repo / "courses" / "linear-algebra" / "reviews" / "期中"
+    analysis_dir_for_pack = reviews_midterm / "题型解析"
+    skeleton_names = sorted(path.name for path in analysis_dir_for_pack.glob("*.md"))
+    if not skeleton_names:
+        raise AssertionError("Expected type-analysis skeletons before prep pack validation")
+
+    # Missing prep pack files must fail Phase E and list missing_files.
+    for name in ("备考指南.md", "公式总卡.md", "答题模板速查.md", "考前1小时清单.md"):
+        path = reviews_midterm / name
+        if path.exists():
+            path.unlink()
+    missing_code, missing_payload = _run_cross_validate(repo)
+    if missing_code == 0:
+        raise AssertionError("Expected Phase E to fail when prep pack files are missing")
+    missing_files = list((missing_payload.get("prep_pack") or {}).get("missing_files") or [])
+    for required in ("备考指南.md", "公式总卡.md", "答题模板速查.md", "考前1小时清单.md"):
+        if required not in missing_files:
+            raise AssertionError(f"Expected missing_files to include {required}, got: {missing_files}")
+
+    write_minimal_prep_pack(reviews_midterm, skeleton_names)
     cross = json.loads(
         run_script(
             "cross_validate_exam_census.py",
@@ -2937,23 +3152,52 @@ def exercise_exam_census(repo: Path) -> None:
         )
     )
     if not cross.get("ok"):
-        raise AssertionError(f"Expected clean cross-validation after census rebuild, got: {cross}")
-    ensure_exists(repo / "courses" / "linear-algebra" / "reviews" / "期中" / "analysis" / "覆盖率检查.md")
+        raise AssertionError(f"Expected clean cross-validation with prep pack, got: {cross}")
+    prep_pack = cross.get("prep_pack") or {}
+    if prep_pack.get("missing_files"):
+        raise AssertionError(f"Expected no prep_pack.missing_files, got: {prep_pack}")
+    if prep_pack.get("layer_link_issues") or prep_pack.get("content_issues"):
+        raise AssertionError(f"Expected clean prep_pack issues, got: {prep_pack}")
+    coverage_report = reviews_midterm / "analysis" / "覆盖率检查.md"
+    ensure_exists(coverage_report)
+    ensure_contains(coverage_report, "Prep pack 四层结构")
+    ensure_contains(coverage_report, "备考指南.md")
+    ensure_contains(coverage_report, "公式总卡.md")
+    ensure_contains(coverage_report, "答题模板速查.md")
+    ensure_contains(coverage_report, "考前1小时清单.md")
 
-    # Prep guide without real type links must fail Phase E.
-    prep_guide = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "备考指南.md"
+    # Prep guide without L3/L4 links → layer_link_issues.
+    prep_guide = reviews_midterm / "备考指南.md"
     prep_guide.write_text(
         "\n".join(
             [
                 "---",
-                'course: "Linear Algebra"',
-                "status: draft",
+                "type: exam-prep-guide",
+                'course: "linear-algebra"',
+                "status: active",
                 "review_scope: exam-census",
                 "---",
                 "",
                 "# Prep guide",
                 "",
-                "Study hard.",
+                "## 怎么使用这套资料",
+                "",
+                "See [题型解析/](题型解析/) only.",
+                "",
+                "## 题型优先级",
+                "",
+                "| 优先级 | 题型 | 出现率 | 建议投入时间 | 入口 |",
+                "| --- | --- | ---: | --- | --- |",
+                "\n".join(
+                    f"| P0 | {name} | — | — | [题型解析/{name}](题型解析/{name}) |"
+                    for name in skeleton_names
+                ),
+                "",
+                "## 复习时间分配",
+                "",
+                "| 时间总量 | 先做什么 | 目标 |",
+                "| --- | --- | --- |",
+                "| 1 小时 | 题型解析 | 定向 |",
                 "",
             ]
         )
@@ -2961,27 +3205,168 @@ def exercise_exam_census(repo: Path) -> None:
         encoding="utf-8",
         newline="\n",
     )
-    linked_fail = subprocess.run(
-        [
-            sys.executable,
-            "-B",
-            str(STUDENT_OS_SCRIPTS / "cross_validate_exam_census.py"),
-            str(repo),
-            "--course",
-            "linear-algebra",
-            "--exam-scope",
-            "期中",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
+    link_code, link_payload = _run_cross_validate(repo)
+    if link_code == 0:
+        raise AssertionError("Expected Phase E to fail when prep guide lacks L3/L4 links")
+    link_issues = list((link_payload.get("prep_pack") or {}).get("layer_link_issues") or [])
+    if not any("公式总卡.md" in item for item in link_issues):
+        raise AssertionError(f"Expected layer_link_issues about 公式总卡.md, got: {link_issues}")
+    if not any("答题模板速查.md" in item for item in link_issues):
+        raise AssertionError(f"Expected layer_link_issues about 答题模板速查.md, got: {link_issues}")
+    if not any("考前1小时清单.md" in item for item in link_issues):
+        raise AssertionError(f"Expected layer_link_issues about 考前1小时清单.md, got: {link_issues}")
+
+    # Formula card without 题型解析/ links → layer_link_issues or content_issues.
+    write_minimal_prep_pack(reviews_midterm, skeleton_names)
+    (reviews_midterm / "公式总卡.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "type: formula-cheat-sheet",
+                'course: "linear-algebra"',
+                "status: active",
+                "review_scope: exam-census",
+                "---",
+                "",
+                "# Formula card",
+                "",
+                "## 高频公式速查",
+                "",
+                "| 题型 | 看到什么 | 公式 / 结论 | 先算什么 | 最容易错 | 来源 |",
+                "| --- | --- | --- | --- | --- | --- |",
+                "| matrix-rank | 秩 | rank | 化阶梯 | 漏零行 | 待补 |",
+                "",
+            ]
+        )
+        + "\n",
         encoding="utf-8",
-        cwd=ROOT,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+        newline="\n",
     )
-    if linked_fail.returncode == 0:
+    formula_code, formula_payload = _run_cross_validate(repo)
+    if formula_code == 0:
+        raise AssertionError("Expected Phase E to fail when formula card has no 题型解析 link")
+    formula_pack = formula_payload.get("prep_pack") or {}
+    formula_issues = list(formula_pack.get("layer_link_issues") or []) + list(
+        formula_pack.get("content_issues") or []
+    )
+    if not any("公式总卡" in item and "题型解析" in item for item in formula_issues):
+        raise AssertionError(f"Expected formula-card 题型解析 issue, got: {formula_issues}")
+
+    # Answer templates without fill-in placeholders → content_issues.
+    write_minimal_prep_pack(reviews_midterm, skeleton_names)
+    (reviews_midterm / "答题模板速查.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "type: answer-template-quickref",
+                'course: "linear-algebra"',
+                "status: active",
+                "review_scope: exam-census",
+                "---",
+                "",
+                "# Answer templates",
+                "",
+                "## 标准答题模板",
+                "",
+                "| 题型 | 看到什么 | 第一句写什么 | 填空式模板 | 来源 |",
+                "| --- | --- | --- | --- | --- |",
+                "| matrix-rank | 求秩 | 先化阶梯 | 直接写结论 | [题型解析/](题型解析/) |",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    tmpl_code, tmpl_payload = _run_cross_validate(repo)
+    if tmpl_code == 0:
+        raise AssertionError("Expected Phase E to fail when answer templates lack fill-in placeholders")
+    tmpl_issues = list((tmpl_payload.get("prep_pack") or {}).get("content_issues") or [])
+    if not any("填空" in item or "placeholder" in item or "[条件]" in item for item in tmpl_issues):
+        raise AssertionError(f"Expected fill-in placeholder content_issues, got: {tmpl_issues}")
+
+    # One-hour checklist missing time slots → content_issues.
+    write_minimal_prep_pack(reviews_midterm, skeleton_names)
+    (reviews_midterm / "考前1小时清单.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "type: pre-exam-one-hour-checklist",
+                'course: "linear-algebra"',
+                "status: active",
+                "review_scope: exam-census",
+                "---",
+                "",
+                "# Checklist",
+                "",
+                "See [备考指南.md](备考指南.md), [公式总卡.md](公式总卡.md), "
+                "[答题模板速查.md](答题模板速查.md), [题型解析/](题型解析/).",
+                "",
+                "- [ ] something",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    hour_code, hour_payload = _run_cross_validate(repo)
+    if hour_code == 0:
+        raise AssertionError("Expected Phase E to fail when one-hour checklist lacks time slots")
+    hour_issues = list((hour_payload.get("prep_pack") or {}).get("content_issues") or [])
+    if not any("60-45" in item or "time slots" in item for item in hour_issues):
+        raise AssertionError(f"Expected time-slot content_issues, got: {hour_issues}")
+
+    # Restore a clean prep pack for any later consumers of this fixture.
+    write_minimal_prep_pack(reviews_midterm, skeleton_names)
+    restored_code, restored_payload = _run_cross_validate(repo)
+    if restored_code != 0 or not restored_payload.get("ok"):
+        raise AssertionError(f"Expected restored prep pack to pass Phase E, got: {restored_payload}")
+
+    # Legacy: guide with no type links must still fail Phase E.
+    prep_guide.write_text(
+        "\n".join(
+            [
+                "---",
+                "type: exam-prep-guide",
+                'course: "Linear Algebra"',
+                "status: draft",
+                "review_scope: exam-census",
+                "---",
+                "",
+                "# Prep guide",
+                "",
+                "## 怎么使用这套资料",
+                "",
+                "See [公式总卡.md](公式总卡.md), [答题模板速查.md](答题模板速查.md), "
+                "[考前1小时清单.md](考前1小时清单.md), [题型解析/](题型解析/).",
+                "",
+                "## 题型优先级",
+                "",
+                "| 优先级 | 题型 | 出现率 | 建议投入时间 | 入口 |",
+                "| --- | --- | ---: | --- | --- |",
+                "| P0 | | | | |",
+                "",
+                "## 复习时间分配",
+                "",
+                "| 时间总量 | 先做什么 | 目标 |",
+                "| --- | --- | --- |",
+                "| 1 小时 | | |",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    linked_fail_code, linked_fail_payload = _run_cross_validate(repo)
+    if linked_fail_code == 0:
         raise AssertionError("Expected Phase E to fail when prep guide has no type links")
-    prep_guide.unlink()
+    if not linked_fail_payload.get("prep_guide_unlinked_types"):
+        raise AssertionError(
+            f"Expected prep_guide_unlinked_types when guide lacks type links, got: {linked_fail_payload}"
+        )
+    write_minimal_prep_pack(reviews_midterm, skeleton_names)
 
     # --- Issue #61 contracts: 文本/ discovery, annotation aliases, taxonomy dump, confidence ---
     chinese_course = repo / "courses" / "线性代数"
@@ -3313,6 +3698,20 @@ def exercise_exam_census(repo: Path) -> None:
         for pattern in recommend_patterns:
             if pattern in doc_text:
                 raise AssertionError(f"{doc_rel} still recommends Workflow entry: {pattern}")
+
+    # Phase 5 prep-pack layer contract must be documented.
+    for doc_rel in (
+        Path("references") / "exam-census-workflow.md",
+        Path("references") / "exam-census-quality.md",
+        Path("commands") / "exam-census.md",
+        Path("integrations") / "claude" / "skills" / "exam-census" / "SKILL.md",
+    ):
+        doc_text = (student_os / doc_rel).read_text(encoding="utf-8")
+        for needle in ("L1", "L2", "L3", "L4", "备考指南", "公式总卡", "答题模板速查", "考前1小时清单"):
+            if needle not in doc_text:
+                raise AssertionError(f"{doc_rel} missing prep-pack layer marker {needle!r}")
+        if "Phase 5" not in doc_text and "Prep pack" not in doc_text:
+            raise AssertionError(f"{doc_rel} must mention Phase 5 / Prep pack")
 
     # Claude integration templates must not contain dangerous control characters.
     adapter_spec = importlib.util.spec_from_file_location(

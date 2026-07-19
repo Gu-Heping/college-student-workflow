@@ -1,31 +1,43 @@
 ---
 type: formula-cheat-sheet
-course: {{course_name}}
-status: draft
-created: {{date}}
-updated: {{date}}
-tags: [course/{{course_slug}}, review, exam-census]
+course: "{{course_name}}"
+exam_scope: "{{exam_scope}}"
+status: active
 review_scope: exam-census
-exam_scope: {{exam_scope}}
-source_artifacts: []
 ---
 
 # {{course_name}} · {{exam_scope}} · 公式总卡
 
-## Must-Know Formulas
+## 使用方式
 
-| Topic / type | Formula or identity | When to use |
+| 场景 | 怎么用 |
+| --- | --- |
+| 考前 30 分钟 | 只看 P0/P1 公式 |
+| 做题卡住 | 按「看到什么」查公式 |
+| 检查答案 | 看易错点和单位/条件 |
+
+> 优先从各 [题型解析/](题型解析/) 的「关键公式表 / 最少必须记住的公式」提取；不要编造公式。行列式/绝对值用 `$\lvert A\rvert$`，勿裸写 `|A|`。证据不足写「证据不足，需人工补充」。
+
+## 高频公式速查
+
+| 题型 | 看到什么 | 公式 / 结论 | 先算什么 | 最容易错 | 来源 |
+| --- | --- | --- | --- | --- | --- |
+| | | | | | [题型解析/](题型解析/) |
+
+## 条件触发型公式
+
+| 条件 | 可用公式 | 不能乱用的情况 |
 | --- | --- | --- |
-|  |  |  |
+| | | |
 
-## Method Cards
+## 易混公式对比
 
-### {{type_name}}
+| 公式 A | 公式 B | 区别 | 判断方式 |
+| --- | --- | --- | --- |
+| | | | |
 
-1. 
-2. 
-3. 
+## 考前最后背诵
 
-## Easy-To-Miss Conditions
-
-- 
+- [ ]
+- [ ]
+- [ ]

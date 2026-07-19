@@ -55,6 +55,19 @@ Principles: conclusions/templates before deep theory; expand numeric substitutio
 - Method choice must use an ASCII decision tree with `├─` / `└─`.
 - Fill-in answer skeletons use bracket placeholders：`[表达式]`、`[值]`、`[答案]`.
 
+## Prep pack 四层结构（Phase 5 / Issue #65）
+
+在 Phase B 通过后组装；从频率统计与题型解析**提取**，禁止编造。
+
+| 层级 | 文件 | 职责 |
+| --- | --- | --- |
+| L1 | `备考指南.md`（`type: exam-prep-guide`） | 怎么用资料包、题型优先级、时间分配 |
+| L2 | `题型解析/*.md`（v3，由 Fill/Quality 完成） | 概念/方法/例题/自测/抢分/易错 |
+| L3 | `公式总卡.md` + `答题模板速查.md` | 公式与答题模板速查，回链题型解析 |
+| L4 | `考前1小时清单.md` | 最后 60 分钟分段冲刺 |
+
+Cross-validation（Phase E）在 prep pack 生成后应再跑：检查四文件存在、frontmatter `type`、层级链接、关键章节（不做全文件表格比例硬门禁）。缺文件或关键结构缺失 → `ok: false`，并写入 `prep_pack.missing_files` / `layer_link_issues` / `content_issues`。
+
 ## Phase scripts
 
 ```bash
@@ -70,7 +83,7 @@ python student-os/scripts/build_multi_dim_stats.py /path/to/vault --course linea
 # D — scaffold 1–2 representative paper deep-dives
 python student-os/scripts/init_exam_deep_dive.py /path/to/vault --course linear-algebra --exam-scope 期中 --limit 2
 
-# E — coverage / skeleton / prep-guide link traceability
+# E — coverage / skeleton / prep-pack 四层完整性（Phase 5 后再跑一次）
 python student-os/scripts/cross_validate_exam_census.py /path/to/vault --course linear-algebra --exam-scope 期中
 ```
 
