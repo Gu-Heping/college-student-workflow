@@ -6,6 +6,7 @@
 
 ### Changed
 
+- 强化 exam-census Phase A Fill 的模板、prompt 与质量门禁：要求例题/自测题来自真题来源，提升数量下限，禁止不兼容 Markdown/LaTeX 格式，并增加教学支架检查。
 - 整理人类入口、agent 路由和维护记录文档，补充“一句话发给 agent”的安装/使用示例、安全提醒、当前能力状态与维护规则。
 
 ### Added

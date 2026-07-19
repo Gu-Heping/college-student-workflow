@@ -5,9 +5,10 @@ import argparse
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 from course_layout import configure_stdout_utf8
-from exam_census_quality import ENTRY_LAYER_MARKERS, REQUIRED_SECTION_HEADINGS
+from exam_census_quality import ENTRY_LAYER_MARKERS, FILL_QUEUE_INSTRUCTIONS, REQUIRED_SECTION_HEADINGS
 from exam_census_utils import (
     course_slug_of,
     exam_scope_key,
@@ -74,6 +75,7 @@ def extract_sources(text: str) -> list[str]:
         return [summary.group(1).strip()]
     return []
 
+
 def papers_for_type(
     annotations: dict[str, dict],
     papers: list[dict],
@@ -92,6 +94,72 @@ def papers_for_type(
             seen.add(source)
             paths.append(source)
     return paths
+
+
+def _question_fields(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if isinstance(item, dict):
+            out.append(item)
+        elif item not in (None, ""):
+            out.append({"question_id": str(item)})
+    return out
+
+
+def instances_for_type(
+    annotations: dict[str, dict],
+    papers: list[dict],
+    type_id: str,
+) -> list[dict[str, str]]:
+    """Build per-paper evidence rows for fill agents (question ids when present)."""
+    papers_by_stem = {str(item.get("stem") or ""): item for item in papers}
+    instances: list[dict[str, str]] = []
+    for stem, annotation in annotations.items():
+        present = [str(item) for item in (annotation.get("types_present") or [])]
+        if type_id not in present:
+            continue
+        paper = papers_by_stem.get(stem) or {}
+        paper_path = str(paper.get("path") or annotation.get("source") or "").strip()
+        exam_label = str(annotation.get("exam_label") or stem).strip()
+        confidence = str(annotation.get("confidence") or "").strip()
+        type_counts = annotation.get("type_counts") if isinstance(annotation.get("type_counts"), dict) else {}
+        count_hint = type_counts.get(type_id)
+
+        question_rows = _question_fields(annotation.get("questions"))
+        typed_rows = [
+            row
+            for row in question_rows
+            if not row.get("type_id") or str(row.get("type_id")) == type_id
+        ]
+        if typed_rows:
+            for row in typed_rows:
+                instances.append(
+                    {
+                        "paper": paper_path,
+                        "exam_label": exam_label,
+                        "question_id": str(
+                            row.get("question_id") or row.get("label") or row.get("id") or ""
+                        ).strip(),
+                        "type_id": type_id,
+                        "confidence": str(row.get("confidence") or confidence).strip(),
+                    }
+                )
+            continue
+
+        # No per-question metadata: one evidence row per paper (agent must look up 题号).
+        payload = {
+            "paper": paper_path,
+            "exam_label": exam_label,
+            "question_id": "",
+            "type_id": type_id,
+            "confidence": confidence,
+        }
+        if count_hint not in (None, ""):
+            payload["type_count"] = str(count_hint)
+        instances.append(payload)
+    return instances
 
 
 def main() -> int:
@@ -124,23 +192,17 @@ def main() -> int:
         type_id = extract_exam_type_id(text) or path.stem
         sources = extract_sources(text)
         source_papers = papers_for_type(annotations, papers, type_id) or sources
+        source_instances = instances_for_type(annotations, papers, type_id)
         items.append(
             {
                 "path": relative_posix(path, repo),
                 "exam_type_id": type_id,
                 "sources": sources,
                 "source_papers": source_papers,
+                "source_instances": source_instances,
                 "required_sections": REQUIRED_SECTION_HEADINGS,
                 "entry_layer_markers": ENTRY_LAYER_MARKERS,
-                "instructions": [
-                    "Fill this page to content-standard v2 (see references/exam-census-quality.md).",
-                    "题型解析面向中文学生：正文与表格中文优先；表格中行列式写 $\\lvert A\\rvert$，勿裸写 |A|。",
-                    "frontmatter 只保留短元数据（含 quality），不要写入 source_artifacts 长路径数组或 generated_fingerprint。",
-                    "低频题型若证据不足：写「证据不足，需人工补充」，并设 quality: needs-review；不要留空模板段。",
-                    "Answer the zero-foundation entry four questions before deeper theory.",
-                    "Assign every annotated past-paper instance of this type to 例题精讲 or 自测题.",
-                    "Use blockquote patterns for badge / 关键 / 注意 / 技巧总结 / 填空式答题模板.",
-                ],
+                "instructions": list(FILL_QUEUE_INSTRUCTIONS),
             }
         )
         if args.limit > 0 and len(items) >= args.limit:
