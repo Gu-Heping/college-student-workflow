@@ -11,7 +11,7 @@ from course_layout import configure_stdout_utf8, slugify
 from exam_census_utils import (
     course_slug_of,
     exam_scope_key,
-    load_annotations,
+    load_annotations_for_manifest,
     load_json,
     relative_posix,
     resolve_course,
@@ -80,8 +80,10 @@ def main() -> int:
     deep_dir.mkdir(parents=True, exist_ok=True)
 
     manifest = load_json(census_state / "manifest.json")
-    annotations = load_annotations(census_state / "annotations")
     papers = list(manifest.get("papers") or [])
+    annotations, _aliases, _errors = load_annotations_for_manifest(
+        census_state / "annotations", papers
+    )
     today = date.today().isoformat()
 
     ranked = sorted(
@@ -98,7 +100,7 @@ def main() -> int:
         stem = str(paper["stem"])
         annotation = annotations.get(stem) or {}
         label = str(annotation.get("exam_label") or stem)
-        source = str(annotation.get("source") or paper.get("path") or stem)
+        source = str(paper.get("path") or annotation.get("source") or stem)
         types = [str(item) for item in (annotation.get("types_present") or [])]
         filename = f"{slugify(stem, fallback='paper')}-精析.md"
         target = deep_dir / filename

@@ -164,6 +164,8 @@ Creates:
 - stub `taxonomy.yaml` if missing
 - `reviews/<exam-scope>/题型解析/`
 
+If `--papers-dir` points at a scope root with no `.pdf.md` but a `文本/` / `text/` / `markdown/` / `md/` child has sidecars, init uses that child and reports it in JSON `papers_dir`.
+
 Re-run with `--overwrite` only when intentionally replacing the manifest.
 
 ### Phase 1 — Taxonomy
@@ -175,9 +177,11 @@ Re-run with `--overwrite` only when intentionally replacing the manifest.
 ### Phase 2 — Parallel annotation
 
 1. Use `manifest.batches` (default batch size 6).
-2. Assign one agent per batch; each agent only writes its own `annotations/*.json` files.
-3. Skip existing annotation files unless the user requests overwrite.
-4. Mark uncertain papers with `"confidence": "low"` rather than inventing types.
+2. Assign one agent per batch; each agent only writes files named exactly as `paper.annotation` (usually `annotations/<stem>.json`, not `<stem>.pdf.md.json`).
+3. Set `source` to the manifest `path` (include `文本/` when that is where the sidecar lives).
+4. `confidence` must be one of: `high`, `medium`, `low`, `uncertain`, `needs-review`.
+5. Skip existing annotation files unless the user requests overwrite.
+6. Mark uncertain papers with `"confidence": "low"` / `"uncertain"` rather than inventing types.
 
 ### Phase 3 — Aggregate
 
@@ -188,6 +192,8 @@ python student-os/scripts/build_exam_type_stats.py /path/to/vault \
   --validate \
   --overwrite
 ```
+
+Aggregate reads papers from the manifest (not a fresh directory scan). Optional `--papers-dir` is accepted only for comparison/warning and is otherwise ignored.
 
 Produces:
 - `题型频率统计.md`

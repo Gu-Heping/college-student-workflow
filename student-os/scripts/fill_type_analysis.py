@@ -11,7 +11,8 @@ from exam_census_quality import ENTRY_LAYER_MARKERS, REQUIRED_SECTION_HEADINGS
 from exam_census_utils import (
     course_slug_of,
     exam_scope_key,
-    load_annotations,
+    load_annotations_for_manifest,
+    load_json,
     relative_posix,
     resolve_course,
     reviews_dir,
@@ -73,14 +74,20 @@ def extract_sources(text: str) -> list[str]:
         return [summary.group(1).strip()]
     return []
 
-def papers_for_type(annotations: dict[str, dict], type_id: str) -> list[str]:
+def papers_for_type(
+    annotations: dict[str, dict],
+    papers: list[dict],
+    type_id: str,
+) -> list[str]:
     paths: list[str] = []
     seen: set[str] = set()
-    for annotation in annotations.values():
+    papers_by_stem = {str(item.get("stem") or ""): item for item in papers}
+    for stem, annotation in annotations.items():
         present = [str(item) for item in (annotation.get("types_present") or [])]
         if type_id not in present:
             continue
-        source = str(annotation.get("source") or "").strip()
+        paper = papers_by_stem.get(stem) or {}
+        source = str(paper.get("path") or "").strip()
         if source and source not in seen:
             seen.add(source)
             paths.append(source)
@@ -104,13 +111,19 @@ def main() -> int:
     if not analysis_dir.exists():
         raise SystemExit(f"Missing type-analysis directory. Run build_exam_type_stats.py first: {analysis_dir}")
 
-    annotations = load_annotations(census_state / "annotations")
+    manifest_path = census_state / "manifest.json"
+    if not manifest_path.exists():
+        raise SystemExit(f"Missing exam-census manifest: {manifest_path}")
+    papers = list(load_json(manifest_path).get("papers") or [])
+    annotations, _aliases, _errors = load_annotations_for_manifest(
+        census_state / "annotations", papers
+    )
     items: list[dict] = []
     for path in sorted(analysis_dir.glob("*.md")):
         text = path.read_text(encoding="utf-8")
         type_id = extract_exam_type_id(text) or path.stem
         sources = extract_sources(text)
-        source_papers = papers_for_type(annotations, type_id) or sources
+        source_papers = papers_for_type(annotations, papers, type_id) or sources
         items.append(
             {
                 "path": relative_posix(path, repo),

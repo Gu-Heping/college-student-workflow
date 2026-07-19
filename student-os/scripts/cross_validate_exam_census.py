@@ -12,7 +12,7 @@ from course_layout import configure_stdout_utf8
 from exam_census_utils import (
     course_slug_of,
     exam_scope_key,
-    load_annotations,
+    load_annotations_for_manifest,
     load_json,
     load_taxonomy,
     resolve_course,
@@ -80,9 +80,11 @@ def main() -> int:
     output_root = reviews_dir(course_dir, exam_scope)
     analysis_dir = output_root / "题型解析"
     taxonomy = load_taxonomy(census_state / "taxonomy.yaml")
-    annotations = load_annotations(census_state / "annotations")
     manifest = load_json(census_state / "manifest.json")
     papers = list(manifest.get("papers") or [])
+    annotations, _aliases, _errors = load_annotations_for_manifest(
+        census_state / "annotations", papers
+    )
     known_ids = {str(item["id"]) for item in taxonomy.get("types", [])}
 
     skeleton_ids: dict[str, str] = {}
