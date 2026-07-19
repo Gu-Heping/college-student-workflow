@@ -4918,6 +4918,88 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
         raise AssertionError("Single-quoted empty GitHub metadata should still allow draft preparation")
 
 
+def verify_organize_reviews(repo: Path) -> None:
+    """Smoke coverage for Issue #52: reviews/<scope> auto-archiving."""
+    scope_dir = repo / "courses" / "linear-algebra" / "reviews" / "期中"
+    scope_dir.mkdir(parents=True, exist_ok=True)
+    (scope_dir / "2019-期中-A.pdf").write_text("pdf", encoding="utf-8", newline="\n")
+    (scope_dir / "2019-期中-A.pdf.md").write_text("# 2019 期中 A\n", encoding="utf-8", newline="\n")
+    (scope_dir / "2019-期中-A.raw.md").write_text("# raw\n", encoding="utf-8", newline="\n")
+    (scope_dir / "2019-期中-A-repair-summary.md").write_text("# repair\n", encoding="utf-8", newline="\n")
+
+    payload = json.loads(
+        run_script(
+            "organize_reviews.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+        )
+    )
+    if payload.get("dry_run"):
+        raise AssertionError(f"Expected non-dry-run, got: {payload}")
+    moved_targets = [str(item.get("target") or "").replace("\\", "/") for item in (payload.get("moved") or [])]
+    if not any("试卷/2019-期中-A.pdf" in target for target in moved_targets):
+        raise AssertionError(f"Expected PDF in 试卷/, got: {moved_targets}")
+    if not any("文本/2019-期中-A.pdf.md" in target for target in moved_targets):
+        raise AssertionError(f"Expected pdf.md in 文本/, got: {moved_targets}")
+    if not any("文本/2019-期中-A.raw.md" in target for target in moved_targets):
+        raise AssertionError(f"Expected raw.md in 文本/, got: {moved_targets}")
+    if not any("归档/2019-期中-A-repair-summary.md" in target for target in moved_targets):
+        raise AssertionError(f"Expected repair summary in 归档/, got: {moved_targets}")
+
+    ensure_exists(scope_dir / "试卷" / "2019-期中-A.pdf")
+    ensure_exists(scope_dir / "文本" / "2019-期中-A.pdf.md")
+    ensure_exists(scope_dir / "文本" / "2019-期中-A.raw.md")
+    ensure_exists(scope_dir / "归档" / "2019-期中-A-repair-summary.md")
+    ensure_exists(scope_dir / "README.md")
+
+    readme_text = (scope_dir / "README.md").read_text(encoding="utf-8")
+    if "2019-期中-A.pdf" not in readme_text:
+        raise AssertionError("README should index archived files")
+    if "2019-期中-A.pdf.md" not in readme_text:
+        raise AssertionError("README should index archived sidecars")
+
+    # Idempotency: re-running should report nothing to do.
+    idempotent_payload = json.loads(
+        run_script(
+            "organize_reviews.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+        )
+    )
+    if idempotent_payload.get("moved"):
+        raise AssertionError(f"Expected idempotent run to move nothing, got: {idempotent_payload}")
+    if (idempotent_payload.get("message") or "") != "already organized, nothing to do":
+        raise AssertionError(f"Expected idempotent message, got: {idempotent_payload}")
+
+    # Dry-run on a separate fixture should not modify filesystem.
+    dry_scope = repo / "courses" / "linear-algebra" / "reviews" / "期末"
+    dry_scope.mkdir(parents=True, exist_ok=True)
+    (dry_scope / "2020-期末.pdf").write_text("pdf", encoding="utf-8", newline="\n")
+    (dry_scope / "2020-期末.pdf.md").write_text("# 2020 期末\n", encoding="utf-8", newline="\n")
+
+    dry_payload = json.loads(
+        run_script(
+            "organize_reviews.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期末",
+            "--dry-run",
+        )
+    )
+    if not dry_payload.get("dry_run"):
+        raise AssertionError(f"Expected dry_run flag, got: {dry_payload}")
+    if (dry_scope / "试卷").exists() or (dry_scope / "文本").exists():
+        raise AssertionError("Dry run should not create archive directories")
+
+
 def build_single_semester(repo: Path, today: date) -> None:
     due_date = (today + timedelta(days=8)).isoformat()
     default_week_label = f"{today.isoformat()}-plus-7d"
@@ -4929,6 +5011,7 @@ def build_single_semester(repo: Path, today: date) -> None:
     exercise_feedback_lifecycle(repo)
     exercise_import_workflows(repo)
     exercise_exam_census(repo)
+    verify_organize_reviews(repo)
     run_script("build_review_indexes.py", str(repo))
     run_script("build_week_plan.py", str(repo))
     ensure_contains(repo / "tasks" / "weekly" / f"{default_week_label}.md", "Linear Algebra Midterm")

@@ -16,6 +16,7 @@
 
 - 新增 `ensure_frontmatter.py`，可批量为缺少 YAML frontmatter 的 `.pdf.md` sidecar 补齐 UTF-8 元数据，并支持 dry-run 预览。
 - 新增基于 tag 的 GitHub Release 自动发布流程，release notes 从 `CHANGELOG.md` 对应版本段落抽取。
+- 新增 `organize_reviews.py`，自动将 `courses/<course>/reviews/<exam-scope>/` 下的松散文件归档到 `试卷/`、`文本/`、`归档/` 并生成 `README.md` 索引；支持 `--dry-run`、幂等执行与 `git mv` 回退（Issue #52）。
 - 为 GitHub 发布链路增加 `sanitize_and_post.py`,以及 `prepare_github_issue.py --check-stdin`：任意 issue / PR review / comment 正文可先脱敏再交给 `gh`；包装脚本仅在脱敏成功后才调用下游命令，避免无 `pipefail` 时管道仍创建空 body（Issue #40）。
 - 为 `student-os` 新增大规模试卷普查工作流（`exam-census`）：`init_exam_census.py` / `build_exam_type_stats.py`、题型 taxonomy/annotation 契约、频率统计与题型解析骨架生成，以及备考指南/公式总卡/答题模板/考前清单模板；配套 `exam-census-workflow.md`、命令入口与 review-coach/coordinator 路由。
 - 为 exam-census 增加 Phase A–E（Issue #41）：`fill_type_analysis.py` / `review_type_analysis.py` / `build_multi_dim_stats.py` / `init_exam_deep_dive.py` / `cross_validate_exam_census.py`、内容标准与零基础入口契约（`exam-census-quality.md`）、题型解析模板升级与 `analysis/` 产物。

@@ -76,6 +76,28 @@ repair_status:
 derived_from_import:
 ```
 
+## Archiving mixed review folders (Issue #52)
+
+After converting papers or importing old exams into `courses/<course>/reviews/<exam-scope>/`, run the archive helper to keep the directory tidy:
+
+```bash
+python student-os/scripts/organize_reviews.py /path/to/vault \
+  --course linear-algebra \
+  --exam-scope 期中
+```
+
+The script classifies loose files into:
+
+```text
+reviews/<scope>/
+├── 试卷/          # original PDF/DOCX/PPTX/etc.
+├── 文本/          # .pdf.md and .raw.md sidecars
+├── 归档/          # *-repair-summary.md metadata
+└── README.md      # generated index with updated relative links
+```
+
+Add `--dry-run` to preview moves. The helper prefers `git mv` when files are tracked and falls back to `shutil.move` otherwise. It skips already-organized directories and never moves exam-census generated artifacts (`题型解析/`, `analysis/`, `真题精析/`, `备考指南.md`, etc.).
+
 ## Routing guidance
 
 - If the result is a raw or lightly cleaned import, keep it in `references/` or course `references/`.
