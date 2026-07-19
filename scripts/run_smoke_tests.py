@@ -2562,6 +2562,117 @@ def exercise_exam_census(repo: Path) -> None:
     if not any("linear-algebra-notes.pdf.md" in path for path in filtered_paths):
         raise AssertionError(f"Expected course-matching vault textbook in concept_sources: {filtered_paths}")
 
+    # Issue #69: course-local lecture-material directories feed concept_sources.
+    lecture_material_dir = repo / "courses" / "linear-algebra" / "教材课件"
+    lecture_material_dir.mkdir(parents=True, exist_ok=True)
+    (lecture_material_dir / "1-2 n阶行列式.pdf.md").write_text(
+        "\n".join(
+            [
+                "---",
+                'course: "Linear Algebra"',
+                "---",
+                "",
+                "# 1-2 n阶行列式",
+                "",
+                "## 行列式的定义",
+                "",
+                "行列式是一个数……",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    # Exam-like / answer files inside lecture-material dirs must still be excluded.
+    (lecture_material_dir / "期中试卷.pdf.md").write_text("# 期中试卷\n", encoding="utf-8", newline="\n")
+    (lecture_material_dir / "答案.pdf.md").write_text("# 答案\n", encoding="utf-8", newline="\n")
+    # Files under reviews/<scope>/文本/ must not leak into concept_sources.
+    review_text_dir = repo / "courses" / "linear-algebra" / "reviews" / "期中" / "文本"
+    review_text_dir.mkdir(parents=True, exist_ok=True)
+    (review_text_dir / "review-handout.pdf.md").write_text("# review\n", encoding="utf-8", newline="\n")
+    run_script(
+        "fill_type_analysis.py",
+        str(repo),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期中",
+    )
+    lecture_queue = json.loads((state_dir / "fill-queue.json").read_text(encoding="utf-8"))
+    lecture_paths = [str(item.get("path") or "").replace("\\", "/") for item in (lecture_queue.get("concept_sources") or [])]
+    if not any("教材课件/1-2 n阶行列式.pdf.md" in path for path in lecture_paths):
+        raise AssertionError(f"Expected lecture-material sidecar in concept_sources: {lecture_paths}")
+    if any("期中试卷.pdf.md" in path for path in lecture_paths):
+        raise AssertionError(f"Exam-paper sidecar must not enter concept_sources: {lecture_paths}")
+    if any("答案.pdf.md" in path for path in lecture_paths):
+        raise AssertionError(f"Answer sidecar must not enter concept_sources: {lecture_paths}")
+    if any("review-handout.pdf.md" in path for path in lecture_paths):
+        raise AssertionError(f"Review-text sidecar must not enter concept_sources: {lecture_paths}")
+
+    # Without any textbook candidates, concept_sources is empty and the disclaimer remains.
+    saved_course_textbook = repo / "courses" / "linear-algebra" / "references" / "线性代数教材.pdf.md"
+    saved_course_textbook_text = (
+        saved_course_textbook.read_text(encoding="utf-8") if saved_course_textbook.exists() else ""
+    )
+    saved_vault_textbook = repo / "references" / "textbooks" / "linear-algebra-notes.pdf.md"
+    saved_vault_textbook_text = (
+        saved_vault_textbook.read_text(encoding="utf-8") if saved_vault_textbook.exists() else ""
+    )
+    shutil.rmtree(lecture_material_dir)
+    if saved_course_textbook.exists():
+        saved_course_textbook.unlink()
+    if saved_vault_textbook.exists():
+        saved_vault_textbook.unlink()
+    empty_lecture_payload = json.loads(
+        run_script(
+            "fill_type_analysis.py",
+            str(repo),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期中",
+        )
+    )
+    empty_lecture_file = json.loads((state_dir / "fill-queue.json").read_text(encoding="utf-8"))
+    if empty_lecture_payload.get("concept_source_count", 0) != 0:
+        raise AssertionError(
+            f"Expected concept_source_count 0 after removing textbooks, got: {empty_lecture_payload}"
+        )
+    if empty_lecture_file.get("concept_sources"):
+        raise AssertionError(
+            f"Expected empty concept_sources after removing textbooks, got: {empty_lecture_file.get('concept_sources')}"
+        )
+    if "未参考指定教材" not in str(empty_lecture_file.get("concept_sources_note") or ""):
+        raise AssertionError(
+            f"Expected disclaimer note when no concept sources, got: {empty_lecture_file.get('concept_sources_note')}"
+        )
+    # Restore for any later consumers of this fixture.
+    lecture_material_dir.mkdir(parents=True, exist_ok=True)
+    (lecture_material_dir / "1-2 n阶行列式.pdf.md").write_text(
+        "\n".join(
+            [
+                "---",
+                'course: "Linear Algebra"',
+                "---",
+                "",
+                "# 1-2 n阶行列式",
+                "",
+                "## 行列式的定义",
+                "",
+                "行列式是一个数……",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    if saved_course_textbook_text:
+        saved_course_textbook.write_text(saved_course_textbook_text, encoding="utf-8", newline="\n")
+    if saved_vault_textbook_text:
+        saved_vault_textbook.write_text(saved_vault_textbook_text, encoding="utf-8", newline="\n")
+
     review_result = subprocess.run(
         [
             sys.executable,

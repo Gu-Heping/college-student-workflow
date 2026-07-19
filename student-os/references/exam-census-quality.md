@@ -13,6 +13,16 @@ Use this reference for Phase A–E after Aggregate. Mechanical census scripts st
 - 低频题型证据不足时：写「证据不足，需人工补充」，并设 `quality: needs-review`；不要保留空模板段落。
 - Phase B（`review_type_analysis.py`）拦截臃肿 frontmatter、英文残留、坏表格、缺真题来源、不兼容 Markdown/LaTeX、教学支架缺失，以及 v3 结构软检（核心概念须有教材引用或「未参考指定教材」声明 / 核心方法 / 抢分 / 易错表 / 难度星 / 自测答案分章）。
 
+## Concept sources（Issue #69）
+
+`fill_type_analysis.py` 在写入 `fill-queue.json` 前从以下位置收集教材/课件 sidecar（仅 `.pdf.md`）：
+
+- `courses/<course>/references/`（排除 `exams/`、`试卷/`、`真题/`、`文本/` 等试卷子目录）
+- `<vault>/references/textbooks/`（文件名必须提及本课程，避免跨课程泄漏）
+- `courses/<course>/教材课件/`、`课件/`、`教材/`、`slides/`、`lectures/`
+
+以上目录中的期中/期末/试卷/答案子目录与 repair artifact（`.raw.md`）会被过滤。无候选时，`concept_sources` 为空，核心概念应写「基于考纲整理，未参考指定教材」。
+
 ## Content standard v3 — required section order
 
 1. 元信息（频率/分值/难度/来源；普通文本，禁止引用块表格）

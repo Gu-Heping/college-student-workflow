@@ -208,7 +208,7 @@ Produces:
 
 1. Run `fill_type_analysis.py` to write `fill-queue.json` (ranked skeletons + `source_papers` / `source_instances` + `concept_sources` textbook candidates + required sections + fill instructions).
 2. Assign one agent per type analysis (pipeline with Phase B preferred: fill → review immediately).
-3. Before writing 核心概念, open `concept_sources` when present (course `references/` excluding exam subdirs + vault `references/textbooks/`); cite `参考：…` or write `基于考纲整理，未参考指定教材`.
+3. Before writing 核心概念, open `concept_sources` when present. Sources include course `references/` (excluding exam subdirs), vault `references/textbooks/`, and course-local lecture-material dirs: `教材课件/`, `课件/`, `教材/`, `slides/`, `lectures/`. Cite `参考：…` or write `基于考纲整理，未参考指定教材`.
 4. Fill using `templates/exam-type-analysis.md` and `references/exam-census-quality.md` (**content standard v3** + zero-foundation entry).
 5. Assign every annotated past-paper instance of the type to 例题精讲 or 自测题.
 6. Defaults: **≥5 例题** + **≥4 自测**；每题标注 `来源：...`；例题标难度星；自测答案独立成章；禁止编造；禁止引用块内表格与 `<details>` 内 `$$`；考前速记含 ASCII `├` 决策树。

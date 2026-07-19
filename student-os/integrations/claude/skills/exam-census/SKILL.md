@@ -169,7 +169,7 @@ python "$SCRIPTS/build_exam_type_stats.py" "${BASE[@]}" --validate --overwrite
 python "$SCRIPTS/fill_type_analysis.py" "${BASE[@]}"
 ```
 
-按 `fill-queue.json` 填写每页 `题型解析/`（可并行，一页一 agent）。写「核心概念」前先打开队列中的 `concept_sources`（若有）；无教材则写「基于考纲整理，未参考指定教材」。质量标准见下方「质量要求」。
+按 `fill-queue.json` 填写每页 `题型解析/`（可并行，一页一 agent）。写「核心概念」前先打开队列中的 `concept_sources`（若有）；来源包括课程 `references/`（排除试卷子目录）、vault `references/textbooks/` 以及课程本地 `教材课件/`、`课件/`、`教材/`、`slides/`、`lectures/`。无教材则写「基于考纲整理，未参考指定教材」。质量标准见下方「质量要求」。
 
 ### 7. Phase B — Quality gate
 
@@ -232,7 +232,7 @@ python "$SCRIPTS/cross_validate_exam_census.py" "${BASE[@]}"
 - 面向用户文档 **中文优先**；表格为主、段落为辅；输出像辅导老师讲义（讲为什么、怎么选方法、怎么避免错、怎么验算）。
 - frontmatter 只放短元数据；**不要** `source_artifacts` 长数组或 `generated_fingerprint`。
 - 题型解析按 **content standard v3**：考前速记（含 ASCII `├` 决策树）/ 核心概念（定义+意义+对比；`参考：教材…` 或「基于考纲整理，未参考指定教材」）/ 核心方法 / 例题 / 自测 / **自测答案独立章** / 快速得分技巧 / 易错点与检查清单。
-- `fill-queue.json` 的 `concept_sources` 列出课程 `references/`（排除试卷子目录）与 vault `references/textbooks/` 中的教材 sidecar；先读再写核心概念。教材例题仅可补充，真题例题/自测仍禁止编造。
+- `fill-queue.json` 的 `concept_sources` 列出课程 `references/`（排除试卷子目录）、vault `references/textbooks/` 以及课程本地 `教材课件/`、`课件/`、`教材/`、`slides/`、`lectures/` 中的教材 sidecar；先读再写核心概念。教材例题仅可补充，真题例题/自测仍禁止编造。
 - 例题精讲 **≥5**、自测题 **≥4**；每道题必须标注 `来源：...`；例题标注难度星级；禁止编造题目。
 - 禁止引用块内表格（`> | ... |`）；禁止 `<details>` 内 `$$` 块级公式。
 - 答题骨架优先填空式：`[表达式]` / `[值]` / `[答案]`。

@@ -37,6 +37,15 @@ _EXAM_REFERENCE_DIR_NAMES = frozenset(
     }
 )
 
+# Course-local directories that commonly hold lecture slides / textbooks / handouts.
+_LECTURE_MATERIAL_DIR_NAMES = (
+    "教材课件",
+    "课件",
+    "教材",
+    "slides",
+    "lectures",
+)
+
 _TEXTBOOK_NAME_HINTS = ("教材", "textbook", "讲义", "课本")
 _EXAM_FILENAME_HINTS = (
     "midterm",
@@ -48,6 +57,9 @@ _EXAM_FILENAME_HINTS = (
     "真题",
     "试卷",
     "测验",
+    "答案",
+    "ans",
+    "answer",
     "past-paper",
     "pastpaper",
 )
@@ -61,15 +73,24 @@ def discover_concept_sources(
 ) -> list[dict[str, str]]:
     """Find textbook / lecture-note markdown sidecars agents should open for 核心概念.
 
+    Scans, in order:
+      - course references/ (excluding exam-paper subdirectories)
+      - vault references/textbooks/
+      - course-local lecture-material dirs: 教材课件/, 课件/, 教材/, slides/, lectures/
+
     Returns repo-relative paths only (no file bodies) to keep fill-queue small.
     """
-    roots: list[Path] = []
+    roots: list[tuple[str, Path]] = []
     course_refs = course_dir / "references"
     if course_refs.is_dir():
-        roots.append(course_refs)
+        roots.append(("course_refs", course_refs))
     vault_textbooks = repo / "references" / "textbooks"
     if vault_textbooks.is_dir():
-        roots.append(vault_textbooks)
+        roots.append(("vault_textbooks", vault_textbooks))
+    for material_name in _LECTURE_MATERIAL_DIR_NAMES:
+        lecture_dir = course_dir / material_name
+        if lecture_dir.is_dir():
+            roots.append(("lecture_material", lecture_dir))
 
     slug_tokens = [
         part.lower()
@@ -82,6 +103,20 @@ def discover_concept_sources(
 
     found: list[dict[str, str]] = []
     seen: set[str] = set()
+
+    # Directory segments that should never be treated as concept sources.
+    excluded_dir_names = {n.lower() for n in _EXAM_REFERENCE_DIR_NAMES} | {
+        "reviews",
+        "review",
+        "exam papers",
+        "exampapers",
+        "papers",
+        "期中",
+        "期末",
+        "答案",
+        "answers",
+        "ans",
+    }
 
     def _is_repair_artifact(name: str) -> bool:
         lower = name.lower()
@@ -100,17 +135,38 @@ def discover_concept_sources(
             return slug_hit
         return hint_hit or slug_hit
 
-    def consider(path: Path, *, require_course_token: bool = False) -> None:
+    def _under_excluded_dir(path: Path) -> bool:
+        """True when any ancestor under the course is an exam/review/answer directory."""
+        try:
+            rel_parts = path.relative_to(course_dir).parts
+        except ValueError:
+            try:
+                rel_parts = path.relative_to(repo).parts
+            except ValueError:
+                return False
+        return any(
+            (part.lower() in excluded_dir_names) or _looks_like_exam_paper(part)
+            for part in rel_parts[:-1]
+        )
+
+    def consider(path: Path, *, kind: str) -> None:
         if not path.is_file():
             return
         name = path.name
-        if not name.endswith(".md"):
+        # We only ingest markdown sidecars derived from PDF/office imports.
+        if not name.endswith(".pdf.md"):
             return
         if _is_repair_artifact(name):
             return
         if _looks_like_exam_paper(name):
             return
-        if not _filename_matches_course(name, require_course_token=require_course_token):
+        if _under_excluded_dir(path):
+            return
+        if kind == "lecture_material":
+            # Lecture-material dirs are explicitly for course handouts/slides/textbooks.
+            # Accept any non-exam PDF sidecar; directory-level exclusions already applied.
+            pass
+        elif not _filename_matches_course(name, require_course_token=(kind == "vault_textbooks")):
             return
         rel = relative_posix(path, repo)
         if rel in seen:
@@ -118,23 +174,9 @@ def discover_concept_sources(
         seen.add(rel)
         found.append({"path": rel, "label": path.name})
 
-    for root in roots:
-        if root == course_refs:
-            exam_names = {n.lower() for n in _EXAM_REFERENCE_DIR_NAMES}
-            for child in sorted(root.rglob("*")):
-                if not child.is_file():
-                    continue
-                try:
-                    rel_parts = child.relative_to(course_refs).parts
-                except ValueError:
-                    continue
-                # Exclude files under exam-like directories (any ancestor segment).
-                if any(part.lower() in exam_names for part in rel_parts[:-1]):
-                    continue
-                consider(child, require_course_token=False)
-        else:
-            for child in sorted(root.rglob("*")):
-                consider(child, require_course_token=True)
+    for kind, root in roots:
+        for child in sorted(root.rglob("*.pdf.md")):
+            consider(child, kind=kind)
 
     return found
 
@@ -311,8 +353,10 @@ def main() -> int:
         )
     else:
         concept_note = (
-            "No textbook sidecars discovered under course references/ or "
-            "references/textbooks/; write 基于考纲整理，未参考指定教材 in 核心概念."
+            "No textbook sidecars discovered under course references/, "
+            "references/textbooks/, or course lecture-material dirs "
+            "(教材课件/, 课件/, 教材/, slides/, lectures/); "
+            "write 基于考纲整理，未参考指定教材 in 核心概念."
         )
     items: list[dict] = []
     for path in sorted(analysis_dir.glob("*.md")):

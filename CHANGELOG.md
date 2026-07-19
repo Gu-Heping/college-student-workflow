@@ -72,6 +72,7 @@
 - 修复中文课程名、中文学期名和中文作业标题会退化成 `course`、`semester` 等 ASCII 兜底 slug 的问题，避免真实知识库中的路径冲突和不可读目录名。
 - 修复 Unicode slug 规则把组合附加符号误当作分隔符的问题，避免印地语等脚本的课程名和学期名在脚手架路径中被打碎。
 - 修复 Windows 下脚手架脚本与 smoke harness 处理 Unicode 路径输出时的编码不一致问题，避免非 GBK 路径名触发 `UnicodeEncodeError` 或 `UnicodeDecodeError`。
+- 修复 exam-census `concept_sources` 未覆盖课程本地 `教材课件/`、`课件/`、`教材/`、`slides/`、`lectures/` 目录的问题，使核心概念能引用课程教材/课件 sidecar（Issue #69）。
 
 ## [0.6.0] - 2026-07-03
 
