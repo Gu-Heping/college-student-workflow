@@ -98,26 +98,63 @@ def discover_papers(papers_dir: Path, pattern: str) -> list[Path]:
     return papers
 
 
-def resolve_papers_dir(papers_dir: Path, pattern: str) -> tuple[Path, str | None]:
-    """Prefer a known text subdirectory when the papers root has no top-level sidecars.
+def _pattern_is_recursive(pattern: str) -> bool:
+    return "**" in str(pattern).replace("\\", "/")
 
-    Fallback names: 文本 / text / markdown / md.
-    Only used when the requested directory itself has zero top-level `*.pdf.md`
-    files (recursive matches under those children still trigger fallback).
+
+def _exclusive_text_subdir(root: Path, hits: list[Path]) -> tuple[str, Path] | None:
+    """If every hit lives under exactly one known text subdirectory, return it."""
+    if not hits:
+        return None
+    for name in PAPER_SUBDIR_CANDIDATES:
+        candidate = (root / name).resolve()
+        if not candidate.is_dir():
+            continue
+        try:
+            for hit in hits:
+                hit.resolve().relative_to(candidate)
+        except ValueError:
+            continue
+        return name, candidate
+    return None
+
+
+def resolve_papers_dir(papers_dir: Path, pattern: str) -> tuple[Path, str | None, str]:
+    """Resolve papers root and the glob that actually finds sidecars.
+
+    Returns ``(resolved_dir, fallback_subdir_or_None, effective_pattern)``.
+
+    - If ``pattern`` already matches at the original root and is not recursive
+      (e.g. ``文本/*.pdf.md``), keep the original root and pattern.
+    - If a recursive pattern (default ``**/*.pdf.md``) only hits files under one
+      known text subdirectory (文本 / text / markdown / md), switch into that
+      subdirectory and use a local pattern so annotation ids stay basename-stable.
+    - Otherwise try known text subdirectories when the original root+pattern is empty,
+      propagating ``**/*.pdf.md`` when that is what finds files.
     """
     resolved = papers_dir.resolve()
-    if discover_papers(resolved, "*.pdf.md"):
-        return resolved, None
+    root_hits = discover_papers(resolved, pattern)
+    if root_hits:
+        if _pattern_is_recursive(pattern):
+            exclusive = _exclusive_text_subdir(resolved, root_hits)
+            if exclusive is not None:
+                name, candidate = exclusive
+                if discover_papers(candidate, "*.pdf.md"):
+                    return candidate, name, "*.pdf.md"
+                return candidate, name, "**/*.pdf.md"
+        return resolved, None, pattern
+
     for name in PAPER_SUBDIR_CANDIDATES:
         candidate = resolved / name
         if not candidate.is_dir():
             continue
-        found = discover_papers(candidate, pattern)
-        if not found:
-            found = discover_papers(candidate, "**/*.pdf.md")
-        if found:
-            return candidate.resolve(), name
-    return resolved, None
+        if discover_papers(candidate, pattern):
+            return candidate.resolve(), name, pattern
+        if discover_papers(candidate, "*.pdf.md"):
+            return candidate.resolve(), name, "*.pdf.md"
+        if discover_papers(candidate, "**/*.pdf.md"):
+            return candidate.resolve(), name, "**/*.pdf.md"
+    return resolved, None, pattern
 
 
 def chunk_batches(items: list[Any], batch_size: int) -> list[list[Any]]:
@@ -270,32 +307,37 @@ def _parse_taxonomy_yaml_fallback(text: str) -> dict[str, Any]:
     current_list_key: str | None = None
     in_types = False
 
+    def _flush_current() -> None:
+        nonlocal current, current_list_key
+        if current is not None:
+            data["types"].append(current)
+        current = None
+        current_list_key = None
+
+    def _leave_types_block() -> None:
+        nonlocal in_types
+        _flush_current()
+        in_types = False
+
     for raw_line in text.splitlines():
         if not raw_line.strip() or raw_line.lstrip().startswith("#"):
             continue
 
         if re.match(r"^version\s*:", raw_line):
+            _leave_types_block()
             data["version"] = int(str(_parse_scalar(raw_line.split(":", 1)[1])))
-            in_types = False
-            current = None
-            current_list_key = None
             continue
         if re.match(r"^course\s*:", raw_line):
+            _leave_types_block()
             data["course"] = str(_parse_scalar(raw_line.split(":", 1)[1]))
-            in_types = False
-            current = None
-            current_list_key = None
             continue
         if re.match(r"^exam_scope\s*:", raw_line):
+            _leave_types_block()
             data["exam_scope"] = str(_parse_scalar(raw_line.split(":", 1)[1]))
-            in_types = False
-            current = None
-            current_list_key = None
             continue
         if re.match(r"^types\s*:\s*$", raw_line):
+            _flush_current()
             in_types = True
-            current = None
-            current_list_key = None
             continue
         if not in_types:
             continue
@@ -360,10 +402,11 @@ def load_taxonomy_yaml(path: Path) -> dict[str, Any]:
     if yaml is not None:
         try:
             loaded = yaml.safe_load(text)
-        except Exception:
-            loaded = None
-        if isinstance(loaded, dict):
-            return _normalize_taxonomy(loaded)
+        except Exception as exc:
+            raise ValueError(f"Invalid taxonomy YAML: {path}: {exc}") from exc
+        if not isinstance(loaded, dict):
+            raise ValueError(f"Taxonomy YAML must be a mapping: {path}")
+        return _normalize_taxonomy(loaded)
     return _normalize_taxonomy(_parse_taxonomy_yaml_fallback(text))
 
 
@@ -404,7 +447,10 @@ def load_annotations(annotations_dir: Path) -> dict[str, dict[str, Any]]:
 
 
 def _normalize_repo_rel(path_text: str) -> str:
-    return str(path_text or "").replace("\\", "/").lstrip("./")
+    normalized = str(path_text or "").replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized
 
 
 def _paths_equivalent(left: str, right: str) -> bool:
@@ -413,6 +459,12 @@ def _paths_equivalent(left: str, right: str) -> bool:
     if not a or not b:
         return False
     return a == b or a.endswith("/" + b) or b.endswith("/" + a)
+
+
+def _paths_exactly_equal(left: str, right: str) -> bool:
+    a = _normalize_repo_rel(left)
+    b = _normalize_repo_rel(right)
+    return bool(a) and a == b
 
 
 def load_annotations_for_manifest(
@@ -429,71 +481,26 @@ def load_annotations_for_manifest(
     by_stem: dict[str, dict[str, Any]] = {}
     aliases_used: list[dict[str, str]] = []
     errors: list[dict[str, Any]] = []
+    used_paths: set[Path] = set()
 
     indexed: list[tuple[Path, dict[str, Any]]] = []
+    by_resolved: dict[Path, dict[str, Any]] = {}
     if annotations_dir.exists():
         for path in sorted(annotations_dir.rglob("*.json")):
             item = load_json(path)
             if not isinstance(item, dict):
                 raise ValueError(f"Annotation must be an object: {path}")
             indexed.append((path, item))
+            by_resolved[path.resolve()] = item
 
-    for paper in papers:
-        stem = str(paper.get("stem") or "")
-        if not stem:
-            continue
-        paper_path = _normalize_repo_rel(str(paper.get("path") or ""))
-        expected_name = f"{stem}.json"
-        preferred_rel = str(paper.get("annotation") or f"annotations/{expected_name}")
-        preferred_name = Path(preferred_rel).name or expected_name
+    state_root = annotations_dir.parent
 
-        matches: list[tuple[str, Path, dict[str, Any]]] = []
-        seen_paths: set[Path] = set()
-
-        def _add(kind: str, path: Path, payload: dict[str, Any]) -> None:
-            resolved = path.resolve()
-            if resolved in seen_paths:
-                return
-            seen_paths.add(resolved)
-            matches.append((kind, path, payload))
-
-        for path, payload in indexed:
-            if path.name == preferred_name or path.name == expected_name:
-                _add("preferred", path, payload)
-
-        if not matches:
-            for alias_name in (f"{stem}.pdf.md.json", f"{stem}.md.json"):
-                for path, payload in indexed:
-                    if path.name == alias_name:
-                        _add("filename_alias", path, payload)
-
-        if not matches and paper_path:
-            for path, payload in indexed:
-                source = _normalize_repo_rel(str(payload.get("source") or ""))
-                if _paths_equivalent(source, paper_path):
-                    _add("source_match", path, payload)
-
-        if not matches:
-            continue
-
-        preferred_matches = [item for item in matches if item[0] == "preferred"]
-        if preferred_matches:
-            kind, path, payload = preferred_matches[0]
-            by_stem[stem] = payload
-            continue
-
-        if len(matches) > 1:
-            errors.append(
-                {
-                    "stem": stem,
-                    "error": "ambiguous_annotation_fallback",
-                    "candidates": [str(path) for _, path, _ in matches],
-                }
-            )
-            continue
-
-        kind, path, payload = matches[0]
-        by_stem[stem] = payload
+    def _record_alias(
+        stem: str,
+        expected_name: str,
+        path: Path,
+        kind: str,
+    ) -> None:
         aliases_used.append(
             {
                 "stem": stem,
@@ -503,12 +510,196 @@ def load_annotations_for_manifest(
             }
         )
 
+    def _bind(
+        stem: str,
+        path: Path,
+        payload: dict[str, Any],
+        *,
+        expected_name: str,
+        kind: str,
+        record_alias: bool,
+    ) -> bool:
+        resolved = path.resolve()
+        if resolved in used_paths:
+            errors.append(
+                {
+                    "stem": stem,
+                    "error": "annotation_already_bound",
+                    "candidates": [str(path)],
+                }
+            )
+            return False
+        used_paths.add(resolved)
+        by_stem[stem] = payload
+        if record_alias:
+            _record_alias(stem, expected_name, path, kind)
+        return True
+
+    for paper in papers:
+        stem = str(paper.get("stem") or "")
+        if not stem:
+            continue
+        paper_path = _normalize_repo_rel(str(paper.get("path") or ""))
+        expected_name = f"{stem}.json"
+        preferred_rel = _normalize_repo_rel(
+            str(paper.get("annotation") or f"annotations/{expected_name}")
+        )
+        preferred_name = Path(preferred_rel).name or expected_name
+        exact_path = (state_root / preferred_rel).resolve()
+
+        exact_payload = by_resolved.get(exact_path)
+        if exact_payload is not None or exact_path.is_file():
+            payload = exact_payload if exact_payload is not None else load_json(exact_path)
+            _bind(
+                stem,
+                exact_path,
+                payload,
+                expected_name=expected_name,
+                kind="exact",
+                record_alias=False,
+            )
+            continue
+
+        basename_matches: list[tuple[Path, dict[str, Any]]] = []
+        seen_basename: set[Path] = set()
+        for path, payload in indexed:
+            resolved = path.resolve()
+            if resolved == exact_path or resolved in seen_basename:
+                continue
+            if path.name == preferred_name or path.name == expected_name:
+                seen_basename.add(resolved)
+                basename_matches.append((path, payload))
+
+        if len(basename_matches) > 1:
+            errors.append(
+                {
+                    "stem": stem,
+                    "error": "ambiguous_preferred_annotation",
+                    "candidates": [str(path) for path, _ in basename_matches],
+                }
+            )
+            continue
+        if len(basename_matches) == 1:
+            path, payload = basename_matches[0]
+            _bind(
+                stem,
+                path,
+                payload,
+                expected_name=expected_name,
+                kind="basename",
+                record_alias=path.parent.resolve() != annotations_dir.resolve()
+                or path.name != expected_name,
+            )
+            continue
+
+        alias_matches: list[tuple[Path, dict[str, Any]]] = []
+        seen_alias: set[Path] = set()
+        for alias_name in (f"{stem}.pdf.md.json", f"{stem}.md.json"):
+            for path, payload in indexed:
+                resolved = path.resolve()
+                if resolved in seen_alias:
+                    continue
+                if path.name == alias_name:
+                    seen_alias.add(resolved)
+                    alias_matches.append((path, payload))
+
+        if len(alias_matches) > 1:
+            errors.append(
+                {
+                    "stem": stem,
+                    "error": "ambiguous_annotation_fallback",
+                    "candidates": [str(path) for path, _ in alias_matches],
+                }
+            )
+            continue
+        if len(alias_matches) == 1:
+            path, payload = alias_matches[0]
+            _bind(
+                stem,
+                path,
+                payload,
+                expected_name=expected_name,
+                kind="filename_alias",
+                record_alias=True,
+            )
+            continue
+
+        if not paper_path:
+            continue
+
+        exact_source: list[tuple[Path, dict[str, Any]]] = []
+        loose_source: list[tuple[Path, dict[str, Any]]] = []
+        seen_source: set[Path] = set()
+        for path, payload in indexed:
+            resolved = path.resolve()
+            if resolved in seen_source or resolved in used_paths:
+                continue
+            source = _normalize_repo_rel(str(payload.get("source") or ""))
+            if not source:
+                continue
+            if _paths_exactly_equal(source, paper_path):
+                seen_source.add(resolved)
+                exact_source.append((path, payload))
+            elif _paths_equivalent(source, paper_path):
+                seen_source.add(resolved)
+                loose_source.append((path, payload))
+
+        source_matches = exact_source or loose_source
+        if not source_matches:
+            continue
+        if len(source_matches) > 1:
+            errors.append(
+                {
+                    "stem": stem,
+                    "error": "ambiguous_annotation_fallback",
+                    "candidates": [str(path) for path, _ in source_matches],
+                }
+            )
+            continue
+
+        path, payload = source_matches[0]
+        # Loose basename-only sources must not bind the same file to many papers.
+        if not exact_source:
+            other_papers = [
+                other
+                for other in papers
+                if str(other.get("stem") or "") not in {stem, *by_stem}
+                and _paths_equivalent(
+                    str(payload.get("source") or ""),
+                    _normalize_repo_rel(str(other.get("path") or "")),
+                )
+            ]
+            if len(other_papers) > 0:
+                errors.append(
+                    {
+                        "stem": stem,
+                        "error": "ambiguous_source_fallback",
+                        "candidates": [str(path)],
+                    }
+                )
+                continue
+
+        _bind(
+            stem,
+            path,
+            payload,
+            expected_name=expected_name,
+            kind="source_match",
+            record_alias=True,
+        )
+
     return by_stem, aliases_used, errors
 
 
 def classify_confidence(raw: Any) -> tuple[str, str]:
-    """Return (normalized_confidence, bucket) where bucket is high|medium|low|invalid."""
-    confidence = str(raw if raw is not None else CONFIDENCE_HIGH).strip().lower() or CONFIDENCE_HIGH
+    """Return (normalized_confidence, bucket) where bucket is high|medium|low|invalid.
+
+    Only a missing field (caller passes the default) should become high. Explicit
+    null / empty / whitespace values are invalid.
+    """
+    if raw is None:
+        return "", "invalid"
+    confidence = str(raw).strip().lower()
     if confidence == CONFIDENCE_HIGH:
         return confidence, "high"
     if confidence == CONFIDENCE_MEDIUM:

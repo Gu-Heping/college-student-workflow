@@ -110,7 +110,7 @@ python "$SCRIPTS/ensure_frontmatter.py" "$sidecar_abs" --apply
 
 ### 2. Init
 
-`init` 的 `--papers-dir` 可以指向 scope 根目录（如 `reviews/期中/`）。若该目录本身没有 `.pdf.md`，但存在 `文本/` / `text/` / `markdown/` / `md/` 子目录且其中有 sidecar，会自动使用该子目录，并在 JSON 的 `papers_dir` / `papers_dir_fallback_subdir` 中写明。
+`init` 的 `--papers-dir` 可以指向 scope 根目录（如 `reviews/期中/`）。若该目录本身没有匹配 `--pattern` 的 `.pdf.md`，但存在 `文本/` / `text/` / `markdown/` / `md/` 子目录且其中有 sidecar，会自动使用该子目录，并在 JSON 的 `papers_dir` / `papers_dir_fallback_subdir` / `papers_pattern` 中写明。若 `--pattern` 本身已是根相对路径（如 `文本/*.pdf.md`），则保持原根目录与 pattern，不切换子目录。
 
 ```bash
 python "$SCRIPTS/init_exam_census.py" "${BASE[@]}"

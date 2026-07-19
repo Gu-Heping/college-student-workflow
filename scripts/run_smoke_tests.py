@@ -2607,7 +2607,7 @@ def exercise_exam_census(repo: Path) -> None:
     if text_stats.get("low_confidence"):
         raise AssertionError("medium must not be treated as low_confidence")
     if "ignored" not in str(text_stats.get("papers_dir_warning", "")).lower():
-        raise AssertionError(f"Expected --papers-dir ignored warning, got: {text_stats}")
+        raise AssertionError(f"Expected papers_dir ignored warning, got: {text_stats}")
     text_report = (
         chinese_course / "reviews" / "期中" / "题型频率统计.md"
     ).read_text(encoding="utf-8")
@@ -2617,9 +2617,70 @@ def exercise_exam_census(repo: Path) -> None:
         )
     if "reviews/期中/2018-期中.pdf.md)" in text_report.replace("\\", "/"):
         raise AssertionError("Report must not link the stale annotation.source path")
+    if "### Annotation load errors" not in text_report:
+        raise AssertionError("Validation report must include Annotation load errors section")
+
+    # Root-relative pattern must keep original papers-dir (not switch into 文本/).
+    scope_root = (chinese_course / "reviews" / "期中").resolve()
+    resolved_dir, fallback_subdir, effective_pattern = exam_census_utils.resolve_papers_dir(
+        scope_root, "文本/*.pdf.md"
+    )
+    if fallback_subdir is not None:
+        raise AssertionError(
+            f"Root-relative pattern should not trigger subdir fallback: {fallback_subdir}"
+        )
+    if effective_pattern != "文本/*.pdf.md":
+        raise AssertionError(f"Expected original pattern preserved: {effective_pattern}")
+    if resolved_dir != scope_root:
+        raise AssertionError(f"papers_dir should stay at scope root: {resolved_dir}")
+
+    # Explicit empty confidence is invalid.
+    empty_conf = text_state / "annotations" / f"{text_stem}.json"
+    empty_conf.write_text(
+        json.dumps(
+            {
+                "source": text_path,
+                "exam_label": "2018 期中",
+                "types_present": ["determinant"],
+                "type_counts": {"determinant": 1},
+                "confidence": "",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    wrong_name.unlink(missing_ok=True)
+    empty_conf_run = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "build_exam_type_stats.py"),
+            str(repo),
+            "--course",
+            "线性代数",
+            "--exam-scope",
+            "期中",
+            "--validate",
+            "--overwrite",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if empty_conf_run.returncode == 0:
+        raise AssertionError("Expected --validate failure for empty confidence")
+    empty_stats = json.loads(empty_conf_run.stdout)
+    if not empty_stats.get("invalid_confidence"):
+        raise AssertionError(f"Expected invalid_confidence for empty string: {empty_stats}")
 
     # Invalid confidence fails --validate.
-    wrong_name.write_text(
+    empty_conf.write_text(
         json.dumps(
             {
                 "source": text_path,

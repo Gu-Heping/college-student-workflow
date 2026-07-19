@@ -100,7 +100,7 @@ def main() -> int:
         stem = str(paper["stem"])
         annotation = annotations.get(stem) or {}
         label = str(annotation.get("exam_label") or stem)
-        source = str(annotation.get("source") or paper.get("path") or stem)
+        source = str(paper.get("path") or annotation.get("source") or stem)
         types = [str(item) for item in (annotation.get("types_present") or [])]
         filename = f"{slugify(stem, fallback='paper')}-精析.md"
         target = deep_dir / filename

@@ -83,11 +83,15 @@ def main() -> int:
     else:
         papers_dir = course_dir / "references"
     papers_dir = papers_dir.resolve()
-    papers_dir, papers_subdir_fallback = resolve_papers_dir(papers_dir, args.pattern)
+    papers_dir, papers_subdir_fallback, papers_pattern = resolve_papers_dir(
+        papers_dir, args.pattern
+    )
 
-    papers = discover_papers(papers_dir, args.pattern)
+    papers = discover_papers(papers_dir, papers_pattern)
     if not papers:
-        raise SystemExit(f"No .pdf.md papers found under {papers_dir} with pattern {args.pattern!r}")
+        raise SystemExit(
+            f"No .pdf.md papers found under {papers_dir} with pattern {papers_pattern!r}"
+        )
 
     if manifest_path.exists() and not args.overwrite:
         raise SystemExit(f"Manifest already exists: {manifest_path}. Re-run with --overwrite to replace it.")
@@ -129,7 +133,7 @@ def main() -> int:
         "course_path": relative_posix(course_dir, repo),
         "exam_scope": exam_scope,
         "papers_dir": relative_posix(papers_dir, repo),
-        "pattern": args.pattern,
+        "pattern": papers_pattern,
         "batch_size": args.batch_size,
         "state_dir": relative_posix(census_state, repo),
         "reviews_dir": relative_posix(output_reviews, repo),
@@ -159,6 +163,7 @@ def main() -> int:
         "exam_scope": exam_scope,
         "papers_dir": relative_posix(papers_dir, repo),
         "papers_dir_fallback_subdir": papers_subdir_fallback,
+        "papers_pattern": papers_pattern,
         "state_dir": str(census_state),
         "manifest": str(manifest_path),
         "taxonomy": str(taxonomy_path),

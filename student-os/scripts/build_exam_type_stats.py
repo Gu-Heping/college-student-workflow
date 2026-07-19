@@ -153,8 +153,12 @@ def aggregate(
 
         annotation_source = str(annotation.get("source") or "")
         if annotation_source and manifest_path:
-            norm_ann = annotation_source.replace("\\", "/").lstrip("./")
-            norm_man = manifest_path.replace("\\", "/").lstrip("./")
+            norm_ann = annotation_source.replace("\\", "/")
+            while norm_ann.startswith("./"):
+                norm_ann = norm_ann[2:]
+            norm_man = manifest_path.replace("\\", "/")
+            while norm_man.startswith("./"):
+                norm_man = norm_man[2:]
             if norm_ann != norm_man:
                 source_mismatches.append(
                     {
@@ -243,6 +247,7 @@ def render_frequency_report(
     invalid_count_values: list[dict[str, Any]],
     source_mismatches: list[dict[str, Any]],
     annotation_aliases_used: list[dict[str, str]],
+    annotation_load_errors: list[dict[str, Any]],
     report_path: Path,
     repo: Path,
     today: str,
@@ -348,6 +353,18 @@ def render_frequency_report(
         lines.append("")
     else:
         lines.extend(["### Annotation filename aliases used", "", "- None", ""])
+
+    if annotation_load_errors:
+        lines.append("### Annotation load errors")
+        for item in annotation_load_errors:
+            candidates = ", ".join(f"`{candidate}`" for candidate in item.get("candidates") or [])
+            lines.append(
+                f"- `{item.get('stem', '')}`: `{item.get('error', '')}`"
+                f"; candidates: {candidates or '-'}"
+            )
+        lines.append("")
+    else:
+        lines.extend(["### Annotation load errors", "", "- None", ""])
 
     if unknown_types:
         lines.append("### Unknown type ids in types_present")
@@ -1025,6 +1042,7 @@ def main() -> int:
         invalid_count_values=invalid_count_values,
         source_mismatches=source_mismatches,
         annotation_aliases_used=annotation_aliases_used,
+        annotation_load_errors=annotation_load_errors,
         report_path=report_path,
         repo=repo,
         today=today,
