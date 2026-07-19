@@ -2843,6 +2843,69 @@ def exercise_exam_census(repo: Path) -> None:
     if "difficulty_stars" not in no_stars_review["failed_checks"]:
         raise AssertionError(f"Expected difficulty_stars failure, got: {no_stars_review}")
 
+    # Pair answers by question number, not list position.
+    mismatched_answers = "\n".join(
+        _fm_header()
+        + ["## 例题精讲", ""]
+        + [line for i in range(1, 6) for line in _example_block(i)]
+        + ["## 自测题", ""]
+        + [line for i in range(1, 5) for line in _self_test_block(i)]
+        + ["## 自测答案", ""]
+        + _self_test_answer_block(2)
+        + _self_test_answer_block(3)
+        + _self_test_answer_block(4)
+        + _self_test_answer_block(5)
+        + _closing()
+    )
+    mismatched_review = quality_mod.structural_review("题型解析/mismatch-answers.md", mismatched_answers)
+    if mismatched_review["checks"]["self_tests"]["pass"]:
+        raise AssertionError("Expected self_tests to fail when answer numbers do not match questions")
+
+    # Inline **答案**： should fail separation even if ## 自测答案 exists.
+    answer_colon_doc = "\n".join(
+        _fm_header()
+        + ["## 例题精讲", ""]
+        + [line for i in range(1, 6) for line in _example_block(i)]
+        + ["## 自测题", ""]
+        + [
+            line
+            for i in range(1, 5)
+            for line in (_self_test_block(i) + ["**答案**：", "", f"满秩，r={i}", ""])
+        ]
+        + ["## 自测答案", ""]
+        + [line for i in range(1, 5) for line in _self_test_answer_block(i)]
+        + _closing()
+    )
+    answer_colon_review = quality_mod.structural_review("题型解析/answer-colon.md", answer_colon_doc)
+    if "self_test_answer_separation" not in answer_colon_review["failed_checks"]:
+        raise AssertionError(f"Expected separation failure for inline **答案**：, got: {answer_colon_review}")
+
+    # Checklist boxes alone must not satisfy fill-in template gate.
+    checklist_only = rich_doc
+    for token in ("[答案]", "[表达式]", "[步骤1]", "[步骤2]"):
+        checklist_only = checklist_only.replace(token, "（待填）")
+    checklist_review = quality_mod.structural_review("题型解析/checklist-only.md", checklist_only)
+    if "fill_in_answer_template" not in checklist_review["failed_checks"]:
+        raise AssertionError(f"Expected fill_in_answer_template failure for checklist-only, got: {checklist_review}")
+
+    # Empty scoring / error tables should fail even when headers/labels exist.
+    blank_scoring = rich_doc
+    blank_scoring = blank_scoring.replace("| 时间充裕 | 完整行阶梯 | 0 |", "| 时间充裕 |  |  |")
+    blank_scoring = blank_scoring.replace("| 时间紧张 | 只追主元 | 40s |", "| 时间紧张 |  |  |")
+    blank_scoring = blank_scoring.replace("| 几乎不够 | 写变换记号 | 60s |", "| 几乎不够 |  |  |")
+    blank_scoring = blank_scoring.replace("| 完全不会 | 写定义拿步骤分 | 90s |", "| 完全不会 |  |  |")
+    blank_scoring_review = quality_mod.structural_review("题型解析/blank-scoring.md", blank_scoring)
+    if "scoring_strategy" not in blank_scoring_review["failed_checks"]:
+        raise AssertionError(f"Expected scoring_strategy failure for blank strategies, got: {blank_scoring_review}")
+
+    blank_errors = rich_doc.replace(
+        "| 漏零行 | 直接数原矩阵行数 | 化阶梯后再数 | 行变换改变外观不改变秩 |",
+        "|  |  |  |  |",
+    )
+    blank_errors_review = quality_mod.structural_review("题型解析/blank-errors.md", blank_errors)
+    if "error_comparison" not in blank_errors_review["failed_checks"]:
+        raise AssertionError(f"Expected error_comparison failure for empty rows, got: {blank_errors_review}")
+
     deep = json.loads(
         run_script(
             "init_exam_deep_dive.py",

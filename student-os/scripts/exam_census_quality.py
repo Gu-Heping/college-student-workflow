@@ -266,19 +266,6 @@ def _answers_section(text: str) -> str:
     return section_body_after_heading(text, "自测答案")
 
 
-def _split_self_test_blocks(text: str) -> list[str]:
-    """Question blocks only（排除 ### 自测 N 答案）."""
-    section = _questions_section(text) or text
-    return re.split(r"(?m)^###\s*(?:自测|Self[- ]?test)\s+\d+(?!\s*答案)\b", section, flags=re.I)[1:]
-
-
-def _split_self_test_answer_blocks(text: str) -> list[str]:
-    section = _answers_section(text)
-    if not section.strip():
-        return []
-    return re.split(r"(?m)^###\s*自测\s+\d+\s*答案\b", section)[1:]
-
-
 def _concrete_source_value(value: str) -> bool:
     cleaned = value.strip().strip("*").strip()
     if not cleaned:
@@ -379,21 +366,68 @@ def _self_test_has_prompt(block: str) -> bool:
 
 
 def _self_test_has_answer(block: str) -> bool:
-    for marker in ("答案与解析", "答案", "Answer"):
+    for marker in ("答案与解析", "**答案**", "答案：", "答案:", "Answer:", "Answer："):
         if marker in block and has_substance(block.split(marker, 1)[-1][:500], min_chars=6):
             return True
+    # Broader fallback for legacy English headings.
+    if "Answer" in block and has_substance(block.split("Answer", 1)[-1][:500], min_chars=6):
+        return True
     return False
 
 
+_SELF_TEST_Q_HEADING_RE = re.compile(
+    r"(?m)^###\s*(?:自测|Self[- ]?test)\s+(\d+)(?!\s*答案)\b[^\n]*",
+    re.I,
+)
+_SELF_TEST_A_HEADING_RE = re.compile(r"(?m)^###\s*自测\s+(\d+)\s*答案\b[^\n]*")
+FILL_IN_PLACEHOLDER_RE = re.compile(
+    r"\[(?:表达式|值|答案|结论|中间量|步骤[0-9一二三四五六七八九十]*|占位符)\]"
+)
+INLINE_ANSWER_MARKER_RE = re.compile(
+    r"(答案与解析|(?m)^\s*\*\*?答案\*\*?\s*[：:]|(?m)^\s*答案\s*[：:]|Answer\s*[：:])"
+)
+
+
+def _numbered_heading_blocks(section: str, heading_re: re.Pattern[str]) -> list[tuple[str, str]]:
+    matches = list(heading_re.finditer(section))
+    blocks: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        start = match.start()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(section)
+        blocks.append((match.group(1), section[start:end]))
+    return blocks
+
+
+def _split_self_test_blocks(text: str) -> list[str]:
+    """Question blocks only（排除 ### 自测 N 答案）."""
+    section = _questions_section(text) or text
+    return [body for _, body in _numbered_heading_blocks(section, _SELF_TEST_Q_HEADING_RE)]
+
+
+def _split_self_test_answer_blocks(text: str) -> list[str]:
+    section = _answers_section(text)
+    if not section.strip():
+        return []
+    return [body for _, body in _numbered_heading_blocks(section, _SELF_TEST_A_HEADING_RE)]
+
+
 def count_filled_self_tests(text: str) -> int:
-    question_blocks = _split_self_test_blocks(text)
-    answer_blocks = _split_self_test_answer_blocks(text)
+    question_blocks = _numbered_heading_blocks(_questions_section(text) or text, _SELF_TEST_Q_HEADING_RE)
+    answer_map = {
+        number: body
+        for number, body in _numbered_heading_blocks(_answers_section(text), _SELF_TEST_A_HEADING_RE)
+    }
+    has_answer_section = bool(re.search(r"(?m)^#{1,6}\s+自测答案\b", text))
     filled = 0
-    for index, block in enumerate(question_blocks):
+    for number, block in question_blocks:
         if not (_block_has_source(block) and _self_test_has_prompt(block)):
             continue
-        paired = answer_blocks[index] if index < len(answer_blocks) else ""
-        if _self_test_has_answer(paired) or _self_test_has_answer(block):
+        paired = answer_map.get(number, "")
+        if _self_test_has_answer(paired):
+            filled += 1
+            continue
+        # Legacy inline answers only when there is no dedicated 自测答案 section.
+        if not has_answer_section and _self_test_has_answer(block):
             filled += 1
     return filled
 
@@ -506,14 +540,54 @@ def core_methods_issues(text: str) -> list[str]:
     return []
 
 
+def _filled_table_data_rows(body: str, *, min_nonempty_cells: int = 2) -> list[list[str]]:
+    """Return non-separator, non-header-ish markdown table data rows with enough filled cells."""
+    rows: list[list[str]] = []
+    header_tokens = {
+        "时间情况",
+        "策略",
+        "大约可省",
+        "易错点",
+        "错误做法",
+        "正确做法",
+        "原因",
+        "项目",
+        "内容",
+    }
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        if re.match(r"^\|?\s*:?-{3,}", stripped.replace("|", " ").strip()) or re.search(
+            r"^\|(\s*:?-{3,}\s*\|)+\s*$", stripped
+        ):
+            continue
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        if not cells:
+            continue
+        if cells[0] in header_tokens:
+            continue
+        nonempty = [cell for cell in cells if cell]
+        if len(nonempty) >= min_nonempty_cells:
+            rows.append(cells)
+    return rows
+
+
 def scoring_strategy_issues(text: str) -> list[str]:
     if not re.search(r"(?m)^#{1,6}\s+快速得分技巧\b", text):
         return ["missing 快速得分技巧 section"]
     body = section_body_after_heading(text, "快速得分技巧")
-    if not has_substance(body, min_chars=8):
-        return ["empty 快速得分技巧 section"]
     if not re.search(r"(时间充裕|时间紧张|几乎不够|完全不会|时间不够)", body):
         return ["快速得分技巧 missing time-tier cues"]
+    filled_rows = _filled_table_data_rows(body, min_nonempty_cells=2)
+    strategy_filled = 0
+    for cells in filled_rows:
+        # Expect: 时间情况 | 策略 | 大约可省
+        strategy = cells[1].strip() if len(cells) > 1 else ""
+        if strategy and strategy not in {"策略", "---"}:
+            strategy_filled += 1
+    if strategy_filled < 2:
+        return ["快速得分技巧 needs >=2 filled strategy rows beyond time-tier labels"]
     return []
 
 
@@ -526,8 +600,15 @@ def error_comparison_issues(text: str) -> list[str]:
         return ["missing 易错点与检查清单 section"]
     if not (("错误做法" in blob) and ("正确做法" in blob) and ("原因" in blob)):
         return ["missing page-level 错误做法 / 正确做法 / 原因 comparison table"]
-    if not has_substance(blob, min_chars=12):
-        return ["empty 易错点与检查清单 section"]
+    filled_rows = _filled_table_data_rows(blob, min_nonempty_cells=3)
+    concrete = 0
+    for cells in filled_rows:
+        if len(cells) >= 4 and all(cells[i].strip() for i in range(4)):
+            concrete += 1
+        elif len([c for c in cells if c.strip()]) >= 3:
+            concrete += 1
+    if concrete < 1:
+        return ["易错点与检查清单 needs >=1 filled wrong/right/reason data row"]
     return []
 
 
@@ -543,16 +624,21 @@ def self_test_answer_separation_issues(text: str) -> list[str]:
     if not re.search(r"(?m)^#{1,6}\s+自测答案\b", text):
         issues.append("missing ## 自测答案 section")
     questions = _questions_section(text)
-    # Fail when the questions section still embeds substantial inline answers.
-    if "答案与解析" in questions:
-        after = questions.split("答案与解析", 1)[-1][:400]
-        if has_substance(after, min_chars=8):
-            issues.append("自测题 section still contains inline 答案与解析; move answers to 自测答案")
+    for match in INLINE_ANSWER_MARKER_RE.finditer(questions):
+        after = questions[match.end() : match.end() + 400]
+        if has_substance(after, min_chars=6):
+            issues.append("自测题 section still contains inline answers; move answers to 自测答案")
+            break
     return issues
 
 
 def fill_in_answer_template_issues(text: str) -> list[str]:
-    if re.search(r"\[[^\]\n]{1,24}\]", text):
+    # Prefer the dedicated template section; fall back to whole page.
+    body = section_body_after_heading(text, "填空式答题模板") or section_body_after_heading(
+        text, "2分钟下笔模板"
+    )
+    haystack = body if body.strip() else text
+    if FILL_IN_PLACEHOLDER_RE.search(haystack):
         return []
     return ["missing fill-in answer template placeholders like [表达式] / [答案]"]
 
