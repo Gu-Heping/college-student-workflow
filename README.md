@@ -301,7 +301,7 @@ docs/           # 维护记录文档
 ## 测试
 
 ```bash
-python -m py_compile scripts/install_student_os.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py
+python -m py_compile scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py
 python scripts/run_smoke_tests.py
 ```
 
@@ -312,6 +312,8 @@ python scripts/run_smoke_tests.py --refresh-examples
 ```
 
 CI 在 PR 与 main push 上会跑上述编译检查与 smoke tests（[`.github/workflows/smoke.yml`](./.github/workflows/smoke.yml)）。
+
+推送 `vX.Y.Z` tag 时，[`.github/workflows/release.yml`](./.github/workflows/release.yml) 会验证并通过 `CHANGELOG.md` 对应版本段落创建 GitHub Release。完整发版步骤见 [`docs/maintenance.md`](./docs/maintenance.md#发布流程)。
 
 ## Roadmap
 
