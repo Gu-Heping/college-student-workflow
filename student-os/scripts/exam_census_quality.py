@@ -384,7 +384,8 @@ FILL_IN_PLACEHOLDER_RE = re.compile(
     r"\[(?:表达式|值|答案|结论|中间量|步骤[0-9一二三四五六七八九十]*|占位符)\]"
 )
 INLINE_ANSWER_MARKER_RE = re.compile(
-    r"(答案与解析|(?m)^\s*\*\*?答案\*\*?\s*[：:]|(?m)^\s*答案\s*[：:]|Answer\s*[：:])"
+    r"(答案与解析|^\s*\*\*?答案\*\*?\s*[：:]|^\s*答案\s*[：:]|Answer\s*[：:])",
+    re.M,
 )
 
 
