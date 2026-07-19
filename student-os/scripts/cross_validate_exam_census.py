@@ -15,6 +15,7 @@ from exam_census_utils import (
     load_annotations_for_manifest,
     load_json,
     load_taxonomy,
+    relative_posix,
     resolve_course,
     reviews_dir,
     state_dir,
@@ -93,19 +94,15 @@ def references_type_analysis(text: str) -> bool:
 
 
 def guide_links_type(guide_text: str, type_id: str, skeleton_name: str | None) -> bool:
+    """Require a navigable markdown link to the type skeleton (not plain-text co-occurrence)."""
     for target in markdown_link_targets(guide_text):
         normalized = target.replace("\\", "/")
-        if type_id and type_id in normalized:
-            return True
         if skeleton_name and skeleton_name in normalized:
             return True
-        if f"题型解析/" in normalized and type_id.replace("_", "-") in normalized:
+        if type_id and type_id in normalized and "题型解析/" in normalized:
             return True
-    # Allow plain-text mentions of the skeleton filename (tables often omit link syntax).
-    if skeleton_name and skeleton_name in guide_text:
-        return True
-    if type_id and f"题型解析/" in guide_text and type_id in guide_text:
-        return True
+        if type_id and "题型解析/" in normalized and type_id.replace("_", "-") in normalized:
+            return True
     return False
 
 
@@ -113,18 +110,48 @@ def has_heading(text: str, title: str) -> bool:
     return bool(re.search(rf"(?m)^#{{1,6}}\s+{re.escape(title)}\b", text))
 
 
-def has_markdown_table_row(text: str) -> bool:
-    """True if there is at least one non-separator table data row."""
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("|"):
+def section_body_after_heading(text: str, title: str) -> str:
+    match = re.search(rf"(?m)^#{{1,6}}\s+{re.escape(title)}\b[^\n]*\n", text)
+    if not match:
+        return ""
+    start = match.end()
+    next_heading = re.search(r"(?m)^#{1,6}\s+", text[start:])
+    end = start + next_heading.start() if next_heading else len(text)
+    return text[start:end]
+
+
+def _table_cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _is_separator_row(cells: list[str]) -> bool:
+    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell or "") for cell in cells)
+
+
+def has_filled_table_data_row(text: str) -> bool:
+    """True if any markdown table has a non-header data row with at least one non-empty cell."""
+    lines = [line.strip() for line in text.splitlines()]
+    index = 0
+    while index < len(lines):
+        if not lines[index].startswith("|"):
+            index += 1
             continue
-        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
-        if cells and all(re.fullmatch(r":?-{3,}:?", cell or "") for cell in cells):
+        table: list[str] = []
+        while index < len(lines) and lines[index].startswith("|"):
+            table.append(lines[index])
+            index += 1
+        if len(table) < 3:
             continue
-        if any(cell for cell in cells):
-            return True
+        if not _is_separator_row(_table_cells(table[1])):
+            continue
+        for row in table[2:]:
+            cells = _table_cells(row)
+            if any(cell for cell in cells):
+                return True
     return False
+
+
+FILLED_CHECKLIST_ITEM_RE = re.compile(r"(?m)^-\s*\[[ xX]\][ \t]+\S+")
 
 
 def yaml_string(value: str) -> str:
@@ -136,18 +163,28 @@ def status_mark(ok: bool) -> str:
     return "✅" if ok else "❌"
 
 
-def validate_prep_pack(output_root: Path, analysis_dir: Path) -> dict:
+def _repo_relative(path: Path, repo: Path) -> str:
+    return relative_posix(path, repo)
+
+
+def validate_prep_pack(output_root: Path, analysis_dir: Path, repo: Path | None = None) -> dict:
     files_meta: dict[str, dict] = {}
     missing_files: list[str] = []
     layer_link_issues: list[str] = []
     content_issues: list[str] = []
     texts: dict[str, str] = {}
+    root = repo.resolve() if repo is not None else None
 
     for key, filename in PREP_PACK_FILES.items():
         path = output_root / filename
         exists = path.exists()
-        rel = str(path.as_posix())
-        files_meta[key] = {"exists": exists, "path": rel if exists else filename}
+        if exists and root is not None:
+            recorded = _repo_relative(path, root)
+        elif exists:
+            recorded = filename
+        else:
+            recorded = filename
+        files_meta[key] = {"exists": exists, "path": recorded}
         if not exists:
             missing_files.append(filename)
             continue
@@ -183,8 +220,9 @@ def validate_prep_pack(output_root: Path, analysis_dir: Path) -> dict:
             layer_link_issues.append("公式总卡.md: missing link/mention of 题型解析/")
         if not has_heading(formula, "高频公式速查"):
             content_issues.append("公式总卡.md: missing section '高频公式速查'")
-        if not has_markdown_table_row(formula):
-            content_issues.append("公式总卡.md: missing markdown table rows")
+        formula_section = section_body_after_heading(formula, "高频公式速查") or formula
+        if not has_filled_table_data_row(formula_section):
+            content_issues.append("公式总卡.md: missing filled formula table data rows")
         if "来源" not in formula and not references_type_analysis(formula):
             content_issues.append("公式总卡.md: missing 来源 column/text or 题型解析 link")
 
@@ -193,9 +231,11 @@ def validate_prep_pack(output_root: Path, analysis_dir: Path) -> dict:
             layer_link_issues.append("答题模板速查.md: missing link/mention of 题型解析/")
         if not has_heading(templates, "标准答题模板"):
             content_issues.append("答题模板速查.md: missing section '标准答题模板'")
-        if not FILL_IN_PLACEHOLDER_RE.search(templates):
+        template_section = section_body_after_heading(templates, "标准答题模板")
+        if not FILL_IN_PLACEHOLDER_RE.search(template_section):
             content_issues.append(
-                "答题模板速查.md: missing fill-in placeholders like [条件]/[表达式]/[答案]"
+                "答题模板速查.md: missing fill-in placeholders like [条件]/[表达式]/[答案] "
+                "in 标准答题模板"
             )
 
     if checklist:
@@ -213,8 +253,10 @@ def validate_prep_pack(output_root: Path, analysis_dir: Path) -> dict:
             content_issues.append(
                 f"考前1小时清单.md: missing time slots {', '.join(missing_slots)}"
             )
-        if "- [ ]" not in checklist and "- [x]" not in checklist.lower():
-            content_issues.append("考前1小时清单.md: missing checklist items (- [ ])")
+        if not FILLED_CHECKLIST_ITEM_RE.search(checklist):
+            content_issues.append(
+                "考前1小时清单.md: missing filled checklist items (- [ ] with text)"
+            )
 
     l2_ok = analysis_dir.exists() and any(analysis_dir.glob("*.md"))
     prep_ok = not (missing_files or layer_link_issues or content_issues)
@@ -276,7 +318,7 @@ def main() -> int:
     orphan_skeletons = sorted(set(skeleton_ids) - annotated_known)
     unknown_annotated = sorted(annotated_types - known_ids)
 
-    prep_pack = validate_prep_pack(output_root, analysis_dir)
+    prep_pack = validate_prep_pack(output_root, analysis_dir, repo=repo)
     prep_guide = output_root / PREP_PACK_FILES["prep_guide"]
     guide_missing_links: list[str] = []
     guide_exists = prep_guide.exists()

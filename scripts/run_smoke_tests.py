@@ -3158,6 +3158,17 @@ def exercise_exam_census(repo: Path) -> None:
         raise AssertionError(f"Expected no prep_pack.missing_files, got: {prep_pack}")
     if prep_pack.get("layer_link_issues") or prep_pack.get("content_issues"):
         raise AssertionError(f"Expected clean prep_pack issues, got: {prep_pack}")
+    for key, filename in (
+        ("prep_guide", "备考指南.md"),
+        ("formula_card", "公式总卡.md"),
+        ("answer_templates", "答题模板速查.md"),
+        ("one_hour_checklist", "考前1小时清单.md"),
+    ):
+        recorded = ((prep_pack.get("files") or {}).get(key) or {}).get("path") or ""
+        if recorded.startswith("/") or re.match(r"^[A-Za-z]:[\\/]", recorded):
+            raise AssertionError(f"prep_pack path must be repo-relative, got {key}={recorded!r}")
+        if filename not in recorded.replace("\\", "/"):
+            raise AssertionError(f"Expected repo-relative path containing {filename}, got: {recorded}")
     coverage_report = reviews_midterm / "analysis" / "覆盖率检查.md"
     ensure_exists(coverage_report)
     ensure_contains(coverage_report, "Prep pack 四层结构")
@@ -3216,6 +3227,41 @@ def exercise_exam_census(repo: Path) -> None:
     if not any("考前1小时清单.md" in item for item in link_issues):
         raise AssertionError(f"Expected layer_link_issues about 考前1小时清单.md, got: {link_issues}")
 
+    # Formula card with only header/empty rows (no filled data) → content_issues.
+    write_minimal_prep_pack(reviews_midterm, skeleton_names)
+    (reviews_midterm / "公式总卡.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "type: formula-cheat-sheet",
+                'course: "linear-algebra"',
+                "status: active",
+                "review_scope: exam-census",
+                "---",
+                "",
+                "# Formula card",
+                "",
+                "See [题型解析/](题型解析/).",
+                "",
+                "## 高频公式速查",
+                "",
+                "| 题型 | 看到什么 | 公式 / 结论 | 先算什么 | 最容易错 | 来源 |",
+                "| --- | --- | --- | --- | --- | --- |",
+                "|  |  |  |  |  |  |",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    empty_formula_code, empty_formula_payload = _run_cross_validate(repo)
+    if empty_formula_code == 0:
+        raise AssertionError("Expected Phase E to fail when formula table has no filled data rows")
+    empty_formula_issues = list((empty_formula_payload.get("prep_pack") or {}).get("content_issues") or [])
+    if not any("filled formula" in item or "table data" in item for item in empty_formula_issues):
+        raise AssertionError(f"Expected empty-formula content_issues, got: {empty_formula_issues}")
+
     # Formula card without 题型解析/ links → layer_link_issues or content_issues.
     write_minimal_prep_pack(reviews_midterm, skeleton_names)
     (reviews_midterm / "公式总卡.md").write_text(
@@ -3252,7 +3298,7 @@ def exercise_exam_census(repo: Path) -> None:
     if not any("公式总卡" in item and "题型解析" in item for item in formula_issues):
         raise AssertionError(f"Expected formula-card 题型解析 issue, got: {formula_issues}")
 
-    # Answer templates without fill-in placeholders → content_issues.
+    # Answer templates with placeholders only outside 标准答题模板 → content_issues.
     write_minimal_prep_pack(reviews_midterm, skeleton_names)
     (reviews_midterm / "答题模板速查.md").write_text(
         "\n".join(
@@ -3265,6 +3311,8 @@ def exercise_exam_census(repo: Path) -> None:
                 "---",
                 "",
                 "# Answer templates",
+                "",
+                "Usage note only: placeholders like [条件] / [答案] live here, not in the table.",
                 "",
                 "## 标准答题模板",
                 "",
@@ -3280,9 +3328,11 @@ def exercise_exam_census(repo: Path) -> None:
     )
     tmpl_code, tmpl_payload = _run_cross_validate(repo)
     if tmpl_code == 0:
-        raise AssertionError("Expected Phase E to fail when answer templates lack fill-in placeholders")
+        raise AssertionError(
+            "Expected Phase E to fail when fill-in placeholders are only outside 标准答题模板"
+        )
     tmpl_issues = list((tmpl_payload.get("prep_pack") or {}).get("content_issues") or [])
-    if not any("填空" in item or "placeholder" in item or "[条件]" in item for item in tmpl_issues):
+    if not any("填空" in item or "placeholder" in item or "标准答题模板" in item for item in tmpl_issues):
         raise AssertionError(f"Expected fill-in placeholder content_issues, got: {tmpl_issues}")
 
     # One-hour checklist missing time slots → content_issues.
@@ -3317,6 +3367,46 @@ def exercise_exam_census(repo: Path) -> None:
     if not any("60-45" in item or "time slots" in item for item in hour_issues):
         raise AssertionError(f"Expected time-slot content_issues, got: {hour_issues}")
 
+    # Empty checklist boxes without text → content_issues.
+    write_minimal_prep_pack(reviews_midterm, skeleton_names)
+    (reviews_midterm / "考前1小时清单.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "type: pre-exam-one-hour-checklist",
+                'course: "linear-algebra"',
+                "status: active",
+                "review_scope: exam-census",
+                "---",
+                "",
+                "# Checklist",
+                "",
+                "| 时间 | 做什么 | 文件 | 目标 |",
+                "| --- | --- | --- | --- |",
+                "| 60-45 分钟 | P0 | [备考指南.md](备考指南.md) / [题型解析/](题型解析/) | 方法 |",
+                "| 45-30 分钟 | 公式 | [公式总卡.md](公式总卡.md) | 背诵 |",
+                "| 30-15 分钟 | 模板 | [答题模板速查.md](答题模板速查.md) | 步骤分 |",
+                "| 15-5 分钟 | 易错 | [题型解析/](题型解析/) | 避坑 |",
+                "| 5-0 分钟 | checklist | 本文件 | 稳住 |",
+                "",
+                "## 最后检查",
+                "",
+                "- [ ]",
+                "- [ ]   ",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    empty_box_code, empty_box_payload = _run_cross_validate(repo)
+    if empty_box_code == 0:
+        raise AssertionError("Expected Phase E to fail when checklist boxes have no text")
+    empty_box_issues = list((empty_box_payload.get("prep_pack") or {}).get("content_issues") or [])
+    if not any("checklist" in item.lower() or "检查" in item for item in empty_box_issues):
+        raise AssertionError(f"Expected empty-checklist content_issues, got: {empty_box_issues}")
+
     # Restore a clean prep pack for any later consumers of this fixture.
     write_minimal_prep_pack(reviews_midterm, skeleton_names)
     restored_code, restored_payload = _run_cross_validate(repo)
@@ -3345,7 +3435,7 @@ def exercise_exam_census(repo: Path) -> None:
                 "",
                 "| 优先级 | 题型 | 出现率 | 建议投入时间 | 入口 |",
                 "| --- | --- | ---: | --- | --- |",
-                "| P0 | | | | |",
+                "| P0 | matrix-rank | high | 1h | 题型解析/ |",
                 "",
                 "## 复习时间分配",
                 "",

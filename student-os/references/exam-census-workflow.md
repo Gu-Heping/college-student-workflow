@@ -261,7 +261,9 @@ python student-os/scripts/cross_validate_exam_census.py /path/to/vault \
 
 Writes `cross-validation.json` and `analysis/覆盖率检查.md` (missing skeletons, empty type lists, prep-guide link gaps, **Prep pack 四层结构**).
 
-Run Phase E once after Aggregate/A–D for coverage, then **again after Phase 5** so prep-pack layer checks are green.
+**Preferred:** run Phase E **after Phase 5**, so L1/L3/L4 files exist and `ok` can be true.
+
+Optional early diagnostic after Aggregate/A–D is fine for skeleton coverage, but expect `ok: false` / nonzero exit until prep-pack files are created — do not treat that as a hard stop before Phase 5.
 
 ### Phase 5 — Prep pack 四层资料包
 
