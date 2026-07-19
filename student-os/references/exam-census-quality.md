@@ -11,14 +11,14 @@ Use this reference for Phase A–E after Aggregate. Mechanical census scripts st
 - 表格单元格里的行列式/绝对值**不要裸写** `|A|`：优先 `$\lvert A\rvert$`，或确保 `|` 已转义为 `\|`（生成脚本统一走 `md_table_cell`）。
 - **不要**使用引用块内表格（`> | ... |`）；**不要**在 `<details>` 内使用 `$$` 块级公式（推荐不用 `<details>`）。
 - 低频题型证据不足时：写「证据不足，需人工补充」，并设 `quality: needs-review`；不要保留空模板段落。
-- Phase B（`review_type_analysis.py`）拦截臃肿 frontmatter、英文残留、坏表格、缺真题来源、不兼容 Markdown/LaTeX、教学支架缺失，以及 v3 结构软检（核心概念/核心方法/抢分/易错表/难度星/自测答案分章）。
+- Phase B（`review_type_analysis.py`）拦截臃肿 frontmatter、英文残留、坏表格、缺真题来源、不兼容 Markdown/LaTeX、教学支架缺失，以及 v3 结构软检（核心概念须有教材引用或「未参考指定教材」声明 / 核心方法 / 抢分 / 易错表 / 难度星 / 自测答案分章）。
 
 ## Content standard v3 — required section order
 
 1. 元信息（频率/分值/难度/来源；普通文本，禁止引用块表格）
 2. 真卷对应题号
 3. **考前速记（30秒掌握）**：ASCII 决策树（`├─`）+ 一眼先记住 + 关键公式表 + 口诀
-4. **核心概念**：定义 + 易混对比表
+4. **核心概念**：正式定义 + 几何/代数（或学科等价）意义 + 易混对比表；优先参考 fill-queue `concept_sources` 教材 sidecar，并写 `参考：…`；无教材时写「基于考纲整理，未参考指定教材」
 5. **核心方法**：方法卡（适用场景→步骤→技巧）+ 选择速查 + 填空式答题模板（`[表达式]` / `[答案]`）
 6. 零基础先看这里（入口四问 + 最低掌握线）
 7. 例题精讲（≥5，来源 + 方法引用 + **难度星级**；禁止编造）

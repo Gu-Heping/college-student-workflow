@@ -21,6 +21,98 @@ from exam_census_utils import (
     write_json,
 )
 
+# Subdirs under courses/<course>/references/ that usually hold exam papers, not textbooks.
+_EXAM_REFERENCE_DIR_NAMES = frozenset(
+    {
+        "exams",
+        "exam",
+        "试卷",
+        "真题",
+        "文本",
+        "text",
+        "markdown",
+        "md",
+        "past-papers",
+        "papers",
+    }
+)
+
+_TEXTBOOK_NAME_HINTS = ("教材", "textbook", "讲义", "课本")
+
+
+def discover_concept_sources(
+    repo: Path,
+    course_dir: Path,
+    course_key: str,
+) -> list[dict[str, str]]:
+    """Find textbook / lecture-note markdown sidecars agents should open for 核心概念.
+
+    Returns repo-relative paths only (no file bodies) to keep fill-queue small.
+    """
+    roots: list[Path] = []
+    course_refs = course_dir / "references"
+    if course_refs.is_dir():
+        roots.append(course_refs)
+    vault_textbooks = repo / "references" / "textbooks"
+    if vault_textbooks.is_dir():
+        roots.append(vault_textbooks)
+
+    slug_tokens = [
+        part.lower()
+        for part in re.split(r"[/_\-\s]+", course_key)
+        if part and part.lower() not in {"courses", "course"}
+    ]
+    # Prefer human course folder name fragments too (e.g. 线性代数).
+    if course_dir.name and course_dir.name.lower() not in {t.lower() for t in slug_tokens}:
+        slug_tokens.append(course_dir.name.lower())
+
+    found: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def consider(path: Path, *, match_scope: str) -> None:
+        if not path.is_file():
+            return
+        name = path.name
+        if not (name.endswith(".pdf.md") or name.endswith(".md")):
+            return
+        rel = relative_posix(path, repo)
+        if rel in seen:
+            return
+        name_l = name.lower()
+        hint_hit = any(hint in name_l for hint in _TEXTBOOK_NAME_HINTS)
+        if match_scope == "textbooks_dir":
+            # Vault textbooks/ folder: any markdown sidecar counts.
+            accept = True
+        else:
+            # Course references/: require filename hints or filename slug tokens
+            # (do NOT match on parent path — course slug lives in the path for every file).
+            slug_hit = any(token in name_l for token in slug_tokens if len(token) >= 4)
+            accept = hint_hit or slug_hit
+        if not accept:
+            return
+        seen.add(rel)
+        found.append({"path": rel, "label": path.name})
+
+    for root in roots:
+        if root == course_refs:
+            exam_names = {n.lower() for n in _EXAM_REFERENCE_DIR_NAMES}
+            for child in sorted(root.rglob("*")):
+                if not child.is_file():
+                    continue
+                try:
+                    rel_parts = child.relative_to(course_refs).parts
+                except ValueError:
+                    continue
+                # Exclude files under exam-like directories (any ancestor segment).
+                if any(part.lower() in exam_names for part in rel_parts[:-1]):
+                    continue
+                consider(child, match_scope="course_refs")
+        else:
+            for child in sorted(root.rglob("*")):
+                consider(child, match_scope="textbooks_dir")
+
+    return found
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -186,6 +278,17 @@ def main() -> int:
     annotations, _aliases, _errors = load_annotations_for_manifest(
         census_state / "annotations", papers
     )
+    concept_sources = discover_concept_sources(repo, course_dir, course_key)
+    if concept_sources:
+        concept_note = (
+            "Open concept_sources markdown sidecars before writing 核心概念; "
+            "cite them as 参考：<filename> 第X章…"
+        )
+    else:
+        concept_note = (
+            "No textbook sidecars discovered under course references/ or "
+            "references/textbooks/; write 基于考纲整理，未参考指定教材 in 核心概念."
+        )
     items: list[dict] = []
     for path in sorted(analysis_dir.glob("*.md")):
         text = path.read_text(encoding="utf-8")
@@ -200,6 +303,7 @@ def main() -> int:
                 "sources": sources,
                 "source_papers": source_papers,
                 "source_instances": source_instances,
+                "concept_sources": concept_sources,
                 "required_sections": REQUIRED_SECTION_HEADINGS,
                 "entry_layer_markers": ENTRY_LAYER_MARKERS,
                 "instructions": list(FILL_QUEUE_INSTRUCTIONS),
@@ -216,13 +320,19 @@ def main() -> int:
         "phase": "A",
         "item_count": len(items),
         "items": items,
+        "concept_sources": concept_sources,
+        "concept_sources_note": concept_note,
         "quality_reference": "references/exam-census-quality.md",
         "template": "templates/exam-type-analysis.md",
     }
     write_json(queue_path, payload)
     print(
         json.dumps(
-            {"queue": str(queue_path), **{k: payload[k] for k in ("course", "exam_scope", "item_count")}},
+            {
+                "queue": str(queue_path),
+                **{k: payload[k] for k in ("course", "exam_scope", "item_count")},
+                "concept_source_count": len(concept_sources),
+            },
             ensure_ascii=False,
             indent=2,
         )
