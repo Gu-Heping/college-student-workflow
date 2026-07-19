@@ -38,6 +38,20 @@ _EXAM_REFERENCE_DIR_NAMES = frozenset(
 )
 
 _TEXTBOOK_NAME_HINTS = ("教材", "textbook", "讲义", "课本")
+_EXAM_FILENAME_HINTS = (
+    "midterm",
+    "final",
+    "exam",
+    "quiz",
+    "期中",
+    "期末",
+    "真题",
+    "试卷",
+    "测验",
+    "past-paper",
+    "pastpaper",
+)
+_REPAIR_ARTIFACT_SUFFIXES = (".raw.md", "-repair-summary.md")
 
 
 def discover_concept_sources(
@@ -69,26 +83,37 @@ def discover_concept_sources(
     found: list[dict[str, str]] = []
     seen: set[str] = set()
 
-    def consider(path: Path, *, match_scope: str) -> None:
+    def _is_repair_artifact(name: str) -> bool:
+        lower = name.lower()
+        return any(lower.endswith(suffix) for suffix in _REPAIR_ARTIFACT_SUFFIXES) or ".raw." in lower
+
+    def _looks_like_exam_paper(name: str) -> bool:
+        lower = name.lower()
+        return any(hint in lower for hint in _EXAM_FILENAME_HINTS)
+
+    def _filename_matches_course(name: str, *, require_course_token: bool = False) -> bool:
+        name_l = name.lower()
+        hint_hit = any(hint in name_l for hint in _TEXTBOOK_NAME_HINTS)
+        slug_hit = any(token in name_l for token in slug_tokens if len(token) >= 4)
+        if require_course_token:
+            # Shared vault textbooks/ must mention this course (avoid cross-course leaks).
+            return slug_hit
+        return hint_hit or slug_hit
+
+    def consider(path: Path, *, require_course_token: bool = False) -> None:
         if not path.is_file():
             return
         name = path.name
-        if not (name.endswith(".pdf.md") or name.endswith(".md")):
+        if not name.endswith(".md"):
+            return
+        if _is_repair_artifact(name):
+            return
+        if _looks_like_exam_paper(name):
+            return
+        if not _filename_matches_course(name, require_course_token=require_course_token):
             return
         rel = relative_posix(path, repo)
         if rel in seen:
-            return
-        name_l = name.lower()
-        hint_hit = any(hint in name_l for hint in _TEXTBOOK_NAME_HINTS)
-        if match_scope == "textbooks_dir":
-            # Vault textbooks/ folder: any markdown sidecar counts.
-            accept = True
-        else:
-            # Course references/: require filename hints or filename slug tokens
-            # (do NOT match on parent path — course slug lives in the path for every file).
-            slug_hit = any(token in name_l for token in slug_tokens if len(token) >= 4)
-            accept = hint_hit or slug_hit
-        if not accept:
             return
         seen.add(rel)
         found.append({"path": rel, "label": path.name})
@@ -106,10 +131,10 @@ def discover_concept_sources(
                 # Exclude files under exam-like directories (any ancestor segment).
                 if any(part.lower() in exam_names for part in rel_parts[:-1]):
                     continue
-                consider(child, match_scope="course_refs")
+                consider(child, require_course_token=False)
         else:
             for child in sorted(root.rglob("*")):
-                consider(child, match_scope="textbooks_dir")
+                consider(child, require_course_token=True)
 
     return found
 

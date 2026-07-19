@@ -11,6 +11,7 @@ from exam_census_quality import QUALITY_CHECK_LABELS, analysis_report_review, st
 from exam_census_utils import (
     course_slug_of,
     exam_scope_key,
+    load_json,
     relative_posix,
     resolve_course,
     reviews_dir,
@@ -75,10 +76,23 @@ def main() -> int:
     if not analysis_dir.exists():
         raise SystemExit(f"Missing type-analysis directory: {analysis_dir}")
 
+    census_state = state_dir(repo, course_key, exam_scope)
+    fill_queue_path = census_state / "fill-queue.json"
+    concept_sources: list[dict[str, str]] = []
+    if fill_queue_path.exists():
+        queue_payload = load_json(fill_queue_path)
+        raw_sources = queue_payload.get("concept_sources") or []
+        if isinstance(raw_sources, list):
+            concept_sources = [item for item in raw_sources if isinstance(item, dict)]
+
     reviews: list[dict] = []
     for path in sorted(analysis_dir.glob("*.md")):
         text = path.read_text(encoding="utf-8")
-        review = structural_review(relative_posix(path, repo), text)
+        review = structural_review(
+            relative_posix(path, repo),
+            text,
+            concept_sources=concept_sources,
+        )
         review["exam_type_id"] = extract_exam_type_id(text) or path.stem
         review["path"] = review["file"]
         reviews.append(review)

@@ -522,13 +522,17 @@ def teaching_scaffolding_issues(text: str) -> list[str]:
 
 
 CONCEPT_TEXTBOOK_CITE_RE = re.compile(
-    r"(参考\s*[：:].*(教材|讲义|课本|textbook)|教材\s*[：:]|来自教材|见教材)",
+    r"(参考\s*[：:]\s*\S+|教材\s*[：:]|来自教材|见教材)",
     re.I,
 )
 CONCEPT_NO_TEXTBOOK_RE = re.compile(r"(基于考纲整理|未参考指定教材)")
 
 
-def concept_explanation_issues(text: str) -> list[str]:
+def concept_explanation_issues(
+    text: str,
+    *,
+    concept_sources: list[dict[str, str]] | None = None,
+) -> list[str]:
     if not re.search(r"(?m)^#{1,6}\s+核心概念\b", text):
         return ["missing 核心概念 section"]
     body = section_body_after_heading(text, "核心概念")
@@ -536,9 +540,19 @@ def concept_explanation_issues(text: str) -> list[str]:
         return ["empty 核心概念 section"]
     if not (("定义" in body) or ("对比" in body) or ("|" in body)):
         return ["核心概念 missing 定义/对比 content"]
-    if not (CONCEPT_TEXTBOOK_CITE_RE.search(body) or CONCEPT_NO_TEXTBOOK_RE.search(body)):
+    has_cite = bool(CONCEPT_TEXTBOOK_CITE_RE.search(body))
+    has_disclaimer = bool(CONCEPT_NO_TEXTBOOK_RE.search(body))
+    sources = list(concept_sources or [])
+    if sources:
+        if not has_cite:
+            return [
+                "核心概念 missing textbook citation (参考：…) "
+                f"while concept_sources has {len(sources)} candidate(s)"
+            ]
+        return []
+    if not (has_cite or has_disclaimer):
         return [
-            "核心概念 missing textbook citation (参考：…教材…) "
+            "核心概念 missing textbook citation (参考：…) "
             "or disclaimer (基于考纲整理，未参考指定教材)"
         ]
     return []
@@ -658,7 +672,12 @@ def fill_in_answer_template_issues(text: str) -> list[str]:
     return ["missing fill-in answer template placeholders like [表达式] / [答案]"]
 
 
-def structural_review(path_label: str, text: str) -> dict[str, Any]:
+def structural_review(
+    path_label: str,
+    text: str,
+    *,
+    concept_sources: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     missing_sections = missing_required_sections(text)
     entry_issues = entry_layer_issues(text)
     example_count = count_filled_examples(text)
@@ -679,7 +698,7 @@ def structural_review(path_label: str, text: str) -> dict[str, Any]:
     source_issues = source_grounding_issues(text)
     render_issues = render_safe_markdown_issues(text)
     teaching_issues = teaching_scaffolding_issues(text)
-    concept_issues = concept_explanation_issues(text)
+    concept_issues = concept_explanation_issues(text, concept_sources=concept_sources)
     methods_issues = core_methods_issues(text)
     scoring_issues = scoring_strategy_issues(text)
     error_issues = error_comparison_issues(text)

@@ -94,8 +94,7 @@ source_summary: "共 {{paper_count}} 份试卷；详见 题型频率统计.md"
 
 ### 教材 / 考纲来源
 
-- 参考：`{{textbook_sidecar}}` 第 X 章 …（优先打开 fill-queue 的 `concept_sources`）
-- 若无教材候选：写「基于考纲整理，未参考指定教材」
+- {{concept_source_citation_or_disclaimer}}
 
 ## 核心方法
 
