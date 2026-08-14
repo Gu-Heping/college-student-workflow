@@ -878,13 +878,6 @@ def reconcile_skeleton(
         # Another type currently occupies this ranked path; leave it alone without --overwrite.
         return "skipped", str(target)
 
-    target_is_generated = (not target_exists) or is_generated_skeleton(
-        target_text, type_id=type_id, store=fingerprint_store
-    )
-
-    if target_exists and not target_is_generated:
-        return "skipped", str(target)
-
     if target_exists:
         return "skipped", str(target)
 
