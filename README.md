@@ -4,7 +4,7 @@
 
 `college-student-workflow` 是一个给大学生学习资料库用的 agent workflow 仓库。  
 它的核心是 [`student-os`](./student-os/)——一套装给 agent 用的 **skill**（可理解为：告诉 AI 怎么在你的笔记库里安全干活的说明书 + 脚本）。  
-安装脚本目前支持 `Codex`、`Claude Code`、`OpenCode`（`--agent codex|claude|opencode|all`）。`Cursor` 没有完整 skill 安装目标，可用仓库内 exam-census 等适配说明，或把本仓库 / 已安装 skill 当作规则与脚本参考。
+安装脚本目前支持 `Codex`、`Claude Code`、`OpenCode`、`DeepSeek Harness (DSH)`（`--agent codex|claude|opencode|dsh|all`）。`Cursor` 没有完整 skill 安装目标，可用仓库内 exam-census 等适配说明，或把本仓库 / 已安装 skill 当作规则与脚本参考。
 
 你可以把学习资料放在 Obsidian vault、普通 Markdown 文件夹，或任何以文本笔记为主的目录里。`student-os` 的核心价值是：
 
@@ -150,16 +150,26 @@ bash ./install.sh
 python scripts/install_student_os.py --agent codex
 python scripts/install_student_os.py --agent claude --scope project
 python scripts/install_student_os.py --agent opencode
+python scripts/install_student_os.py --agent dsh
+python scripts/install_student_os.py --agent dsh --scope project --project-root /path/to/vault
 python scripts/install_student_os.py --agent all --json
 ```
 
 说明：
 
-- `--agent`：装给谁（`codex` / `claude` / `opencode` 等）
+- `--agent`：装给谁（`codex` / `claude` / `opencode` / `dsh` 等）
+- `--agent all`：保留历史默认语义，只展开为 `codex` + `claude`；OpenCode 和 DSH 都需要显式指定
 - `--scope user`：装到用户级 agent skills 目录（普通用户推荐；与上文「发给 agent」示例一致）
-- `--scope project`：装到当前项目下的 agent skills 目录（可能写入 vault 内的 `.codex/skills` 等；这是安装 skill，不是改笔记）
+- `--scope project`：装到当前项目下的 agent skills 目录（可能写入 vault 内的 `.codex/skills` / `.claude/skills` / `.opencode/skills` / `.dsh/skills` 等；这是安装 skill，不是改笔记）
 - 默认尽量用 symlink，失败再回退到 copy
 - 安装后会生成 `.student-os-install.json`，供后续自更新使用
+
+DSH 目标路径：
+
+- 用户级安装：`$DSH_HOME/skills/student-os`；未设置 `DSH_HOME` 时为 `~/.dsh/skills/student-os`
+- 项目级安装：`<project>/.dsh/skills/student-os`
+
+DSH 运行时发现项目 skill 时，会使用最近的 `.git` 祖先作为 project root；找不到 `.git` 时回退到当前 cwd。因此 Git-first 的学习 vault 最适合作为 DSH project 根目录。安装器不会替你向上寻找 Git root，`--project-root` 指向哪里，就安装到哪里的 `.dsh/skills/student-os`。
 
 ## 日常使用场景
 

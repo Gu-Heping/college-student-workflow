@@ -84,14 +84,32 @@ def current_home() -> Path:
     return Path.home()
 
 
+def expand_home_path(path: str, home: Path) -> Path:
+    if path == "~":
+        return home
+    if path.startswith(("~/", "~\\")):
+        return home / path[2:]
+    return Path(path).expanduser()
+
+
+def resolve_dsh_home(home: Path | None = None) -> Path:
+    home_dir = home or Path.home()
+    dsh_home = os.environ.get("DSH_HOME")
+    if dsh_home is None or not dsh_home.strip():
+        return home_dir / ".dsh"
+    return expand_home_path(dsh_home, home_dir)
+
+
 def user_targets() -> list[Path]:
     home = current_home()
     codex_home = Path(os.environ.get("CODEX_HOME", home / ".codex")).expanduser()
+    dsh_home = resolve_dsh_home()
     return [
         codex_home / "skills" / SKILL_NAME,
         home / ".codex" / "skills" / SKILL_NAME,
         home / ".claude" / "skills" / SKILL_NAME,
         home / ".config" / "opencode" / "skills" / SKILL_NAME,
+        dsh_home / "skills" / SKILL_NAME,
     ]
 
 
@@ -173,9 +191,20 @@ def project_candidates() -> list[Path]:
     candidates: list[Path] = []
     cwd = Path.cwd()
     for root in [cwd, *cwd.parents]:
-        for relative in (Path(".codex") / "skills", Path(".claude") / "skills", Path(".opencode") / "skills"):
-            candidates.append(root / relative / SKILL_NAME)
+        candidates.extend(
+            root / relative / SKILL_NAME
+            for relative in (
+                Path(".codex") / "skills",
+                Path(".claude") / "skills",
+                Path(".opencode") / "skills",
+                Path(".dsh") / "skills",
+            )
+        )
         if any((root / marker).exists() for marker in [".git", ".codex", ".claude", ".opencode"]):
+            break
+        if (root / ".dsh" / "skills" / SKILL_NAME).exists():
+            break
+        if (root / ".dsh").exists() and not any((parent / ".git").exists() for parent in root.parents):
             break
     return candidates
 

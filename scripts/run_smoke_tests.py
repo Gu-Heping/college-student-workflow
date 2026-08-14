@@ -5934,6 +5934,401 @@ def verify_install_manifest_generation(tmp_root: Path) -> None:
         raise AssertionError("Forced reinstall payload should report preserved .env overrides")
 
 
+def read_install_manifest(destination: Path) -> dict:
+    manifest_path = destination / ".student-os-install.json"
+    if not manifest_path.exists():
+        raise AssertionError(f"Expected install manifest to exist: {manifest_path}")
+    return json.loads(manifest_path.read_text(encoding="utf-8"))
+
+
+def parse_frontmatter_scalar_fields(frontmatter: str) -> dict[str, object]:
+    fields: dict[str, object] = {}
+    for line in frontmatter.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        key, separator, value = line.partition(":")
+        if not separator:
+            raise AssertionError(f"student-os/SKILL.md frontmatter line should be key: value YAML: {line!r}")
+        key = key.strip()
+        value = value.strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", key):
+            raise AssertionError(f"student-os/SKILL.md frontmatter key should be a plain YAML scalar: {key!r}")
+        if value.startswith(("'", '"')):
+            quote = value[0]
+            if len(value) < 2 or not value.endswith(quote):
+                raise AssertionError(f"student-os/SKILL.md frontmatter quoted value should be closed: {value!r}")
+        elif value.endswith(("'", '"')):
+            raise AssertionError(f"student-os/SKILL.md frontmatter quoted value should be opened: {value!r}")
+        if value.startswith(("[", "{")) or value.endswith(("[", "{")):
+            raise AssertionError(f"student-os/SKILL.md frontmatter value should be a plain YAML scalar: {value!r}")
+        fields[key] = value.strip('"\'')
+    return fields
+
+
+def parse_dsh_skill_frontmatter(text: str) -> dict[str, object]:
+    if not text.startswith("---\n"):
+        raise AssertionError("student-os/SKILL.md must start with YAML frontmatter for DSH discovery")
+    closing = text.find("\n---\n", 4)
+    if closing < 0:
+        raise AssertionError("student-os/SKILL.md must close YAML frontmatter before the body")
+    frontmatter = text[4:closing]
+    try:
+        import yaml  # type: ignore
+    except ImportError:
+        yaml = None
+
+    if yaml is not None:
+        try:
+            loaded = yaml.safe_load(frontmatter)
+        except Exception as exc:
+            raise AssertionError(f"student-os/SKILL.md frontmatter must be valid YAML: {exc}") from exc
+        if not isinstance(loaded, dict):
+            raise AssertionError(f"student-os/SKILL.md frontmatter should parse to a mapping, got: {type(loaded).__name__}")
+        return {str(key): value for key, value in loaded.items()}
+    return parse_frontmatter_scalar_fields(frontmatter)
+
+
+def verify_dsh_skill_frontmatter_contract() -> None:
+    skill_path = ROOT / "student-os" / "SKILL.md"
+    fields = parse_dsh_skill_frontmatter(skill_path.read_text(encoding="utf-8"))
+    try:
+        parse_dsh_skill_frontmatter("---\nname: student-os\ndescription: [unterminated\n---\n")
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("DSH frontmatter validation should reject invalid YAML")
+    try:
+        parse_dsh_skill_frontmatter('---\nname: student-os\ndescription: "unterminated\n---\n')
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("DSH frontmatter validation should reject unterminated quoted scalars")
+    name = fields.get("name")
+    description = fields.get("description")
+    if name != "student-os":
+        raise AssertionError(f"DSH skill name should be student-os, got: {name!r}")
+    if not description:
+        raise AssertionError("DSH skill description should be non-empty")
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
+        raise AssertionError(f"DSH skill name should be kebab-case, got: {name!r}")
+
+
+def verify_dsh_install_paths(tmp_root: Path) -> None:
+    dsh_home = tmp_root / "dsh-home"
+    user_payload = json.loads(
+        run_root_script(
+            "install_student_os.py",
+            "--agent",
+            "dsh",
+            "--scope",
+            "user",
+            "--mode",
+            "copy",
+            "--json",
+            env={"DSH_HOME": str(dsh_home)},
+        )
+    )
+    user_result = user_payload["results"][0]
+    user_destination = dsh_home / "skills" / "student-os"
+    if Path(user_result["destination"]) != user_destination.resolve():
+        raise AssertionError(f"DSH user install should honor DSH_HOME, got: {user_result}")
+    ensure_exists(user_destination / "SKILL.md")
+    user_manifest = read_install_manifest(user_destination)
+    if user_manifest["agent"] != "dsh" or user_manifest["scope"] != "user":
+        raise AssertionError(f"DSH user manifest should record agent/scope, got: {user_manifest}")
+    if Path(user_manifest["target_path"]) != user_destination.resolve():
+        raise AssertionError("DSH user manifest should record the DSH_HOME destination")
+
+    project_root = tmp_root / "project-root"
+    project_root.mkdir(parents=True, exist_ok=True)
+    project_payload = json.loads(
+        run_root_script(
+            "install_student_os.py",
+            "--agent",
+            "dsh",
+            "--scope",
+            "project",
+            "--project-root",
+            str(project_root),
+            "--mode",
+            "copy",
+            "--json",
+            env={"DSH_HOME": str(tmp_root / "unused-dsh-home")},
+        )
+    )
+    project_result = project_payload["results"][0]
+    project_destination = project_root / ".dsh" / "skills" / "student-os"
+    if Path(project_result["destination"]) != project_destination.resolve():
+        raise AssertionError(f"DSH project install should use .dsh/skills under --project-root, got: {project_result}")
+    ensure_exists(project_destination / "SKILL.md")
+    ensure_exists(project_destination / "scripts")
+    ensure_exists(project_destination / "references")
+    project_manifest = read_install_manifest(project_destination)
+    if project_manifest["agent"] != "dsh" or project_manifest["scope"] != "project":
+        raise AssertionError(f"DSH project manifest should record agent/scope, got: {project_manifest}")
+
+    both_home = tmp_root / "both-dsh-home"
+    both_project = tmp_root / "both-project-root"
+    both_project.mkdir(parents=True, exist_ok=True)
+    both_payload = json.loads(
+        run_root_script(
+            "install_student_os.py",
+            "--agent",
+            "dsh",
+            "--scope",
+            "both",
+            "--project-root",
+            str(both_project),
+            "--mode",
+            "copy",
+            "--json",
+            env={"DSH_HOME": str(both_home)},
+        )
+    )
+    both_scopes = {result["scope"] for result in both_payload["results"]}
+    if both_scopes != {"user", "project"}:
+        raise AssertionError(f"DSH --scope both should install user and project scopes, got: {both_payload}")
+    ensure_exists(both_home / "skills" / "student-os" / "SKILL.md")
+    ensure_exists(both_project / ".dsh" / "skills" / "student-os" / "SKILL.md")
+
+    overlap_project = tmp_root / "overlap-project-root"
+    overlap_home = overlap_project / ".dsh"
+    overlap_project.mkdir(parents=True, exist_ok=True)
+    overlap_payload = json.loads(
+        run_root_script(
+            "install_student_os.py",
+            "--agent",
+            "dsh",
+            "--scope",
+            "both",
+            "--project-root",
+            str(overlap_project),
+            "--mode",
+            "copy",
+            "--json",
+            env={"DSH_HOME": str(overlap_home)},
+        )
+    )
+    overlap_destination = overlap_project / ".dsh" / "skills" / "student-os"
+    if len(overlap_payload["results"]) != 1:
+        raise AssertionError(f"DSH overlapping user/project destinations should be deduped, got: {overlap_payload}")
+    if Path(overlap_payload["results"][0]["destination"]) != overlap_destination.resolve():
+        raise AssertionError(f"DSH deduped destination should be the shared .dsh skill path, got: {overlap_payload}")
+    ensure_exists(overlap_destination / "SKILL.md")
+
+    env_backup = {name: os.environ.get(name) for name in ["HOME", "USERPROFILE", "DSH_HOME"]}
+    try:
+        isolated_home = tmp_root / "isolated-home"
+        os.environ["HOME"] = str(isolated_home)
+        os.environ["USERPROFILE"] = str(isolated_home)
+        os.environ.pop("DSH_HOME", None)
+        install_module = load_root_script_module("install_student_os.py", "student_os_install_dsh_default_home_smoke")
+    finally:
+        for name, value in env_backup.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+    expected_default = (isolated_home / ".dsh" / "skills").resolve()
+    if install_module.AGENT_PATHS["dsh"]["user"].resolve() != expected_default:
+        raise AssertionError("DSH user install should default to ~/.dsh/skills when DSH_HOME is unset")
+
+
+def verify_dsh_home_resolution(tmp_root: Path) -> None:
+    env_backup = {name: os.environ.get(name) for name in ["HOME", "USERPROFILE", "DSH_HOME"]}
+    previous_cwd = Path.cwd()
+    try:
+        isolated_home = tmp_root / "isolated-home"
+        isolated_home.mkdir(parents=True, exist_ok=True)
+        os.environ["HOME"] = str(isolated_home)
+        os.environ["USERPROFILE"] = str(isolated_home)
+
+        for label, dsh_home_value in [("empty", ""), ("blank", "   ")]:
+            os.environ["DSH_HOME"] = dsh_home_value
+            os.chdir(tmp_root)
+            install_module = load_root_script_module("install_student_os.py", f"student_os_install_dsh_{label}_home")
+            update_module = load_student_os_script_module(
+                "update_student_os_impl.py",
+                f"student_os_update_dsh_{label}_home",
+            )
+            expected_home = isolated_home / ".dsh"
+            if install_module.DSH_HOME.resolve() != expected_home.resolve():
+                raise AssertionError(f"Installer should treat blank DSH_HOME as unset, got: {install_module.DSH_HOME}")
+            if update_module.resolve_dsh_home().resolve() != expected_home.resolve():
+                raise AssertionError("Updater should treat blank DSH_HOME as unset")
+            if install_module.DSH_HOME.resolve() == tmp_root.resolve():
+                raise AssertionError("Blank DSH_HOME must not resolve to cwd")
+
+        os.environ["DSH_HOME"] = "~/custom-dsh"
+        tilde_install_module = load_root_script_module("install_student_os.py", "student_os_install_dsh_tilde_home")
+        tilde_update_module = load_student_os_script_module(
+            "update_student_os_impl.py",
+            "student_os_update_dsh_tilde_home",
+        )
+        expected_tilde_home = isolated_home / "custom-dsh"
+        if tilde_install_module.DSH_HOME.resolve() != expected_tilde_home.resolve():
+            raise AssertionError(f"Installer should expand DSH_HOME=~/custom-dsh, got: {tilde_install_module.DSH_HOME}")
+        if tilde_update_module.resolve_dsh_home().resolve() != expected_tilde_home.resolve():
+            raise AssertionError("Updater should expand DSH_HOME=~/custom-dsh")
+
+        os.environ.pop("DSH_HOME", None)
+        os.environ["HOME"] = str(tmp_root / "home-for-current-platform")
+        os.environ["USERPROFILE"] = str(tmp_root / "alternate-userprofile")
+        platform_install_module = load_root_script_module(
+            "install_student_os.py",
+            "student_os_install_dsh_platform_home",
+        )
+        platform_update_module = load_student_os_script_module(
+            "update_student_os_impl.py",
+            "student_os_update_dsh_platform_home",
+        )
+        if platform_update_module.resolve_dsh_home().resolve() != platform_install_module.DSH_HOME.resolve():
+            raise AssertionError("Installer and updater should resolve default DSH home with the same home semantics")
+    finally:
+        os.chdir(previous_cwd)
+        for name, value in env_backup.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def verify_dsh_update_discovery(tmp_root: Path) -> None:
+    env_backup = {name: os.environ.get(name) for name in ["HOME", "USERPROFILE", "CODEX_HOME", "DSH_HOME"]}
+    previous_cwd = Path.cwd()
+    try:
+        isolated_home = tmp_root / "isolated-home"
+        dsh_home = tmp_root / "dsh-home"
+        os.environ["HOME"] = str(isolated_home)
+        os.environ["USERPROFILE"] = str(isolated_home)
+        os.environ["CODEX_HOME"] = str(isolated_home / ".codex")
+        os.environ["DSH_HOME"] = str(dsh_home)
+        run_root_script(
+            "install_student_os.py",
+            "--agent",
+            "dsh",
+            "--scope",
+            "user",
+            "--mode",
+            "copy",
+            "--json",
+            env={
+                "HOME": str(isolated_home),
+                "USERPROFILE": str(isolated_home),
+                "CODEX_HOME": str(isolated_home / ".codex"),
+                "DSH_HOME": str(dsh_home),
+            },
+        )
+        update_user_module = load_student_os_script_module(
+            "update_student_os_impl.py",
+            "student_os_update_dsh_user_discovery",
+        )
+        user_discovery_cwd = tmp_root / "user-discovery-cwd"
+        user_discovery_cwd.mkdir(parents=True, exist_ok=True)
+        os.chdir(user_discovery_cwd)
+        user_target = dsh_home / "skills" / "student-os"
+        discovered_user_candidates = [update_user_module.absolute_path(path) for path in update_user_module.user_targets()]
+        if user_target.resolve() not in discovered_user_candidates:
+            raise AssertionError(f"Updater user targets should include the DSH user install, got: {discovered_user_candidates}")
+        update_user_module.user_targets = lambda: [user_target]
+        update_user_module.project_candidates = list
+        discovered_user = update_user_module.discover_target(None)
+        if discovered_user != user_target.resolve():
+            raise AssertionError(f"Updater should discover DSH user install, got: {discovered_user}")
+
+        shutil.rmtree(dsh_home)
+        project_root = tmp_root / "project"
+        project_root.mkdir(parents=True, exist_ok=True)
+        (project_root / ".git").mkdir()
+        os.environ["DSH_HOME"] = str(tmp_root / "empty-dsh-home")
+        run_root_script(
+            "install_student_os.py",
+            "--agent",
+            "dsh",
+            "--scope",
+            "project",
+            "--project-root",
+            str(project_root),
+            "--mode",
+            "copy",
+            "--json",
+            env={
+                "HOME": str(isolated_home),
+                "USERPROFILE": str(isolated_home),
+                "CODEX_HOME": str(isolated_home / ".codex"),
+                "DSH_HOME": str(tmp_root / "empty-dsh-home"),
+            },
+        )
+        nested_workdir = project_root / "nested" / "deeper"
+        (project_root / "nested" / ".dsh").mkdir(parents=True, exist_ok=True)
+        nested_workdir.mkdir(parents=True, exist_ok=True)
+        os.chdir(nested_workdir)
+        update_project_module = load_student_os_script_module(
+            "update_student_os_impl.py",
+            "student_os_update_dsh_project_discovery",
+        )
+        update_project_module.user_targets = list
+        project_target = project_root / ".dsh" / "skills" / "student-os"
+        discovered_project = update_project_module.discover_target(None)
+        if discovered_project != project_target.resolve():
+            raise AssertionError(f"Updater should discover DSH project install, got: {discovered_project}")
+
+        dsh_parent = tmp_root / "dsh-only-parent"
+        dsh_child = dsh_parent / "child"
+        dsh_child.mkdir(parents=True, exist_ok=True)
+        for root in (dsh_parent, dsh_child):
+            run_root_script(
+                "install_student_os.py",
+                "--agent",
+                "dsh",
+                "--scope",
+                "project",
+                "--project-root",
+                str(root),
+                "--mode",
+                "copy",
+                "--json",
+                env={
+                    "HOME": str(isolated_home),
+                    "USERPROFILE": str(isolated_home),
+                    "CODEX_HOME": str(isolated_home / ".codex"),
+                    "DSH_HOME": str(tmp_root / "empty-dsh-home"),
+                },
+            )
+        dsh_child_workdir = dsh_child / "deeper"
+        dsh_child_workdir.mkdir()
+        os.chdir(dsh_child_workdir)
+        update_dsh_boundary_module = load_student_os_script_module(
+            "update_student_os_impl.py",
+            "student_os_update_dsh_project_boundary",
+        )
+        update_dsh_boundary_module.user_targets = list
+        dsh_child_target = dsh_child / ".dsh" / "skills" / "student-os"
+        discovered_dsh_child = update_dsh_boundary_module.discover_target(None)
+        if discovered_dsh_child != dsh_child_target.resolve():
+            raise AssertionError(f"Updater should stop at the nearest DSH project install, got: {discovered_dsh_child}")
+
+        dsh_empty_child = dsh_parent / "empty-child"
+        dsh_empty_child_workdir = dsh_empty_child / "deeper"
+        (dsh_empty_child / ".dsh").mkdir(parents=True)
+        dsh_empty_child_workdir.mkdir()
+        os.chdir(dsh_empty_child_workdir)
+        update_empty_dsh_boundary_module = load_student_os_script_module(
+            "update_student_os_impl.py",
+            "student_os_update_empty_dsh_project_boundary",
+        )
+        update_empty_dsh_boundary_module.user_targets = list
+        if update_empty_dsh_boundary_module.discover_targets():
+            raise AssertionError("Updater should not cross an empty DSH-only project boundary to a parent install")
+    finally:
+        os.chdir(previous_cwd)
+        for name, value in env_backup.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 def verify_legacy_link_install_detection(tmp_root: Path) -> None:
     install_module = load_root_script_module("install_student_os.py", "student_os_install_link_smoke")
     legacy_destination = tmp_root / "legacy-linked-student-os"
@@ -6261,6 +6656,10 @@ def main() -> int:
         verify_git_grouping(grouping_repo, today)
         verify_chinese_slug_support(tmp_root / "unicode-course-demo", today)
         verify_install_manifest_generation(tmp_root / "install-manifest-demo")
+        verify_dsh_skill_frontmatter_contract()
+        verify_dsh_install_paths(tmp_root / "dsh-install-demo")
+        verify_dsh_home_resolution(tmp_root / "dsh-home-resolution-demo")
+        verify_dsh_update_discovery(tmp_root / "dsh-update-discovery-demo")
         verify_legacy_link_install_detection(tmp_root / "legacy-link-install-demo")
         verify_update_source_override_and_project_copy_detection(tmp_root / "update-override-demo")
         verify_self_update_workflow(tmp_root / "self-update-demo")
@@ -6287,6 +6686,10 @@ def main() -> int:
     print("OK legacy-layout-demo")
     print("OK unicode-course-demo")
     print("OK install-manifest-demo")
+    print("OK dsh-skill-frontmatter")
+    print("OK dsh-install-demo")
+    print("OK dsh-home-resolution-demo")
+    print("OK dsh-update-discovery-demo")
     print("OK legacy-link-install-demo")
     print("OK update-override-demo")
     print("OK self-update-demo")

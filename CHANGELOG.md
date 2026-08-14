@@ -14,6 +14,7 @@
 
 ### Added
 
+- 为 `student-os` 安装器和自更新发现增加 DeepSeek Harness (DSH) Skill 支持：用户级路径使用 `$DSH_HOME/skills/student-os`（默认 `~/.dsh/skills/student-os`），项目级路径使用 `<project>/.dsh/skills/student-os`，并用 smoke tests 覆盖 DSH 路径、manifest、frontmatter、`DSH_HOME` 空值/`~` 展开与 updater 自动发现。
 - 新增 `ensure_frontmatter.py`，可批量为缺少 YAML frontmatter 的 `.pdf.md` sidecar 补齐 UTF-8 元数据，并支持 dry-run 预览。
 - 新增基于 tag 的 GitHub Release 自动发布流程，release notes 从 `CHANGELOG.md` 对应版本段落抽取。
 - 新增 `organize_reviews.py`，自动将 `courses/<course>/reviews/<exam-scope>/` 下的松散文件归档到 `试卷/`、`文本/`、`归档/` 并生成 `README.md` 索引；支持 `--dry-run`、幂等执行与 `git mv` 回退（Issue #52）。

@@ -1,6 +1,6 @@
 pdfplumber
 pypdf
-pymupdf
+pymupdf==1.24.14
 python-docx
 openpyxl
 python-pptx
