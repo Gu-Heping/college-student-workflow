@@ -2244,6 +2244,8 @@ def exercise_exam_census(repo: Path) -> None:
     )
     if not no_overwrite.get("skeletons_skipped"):
         raise AssertionError("Expected existing skeletons to be skipped without --overwrite")
+    if no_overwrite.get("skeletons_migrated"):
+        raise AssertionError(f"No-overwrite rebuild must not report migrated skeletons: {no_overwrite}")
     after_skeletons = sorted(path.name for path in analysis_dir.glob("*.md"))
     if after_skeletons != existing_skeletons:
         raise AssertionError(f"Skeletons changed without --overwrite: {existing_skeletons} -> {after_skeletons}")
