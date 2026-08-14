@@ -13,42 +13,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
-PDF_SUFFIXES = {".pdf"}
-DOCX_SUFFIXES = {".docx"}
-PPTX_SUFFIXES = {".pptx"}
-XLSX_SUFFIXES = {".xlsx"}
-IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
-LEGACY_WORD_SUFFIXES = {".doc"}
-LEGACY_PPT_SUFFIXES = {".ppt"}
-LEGACY_XLS_SUFFIXES = {".xls"}
-LEGACY_OFFICE_SUFFIXES = LEGACY_WORD_SUFFIXES | LEGACY_PPT_SUFFIXES | LEGACY_XLS_SUFFIXES
-BINARY_INDEX_SUFFIXES = {".bit", ".ms14", ".vhd"}
-TEXT_SKIP_SUFFIXES = {
-    ".c",
-    ".cc",
-    ".cpp",
-    ".csv",
-    ".json",
-    ".md",
-    ".py",
-    ".rs",
-    ".sh",
-    ".tex",
-    ".toml",
-    ".ts",
-    ".tsx",
-    ".txt",
-    ".yaml",
-    ".yml",
-}
-API_SUPPORTED_SUFFIXES = (
-    PDF_SUFFIXES
-    | DOCX_SUFFIXES
-    | PPTX_SUFFIXES
-    | XLSX_SUFFIXES
-    | IMAGE_SUFFIXES
-    | LEGACY_OFFICE_SUFFIXES
+from material_types import (
+    API_SUPPORTED_SUFFIXES,
+    BINARY_INDEX_SUFFIXES,
+    DOCX_SUFFIXES,
+    IMAGE_SUFFIXES,
+    LEGACY_OFFICE_SUFFIXES,
+    LEGACY_PPT_SUFFIXES,
+    LEGACY_XLS_SUFFIXES,
+    PDF_SUFFIXES,
+    PPTX_SUFFIXES,
+    TEXT_SKIP_SUFFIXES,
+    XLSX_SUFFIXES,
 )
 
 
