@@ -2,9 +2,22 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from course_layout import discover_course_dirs
+
+
+def is_generated_index_relative(path: PurePath) -> bool:
+    parts = path.parts
+    return len(parts) >= 2 and parts[0] == ".student-os" and parts[1] == "index"
+
+
+def is_generated_index_path(path: Path, root: Path) -> bool:
+    try:
+        relative = path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return is_generated_index_relative(relative)
 
 
 def list_children(path: Path) -> list[Path]:
@@ -62,7 +75,7 @@ def main() -> int:
         )
 
     recent = sorted(
-        [p for p in root.rglob("*.md") if ".student-os\\index" not in str(p)],
+        [p for p in root.rglob("*.md") if not is_generated_index_path(p, root)],
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )[:20]

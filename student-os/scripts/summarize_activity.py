@@ -5,6 +5,8 @@ import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from rebuild_indexes import is_generated_index_path
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Summarize recent markdown activity.")
@@ -16,7 +18,7 @@ def main() -> int:
     cutoff = datetime.now() - timedelta(days=args.days)
     files = []
     for path in root.rglob("*.md"):
-        if ".student-os\\index" in str(path):
+        if is_generated_index_path(path, root):
             continue
         if datetime.fromtimestamp(path.stat().st_mtime) >= cutoff:
             files.append(path)

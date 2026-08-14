@@ -53,6 +53,7 @@
 
 ### Fixed
 
+- 修复 `rebuild_indexes.py` 与 `summarize_activity.py` 对生成索引目录 `.student-os/index` 的跨平台过滤，避免 POSIX 风格路径下 recent activity / activity summary 把生成索引当作用户活动。
 - 修复 exam-census runbook 手动执行契约（Issue #61）：目录发现传播有效 pattern、annotation 精确路径优先与歧义报错、taxonomy fallback 不丢末项、PyYAML 解析失败硬失败、fill/deep-dive 使用 manifest 路径、confidence 空值 invalid、Validation 报告含 load errors。
 - 修复 Claude exam-census `SKILL.md`：去掉 `disable-model-invocation` 与 Workflow 调用指引，改为可自然语言 / `/exam-census` 触发的完整 runbook（Issue #59）。
 - 修复 Claude exam-census adapter 默认依赖 `.claude/workflows/*.js` 的问题，改为安装稳定的 `.claude/skills/exam-census/SKILL.md` 与 `.claude/commands/exam-census.md` 入口；workflow JS 仅作为实验选项。
