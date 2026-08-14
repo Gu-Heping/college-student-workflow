@@ -857,25 +857,14 @@ def reconcile_skeleton(
     analysis_dir: Path,
     target: Path,
     type_id: str,
-    rank: int,
     body: str,
-    overwrite: bool,
     existing_by_type: dict[str, list[Path]],
     fingerprint_store: dict[str, str],
-    item: dict[str, Any],
-    course_name: str,
-    exam_scope: str,
 ) -> tuple[str, str | None]:
-    """Write/reconcile one skeleton without --overwrite (safe skip/migrate-in-place only)."""
+    """Write a missing skeleton without --overwrite; skip existing or alternate paths."""
     analysis_dir.mkdir(parents=True, exist_ok=True)
     existing = list(existing_by_type.get(type_id, []))
     others = [path for path in existing if path.resolve() != target.resolve()]
-
-    def _is_user_owned(path: Path) -> bool:
-        text = path.read_text(encoding="utf-8")
-        if not _owns_type(text, type_id):
-            return False
-        return not is_generated_skeleton(text, type_id=type_id, store=fingerprint_store)
 
     if others:
         # Alternate path already holds this type id — do not migrate or delete without --overwrite.
@@ -889,14 +878,7 @@ def reconcile_skeleton(
         # Another type currently occupies this ranked path; leave it alone without --overwrite.
         return "skipped", str(target)
 
-    target_is_generated = (not target_exists) or is_generated_skeleton(
-        target_text, type_id=type_id, store=fingerprint_store
-    )
-
-    if target_exists and not target_is_generated:
-        return "skipped", str(target)
-
-    if target_exists and not overwrite:
+    if target_exists:
         return "skipped", str(target)
 
     write_text(target, body, overwrite=True)
@@ -1101,19 +1083,12 @@ def main() -> int:
                     analysis_dir=analysis_dir,
                     target=target,
                     type_id=str(item["id"]),
-                    rank=index,
                     body=body,
-                    overwrite=False,
                     existing_by_type=existing_by_type,
                     fingerprint_store=fingerprint_store,
-                    item=item,
-                    course_name=course_name,
-                    exam_scope=exam_scope,
                 )
                 if action == "written" and path:
                     written_skeletons.append(relative_posix(Path(path), repo))
-                elif action == "migrated" and path:
-                    migrated_skeletons.append(relative_posix(Path(path), repo))
                 elif action == "skipped" and path:
                     skipped_skeletons.append(relative_posix(Path(path), repo))
         save_fingerprint_store(census_state, fingerprint_store)

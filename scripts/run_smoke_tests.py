@@ -2232,6 +2232,13 @@ def exercise_exam_census(repo: Path) -> None:
     existing_skeletons = sorted(path.name for path in analysis_dir.glob("*.md"))
     if not existing_skeletons:
         raise AssertionError("Expected skeletons before no-overwrite rebuild")
+    existing_skeleton_text = {
+        name: (analysis_dir / name).read_text(encoding="utf-8") for name in existing_skeletons
+    }
+    archive_dir = analysis_dir / "_archive"
+    archive_before = sorted(
+        path.relative_to(archive_dir).as_posix() for path in archive_dir.rglob("*") if path.is_file()
+    ) if archive_dir.exists() else []
     no_overwrite = json.loads(
         run_script(
             "build_exam_type_stats.py",
@@ -2244,9 +2251,20 @@ def exercise_exam_census(repo: Path) -> None:
     )
     if not no_overwrite.get("skeletons_skipped"):
         raise AssertionError("Expected existing skeletons to be skipped without --overwrite")
+    if no_overwrite.get("skeletons_migrated"):
+        raise AssertionError(f"No-overwrite rebuild must not report migrated skeletons: {no_overwrite}")
     after_skeletons = sorted(path.name for path in analysis_dir.glob("*.md"))
     if after_skeletons != existing_skeletons:
         raise AssertionError(f"Skeletons changed without --overwrite: {existing_skeletons} -> {after_skeletons}")
+    for name, before_text in existing_skeleton_text.items():
+        after_text = (analysis_dir / name).read_text(encoding="utf-8")
+        if after_text != before_text:
+            raise AssertionError(f"Skeleton content changed without --overwrite: {name}")
+    archive_after = sorted(
+        path.relative_to(archive_dir).as_posix() for path in archive_dir.rglob("*") if path.is_file()
+    ) if archive_dir.exists() else []
+    if archive_after != archive_before:
+        raise AssertionError(f"No-overwrite rebuild should not add archive entries: {archive_before} -> {archive_after}")
 
     # User-edited skeletons (fingerprint mismatch) are archived, not deleted.
     user_skeleton = analysis_dir / existing_skeletons[-1]
