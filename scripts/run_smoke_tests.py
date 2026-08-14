@@ -760,7 +760,39 @@ def write_fake_mineru_sdk(root: Path) -> Path:
     return root
 
 
+def verify_material_type_constants() -> None:
+    previous_sys_path = list(sys.path)
+    sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
+    try:
+        material_types = load_student_os_script_module("material_types.py", "student_os_material_types_smoke")
+        materials_convert = load_student_os_script_module(
+            "materials_convert.py", "student_os_materials_convert_types_smoke"
+        )
+        probe_materials = load_student_os_script_module("probe_materials.py", "student_os_probe_materials_types_smoke")
+    finally:
+        sys.path = previous_sys_path
+
+    shared_names = [
+        "PDF_SUFFIXES",
+        "DOCX_SUFFIXES",
+        "PPTX_SUFFIXES",
+        "XLSX_SUFFIXES",
+        "IMAGE_SUFFIXES",
+        "LEGACY_OFFICE_SUFFIXES",
+        "BINARY_INDEX_SUFFIXES",
+        "TEXT_SKIP_SUFFIXES",
+        "API_SUPPORTED_SUFFIXES",
+    ]
+    for name in shared_names:
+        expected = getattr(material_types, name)
+        if getattr(materials_convert, name) != expected:
+            raise AssertionError(f"materials_convert.py drifted from material_types.{name}")
+        if getattr(probe_materials, name) != expected:
+            raise AssertionError(f"probe_materials.py drifted from material_types.{name}")
+
+
 def exercise_import_workflows(repo: Path) -> None:
+    verify_material_type_constants()
     fixture_root = repo / "references" / "imports" / "source"
     fixture_root.mkdir(parents=True, exist_ok=True)
     docx_path = fixture_root / "linear-algebra-outline.docx"

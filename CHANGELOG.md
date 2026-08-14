@@ -6,6 +6,7 @@
 
 ### Changed
 
+- 将材料转换与材料探针共用的文件类型 suffix 常量收敛到 `material_types.py`，避免两条导入路径后续漂移。
 - 清理 exam-census no-overwrite skeleton reconciliation 的不可达 migrate-in-place 分支，并用 smoke test 固定 no-overwrite 只 skip 不 migrate 的契约。
 - exam-census fill 为「核心概念」注入教材候选路径（`concept_sources`），并要求教材引用或「未参考指定教材」声明（Issue #65）。
 - 完善 exam-census prep pack 四层结构：新增/升级备考指南、公式总卡、答题模板速查、考前1小时清单模板，并在 cross-validation 中校验四层资料包完整性。
