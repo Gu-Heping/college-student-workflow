@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 from datetime import date, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -5000,6 +5000,43 @@ def verify_organize_reviews(repo: Path) -> None:
         raise AssertionError("Dry run should not create archive directories")
 
 
+def verify_generated_index_filtering(repo: Path) -> None:
+    previous_sys_path = list(sys.path)
+    sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
+    try:
+        rebuild_module = load_student_os_script_module("rebuild_indexes.py", "student_os_rebuild_indexes_filter_smoke")
+    finally:
+        sys.path = previous_sys_path
+
+    for relative in (
+        PurePosixPath(".student-os/index/recent-activity.md"),
+        PureWindowsPath(r".student-os\index\recent-activity.md"),
+    ):
+        if not rebuild_module.is_generated_index_relative(relative):
+            raise AssertionError(f"Generated index filter should match cross-platform path: {relative}")
+    if rebuild_module.is_generated_index_relative(PurePosixPath("notes/.student-os/index.md")):
+        raise AssertionError("Generated index filter should only match the repository .student-os/index directory")
+
+    user_note = repo / "notes" / ".student-os" / "index.md"
+    user_note.parent.mkdir(parents=True, exist_ok=True)
+    user_note.write_text("user note\n", encoding="utf-8")
+    run_script("rebuild_indexes.py", str(repo))
+    user_note_rel = "notes/.student-os/index.md"
+
+    recent_activity = repo / ".student-os" / "index" / "recent-activity.md"
+    recent_text = recent_activity.read_text(encoding="utf-8")
+    if ".student-os/index/" in recent_text:
+        raise AssertionError("Recent activity index should not include generated .student-os/index markdown files")
+    if user_note_rel not in recent_text:
+        raise AssertionError("Recent activity index should retain user Markdown outside the root generated index directory")
+
+    summary = run_script("summarize_activity.py", str(repo), "--days", "3650")
+    if ".student-os/index/" in summary:
+        raise AssertionError("Activity summary should not include generated .student-os/index markdown files")
+    if user_note_rel not in summary:
+        raise AssertionError("Activity summary should retain user Markdown outside the root generated index directory")
+
+
 def build_single_semester(repo: Path, today: date) -> None:
     due_date = (today + timedelta(days=8)).isoformat()
     default_week_label = f"{today.isoformat()}-plus-7d"
@@ -5050,6 +5087,7 @@ def build_single_semester(repo: Path, today: date) -> None:
         raise AssertionError("Archived tasks should not be listed in the weekly plan")
     ensure_contains(repo / "dashboards" / "weekly" / f"{today.isoformat()}-plus-14d.md", "Imported materials to review")
     ensure_contains(repo / ".student-os" / "index" / "dashboards.md", f"dashboards/weekly/{today.isoformat()}-plus-14d.md")
+    verify_generated_index_filtering(repo)
 
 
 def build_repo_inside_weekly_parent(repo: Path, today: date) -> None:
