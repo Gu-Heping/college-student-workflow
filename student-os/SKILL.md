@@ -10,7 +10,7 @@ Run this skill as the single entry point for a university knowledge repository. 
 ## Hard boundaries
 
 - The **learning vault** is a directory the user names (Obsidian vault / Markdown notes). It is **never** the `college-student-workflow` skill source checkout unless the user explicitly says they want to develop the skill itself.
-- **Install / update** of this skill must not modify vault notes, courses, or feedback content. Allowed exception: `--scope project` may write only into agent skill directories inside the current project (for example `.codex/skills/student-os`, `.claude/skills/student-os`, `.opencode/skills/student-os`). Prefer `--scope user` for ordinary students.
+- **Install / update** of this skill must not modify vault notes, courses, or feedback content. Allowed exception: `--scope project` may write only into agent skill directories inside the current project (for example `.codex/skills/student-os`, `.claude/skills/student-os`, `.opencode/skills/student-os`, `.dsh/skills/student-os`). Prefer `--scope user` for ordinary students.
 - Any workflow that writes files must **inspect Git status first** and must not auto-commit unless the user explicitly asks.
 - Any text destined for a **public** GitHub Issue / PR review / comment must pass privacy checks first (`prepare_github_issue.py --stdin` / `--check-only`, or `sanitize_and_post.py`). If the check fails or raises a privacy warning, **do not call `gh`**: keep a draft, redact, and wait for explicit human confirmation before publishing.
 

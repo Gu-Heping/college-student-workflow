@@ -6,7 +6,7 @@
 
 | 能力 | 说明 |
 | --- | --- |
-| **install** | `install.sh` / `install.ps1` / `scripts/install_student_os.py`；写入 `.student-os-install.json` |
+| **install** | `install.sh` / `install.ps1` / `scripts/install_student_os.py`；支持 Codex / Claude Code / OpenCode / DeepSeek Harness (DSH)，写入 `.student-os-install.json` |
 | **self-update** | `student-os/scripts/update_student_os.py`：`--check` / `--apply`、备份与 rollback 指引；不碰用户 vault |
 | **Git safety** | `inspect_repo.py`、`group_git_changes.py`：脏工作区分组、hold-back（冲突/缓存/大文件/venv 等）；默认不自动提交 |
 | **feedback lifecycle** | `log` → `triage` → `resolve` → `summarize`；稳定 `feedback_id` |

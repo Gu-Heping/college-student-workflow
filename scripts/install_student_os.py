@@ -22,6 +22,25 @@ SOURCE_SKILL_DIR = REPO_ROOT / SKILL_NAME
 CODEX_HOME = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
 
 
+def expand_dsh_home_path(path: str, home: Path | None = None) -> Path:
+    home_dir = home or Path.home()
+    if path == "~":
+        return home_dir
+    if path.startswith(("~/", "~\\")):
+        return home_dir / path[2:]
+    return Path(path).expanduser()
+
+
+def resolve_dsh_home() -> Path:
+    dsh_home = os.environ.get("DSH_HOME")
+    if dsh_home is None or not dsh_home.strip():
+        return Path.home() / ".dsh"
+    return expand_dsh_home_path(dsh_home)
+
+
+DSH_HOME = resolve_dsh_home()
+
+
 @dataclass(frozen=True)
 class InstallTarget:
     agent: str
@@ -42,6 +61,10 @@ AGENT_PATHS = {
         "user": Path.home() / ".config" / "opencode" / "skills",
         "project": Path(".opencode") / "skills",
     },
+    "dsh": {
+        "user": DSH_HOME / "skills",
+        "project": Path(".dsh") / "skills",
+    },
 }
 
 AGENT_ALIASES = {
@@ -49,19 +72,22 @@ AGENT_ALIASES = {
     "claude-code": ("claude",),
     "claude": ("claude",),
     "codex": ("codex",),
+    "dsh": ("dsh",),
     "opencode": ("opencode",),
 }
+UNSUPPORTED_AGENT_MESSAGE = "Unsupported agent '{value}'. Expected codex, claude, claude-code, opencode, dsh, or all."
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Install the student-os skill for Codex, Claude Code, and OpenCode.",
+        description="Install the student-os skill for Codex, Claude Code, OpenCode, and DeepSeek Harness (DSH).",
+        epilog="'all' preserves the historical default set: codex and claude. Use --agent dsh explicitly for DSH.",
     )
     parser.add_argument(
         "--agent",
         action="append",
         default=None,
-        help="Target agent: codex, claude, claude-code, opencode, or all. Repeatable.",
+        help="Target agent: codex, claude, claude-code, opencode, dsh, or all. Repeatable.",
     )
     parser.add_argument(
         "--scope",
@@ -108,7 +134,7 @@ def expand_agents(values: list[str]) -> list[str]:
     for value in values:
         normalized = value.strip().lower()
         if normalized not in AGENT_ALIASES:
-            raise SystemExit(f"Unsupported agent '{value}'. Expected codex, claude, claude-code, opencode, or all.")
+            raise SystemExit(UNSUPPORTED_AGENT_MESSAGE.format(value=value))
         for agent in AGENT_ALIASES[normalized]:
             if agent not in agents:
                 agents.append(agent)
@@ -134,9 +160,9 @@ def build_targets(agents: list[str], scope_selection: str, project_root: Path) -
 
 def dedupe_targets(targets: list[InstallTarget]) -> list[InstallTarget]:
     deduped: list[InstallTarget] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[str] = set()
     for target in targets:
-        destination_key = (target.scope, str((target.root / SKILL_NAME).resolve()))
+        destination_key = str((target.root / SKILL_NAME).resolve())
         if destination_key in seen:
             continue
         seen.add(destination_key)
