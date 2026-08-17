@@ -6488,32 +6488,34 @@ def verify_dsh_native_plugin() -> bool:
         "STUDENT_OS_REPO_ROOT": str(ROOT),
     }
     before_status = git_status_snapshot()
-    subprocess.run(
-        [npm_exe, "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
-        cwd=plugin_root,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        env=env,
-    )
-    subprocess.run(
-        [npm_exe, "run", "test"],
-        cwd=plugin_root,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        env=env,
-    )
-    after_status = git_status_snapshot()
-    if after_status != before_status:
-        added = sorted(after_status - before_status)
-        removed = sorted(before_status - after_status)
-        raise AssertionError(
-            "DSH native plugin smoke changed Git status; "
-            f"new/changed entries={added}, cleared entries={removed}"
+    try:
+        subprocess.run(
+            [npm_exe, "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+            cwd=plugin_root,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=env,
         )
+        subprocess.run(
+            [npm_exe, "run", "test"],
+            cwd=plugin_root,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=env,
+        )
+    finally:
+        after_status = git_status_snapshot()
+        if after_status != before_status:
+            added = sorted(after_status - before_status)
+            removed = sorted(before_status - after_status)
+            raise AssertionError(
+                "DSH native plugin smoke changed Git status; "
+                f"new/changed entries={added}, cleared entries={removed}"
+            )
     return True
 
 
