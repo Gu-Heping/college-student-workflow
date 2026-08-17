@@ -10,17 +10,84 @@ The plugin is built against the matching published packages `@deepseek-ai/dsh-to
 - DeepSeek Harness from the official `deepseek-ai/deepseek-harness` project.
 - Python 3 and `git`.
 - Node.js and npm to build the local Student OS Cordis plugin.
-- A local checkout of `Gu-Heping/college-student-workflow`.
+- A persistent local checkout of `Gu-Heping/college-student-workflow`.
 
-## Install the Skill
+## Agent Bootstrap
 
-User scope:
+Natural-language request example:
+
+```text
+从 https://github.com/Gu-Heping/college-student-workflow 安装 Student OS 到当前项目，并启用 DSH 原生支持。按照仓库提供的 DSH bootstrap 流程执行，不要修改全局 DSH 配置。
+```
+
+From the `college-student-workflow` checkout, run:
+
+```bash
+python scripts/bootstrap_dsh.py --project-root /path/to/vault --json
+```
+
+`--project-root` is the user's learning vault / current DSH workspace. Do not use this repository checkout as the target vault unless it is truly the user's vault.
+
+On success, the JSON includes the project Skill path, built plugin entry, project-local overlay path, and the exact restart argv:
+
+```json
+{
+  "ok": true,
+  "activation": {
+    "active_in_current_process": false,
+    "restart_required": true,
+    "argv": ["dsh", "web", "--patch", "/path/to/vault/.dsh/student-os.cordis.yml"]
+  }
+}
+```
+
+On failure, bootstrap exits non-zero and returns `ok:false` with a stable `stage`, for example `project-root`, `skill-install`, `plugin-build`, or `overlay-write`.
+
+Start DSH from the vault root with the returned argv. Bootstrap does not hot-load the current DSH session: `active_in_current_process` is `false` and `restart_required` is `true`.
+
+Bootstrap performs:
+
+- project-scope Skill install via `scripts/install_student_os.py --agent dsh --scope project --project-root <vault>`
+- reproducible plugin build with `npm ci` and `npm run build` in `integrations/dsh/`
+- project-local overlay write to `<vault>/.dsh/student-os.cordis.yml`
+
+The generated overlay references this checkout's `integrations/dsh/dist/index.js`, so the checkout is a runtime dependency. Keep it in a persistent tooling location and do not delete it after bootstrap. This PR intentionally does not publish an npm package or install a machine-level DSH profile package.
+
+## Confirm Discovery
+
+Confirm the project Skill install path exists:
+
+```bash
+test -f "/path/to/vault/.dsh/skills/student-os/SKILL.md"
+```
+
+Inside DSH, ask it to use the `student-os` skill for the current vault. The skill catalog should expose `student-os` from the project install.
+
+Confirm native tools by asking DSH to call:
+
+- `student_os_inspect`
+- `student_os_group_changes`
+- `student_os_frontmatter`
+
+For a no-network patch composition check when DSH is installed:
+
+```bash
+dsh web --patch /path/to/vault/.dsh/student-os.cordis.yml --dump-config
+```
+
+`--dump-config` confirms that the overlay composes into the selected profile; it does not boot the plugin. Runtime loading is covered by `npm run test` at the package/API layer. A full interactive DSH boot should still be verified on a machine with the `dsh` CLI installed by starting DSH from the vault root with the same `--patch` argv above and confirming the three `student_os_*` tools are callable.
+
+## Manual Troubleshooting
+
+The bootstrap path above is the recommended path for agents. Use the manual steps only when troubleshooting.
+
+User-scope Skill install:
 
 ```bash
 python scripts/install_student_os.py --agent dsh --scope user
 ```
 
-Project scope, from this repository checkout:
+Project-scope Skill install:
 
 ```bash
 python scripts/install_student_os.py --agent dsh --scope project --project-root /path/to/vault
@@ -31,7 +98,7 @@ DSH paths follow official home semantics:
 - user scope: `$DSH_HOME/skills/student-os`, or `~/.dsh/skills/student-os` when `DSH_HOME` is unset, empty, or blank
 - project scope: `<vault>/.dsh/skills/student-os`
 
-## Build the Native Plugin
+Manual plugin build:
 
 ```bash
 cd integrations/dsh
@@ -44,78 +111,17 @@ cd ../..
 The plugin is a local Cordis plugin at `integrations/dsh/dist/index.js`. It registers three native tools and delegates all business logic to the existing Python scripts.
 The test command boots a real Cordis `Context` with DSH `ToolRuntime`, registers the plugin through the official `defineTool()` path, and executes all three tools against a temporary vault.
 
-## Enable the Plugin
-
-DSH patch overlays use absolute plugin paths. Create a local overlay from the repository root.
-
-PowerShell:
-
-```powershell
-$plugin = (Resolve-Path .\integrations\dsh\dist\index.js).Path -replace '\\','/'
-@"
-- insert:
-    - id: student-os-native
-      name: '$plugin'
-"@ | Set-Content -Encoding UTF8 .\.dsh-student-os.cordis.yml
-```
-
-Bash:
+If you hand-write an overlay, keep it project-local during testing and use an absolute plugin path:
 
 ```bash
-plugin="$(pwd)/integrations/dsh/dist/index.js"
-cat > .dsh-student-os.cordis.yml <<EOF
+cat > /path/to/vault/.dsh/student-os.cordis.yml <<EOF
 - insert:
     - id: student-os-native
-      name: '$plugin'
+      name: '/absolute/path/to/college-student-workflow/integrations/dsh/dist/index.js'
 EOF
 ```
 
-Start DSH from the vault root with the overlay:
-
-```bash
-cd /path/to/vault
-dsh web --patch /path/to/college-student-workflow/.dsh-student-os.cordis.yml
-```
-
-Keep this explicit `--patch` path while testing the migration. After the setup is stable on one machine, the same patch entry can be moved into the resolved DSH home as `cordis.patch.yml`: use `$DSH_HOME` only when it is non-empty after trimming whitespace; otherwise use `~/.dsh`.
-
-## Confirm Discovery
-
-Confirm the Skill install path exists:
-
-```bash
-DSH_HOME_RESOLVED="$(python - <<'PY'
-import os
-from pathlib import Path
-
-raw = os.environ.get("DSH_HOME")
-print(Path(raw).expanduser() if raw and raw.strip() else Path.home() / ".dsh")
-PY
-)"
-test -f "$DSH_HOME_RESOLVED/skills/student-os/SKILL.md"
-```
-
-When using project scope, confirm:
-
-```bash
-test -f "/path/to/vault/.dsh/skills/student-os/SKILL.md"
-```
-
-Inside DSH, ask it to use the `student-os` skill for the current vault. The skill catalog should expose `student-os` from the user or project install.
-
-Confirm native tools by asking DSH to call:
-
-- `student_os_inspect`
-- `student_os_group_changes`
-- `student_os_frontmatter`
-
-For a no-network patch composition check when DSH is installed:
-
-```bash
-dsh web --patch /path/to/college-student-workflow/.dsh-student-os.cordis.yml --dump-config
-```
-
-`--dump-config` confirms that the overlay composes into the selected profile; it does not boot the plugin. Runtime loading is covered by `npm run test` at the package/API layer. A full interactive DSH boot should still be verified on a machine with the `dsh` CLI installed by starting DSH from the vault root with the same `--patch` command above and confirming the three `student_os_*` tools are callable.
+Do not make `$DSH_HOME/cordis.patch.yml` the default while validating this PR. Machine-level DSH profile/package distribution is a later design step.
 
 ## Claude Code to DSH Mapping
 

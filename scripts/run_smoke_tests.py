@@ -6519,6 +6519,96 @@ def verify_dsh_native_plugin() -> bool:
     return True
 
 
+def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
+    git_exe = shutil.which("git.exe") or shutil.which("git")
+    if git_exe is None:
+        raise AssertionError("git is required for DSH bootstrap smoke tests")
+
+    failure_vault = tmp_root / "missing-node-vault"
+    git_only_path = str(Path(git_exe).parent)
+    failure_output = run_root_script_failure(
+        "bootstrap_dsh.py",
+        "--project-root",
+        str(failure_vault),
+        "--json",
+        env={"PATH": git_only_path},
+    )
+    failure_payload = json.loads(failure_output)
+    if failure_payload.get("ok") is not False:
+        raise AssertionError("DSH bootstrap failure should return ok:false")
+    if failure_payload.get("stage") != "plugin-build":
+        raise AssertionError(f"DSH bootstrap missing-node failure should report plugin-build, got: {failure_payload}")
+    if "activation" in failure_payload:
+        raise AssertionError("DSH bootstrap failure should not claim activation instructions")
+
+    if not native_plugin_available:
+        return False
+
+    vault = tmp_root / "vault"
+    first_output = run_root_script(
+        "bootstrap_dsh.py",
+        "--project-root",
+        str(vault),
+        "--json",
+    )
+    first_payload = json.loads(first_output)
+    if first_payload.get("ok") is not True:
+        raise AssertionError(f"DSH bootstrap should succeed, got: {first_payload}")
+
+    skill_path = vault / ".dsh" / "skills" / "student-os"
+    overlay_path = vault / ".dsh" / "student-os.cordis.yml"
+    plugin_entry = ROOT / "integrations" / "dsh" / "dist" / "index.js"
+    manifest_path = skill_path / ".student-os-install.json"
+
+    ensure_exists(skill_path / "SKILL.md")
+    ensure_exists(plugin_entry)
+    ensure_exists(overlay_path)
+    ensure_exists(manifest_path)
+
+    if Path(first_payload["skill"]["path"]).resolve() != skill_path.resolve():
+        raise AssertionError("DSH bootstrap JSON should report the project skill path")
+    if Path(first_payload["plugin"]["entry"]).resolve() != plugin_entry.resolve():
+        raise AssertionError("DSH bootstrap JSON should report the built plugin entry")
+    if Path(first_payload["overlay"]["path"]).resolve() != overlay_path.resolve():
+        raise AssertionError("DSH bootstrap JSON should report the project-local overlay path")
+    activation = first_payload.get("activation", {})
+    if activation.get("active_in_current_process") is not False or activation.get("restart_required") is not True:
+        raise AssertionError(f"DSH bootstrap activation flags are wrong: {activation}")
+    expected_argv = ["dsh", "web", "--patch", str(overlay_path.resolve())]
+    if activation.get("argv") != expected_argv:
+        raise AssertionError(f"DSH bootstrap restart argv mismatch: {activation.get('argv')}")
+
+    overlay = overlay_path.read_text(encoding="utf-8")
+    expected_entry = plugin_entry.resolve().as_posix()
+    if expected_entry not in overlay:
+        raise AssertionError("DSH bootstrap overlay should reference the absolute plugin entry")
+    if str(plugin_entry) in overlay and "\\" in str(plugin_entry):
+        raise AssertionError("DSH bootstrap overlay should not use backslash-escaped Windows paths")
+    if len(list((vault / ".dsh").glob("student-os*.cordis.yml"))) != 1:
+        raise AssertionError("DSH bootstrap should create exactly one project-local Student OS overlay")
+
+    first_manifest = manifest_path.read_text(encoding="utf-8")
+    second_output = run_root_script(
+        "bootstrap_dsh.py",
+        "--project-root",
+        str(vault),
+        "--json",
+    )
+    second_payload = json.loads(second_output)
+    if second_payload.get("ok") is not True:
+        raise AssertionError(f"Second DSH bootstrap should succeed, got: {second_payload}")
+    if second_payload["skill"]["path"] != first_payload["skill"]["path"]:
+        raise AssertionError("DSH bootstrap should keep the same skill path on repeated runs")
+    if second_payload["overlay"]["path"] != first_payload["overlay"]["path"]:
+        raise AssertionError("DSH bootstrap should keep the same overlay path on repeated runs")
+    if manifest_path.read_text(encoding="utf-8") != first_manifest:
+        raise AssertionError("DSH bootstrap idempotency should not rewrite the install manifest")
+    if len(list((vault / ".dsh").glob("student-os*.cordis.yml"))) != 1:
+        raise AssertionError("Repeated DSH bootstrap should not create extra overlays")
+    ensure_exists(skill_path / "SKILL.md")
+    return True
+
+
 def verify_update_source_override_and_project_copy_detection(tmp_root: Path) -> None:
     install_module = load_root_script_module("install_student_os.py", "student_os_install_override_smoke")
     update_module = load_root_script_module("update_student_os.py", "student_os_update_override_smoke")
@@ -6809,6 +6899,7 @@ def main() -> int:
         verify_dsh_home_resolution(tmp_root / "dsh-home-resolution-demo")
         verify_dsh_update_discovery(tmp_root / "dsh-update-discovery-demo")
         dsh_native_plugin_ran = verify_dsh_native_plugin()
+        dsh_bootstrap_ran = verify_dsh_bootstrap(tmp_root / "dsh-bootstrap-demo", dsh_native_plugin_ran)
         verify_legacy_link_install_detection(tmp_root / "legacy-link-install-demo")
         verify_update_source_override_and_project_copy_detection(tmp_root / "update-override-demo")
         verify_self_update_workflow(tmp_root / "self-update-demo")
@@ -6840,6 +6931,7 @@ def main() -> int:
     print("OK dsh-home-resolution-demo")
     print("OK dsh-update-discovery-demo")
     print("OK dsh-native-plugin" if dsh_native_plugin_ran else "SKIP dsh-native-plugin (node/npm unavailable)")
+    print("OK dsh-bootstrap-demo" if dsh_bootstrap_ran else "SKIP dsh-bootstrap-demo (node/npm unavailable)")
     print("OK legacy-link-install-demo")
     print("OK update-override-demo")
     print("OK self-update-demo")
