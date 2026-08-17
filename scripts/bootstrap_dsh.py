@@ -158,6 +158,8 @@ def operation_delta(
 
 
 def validate_project_paths(project_root: Path) -> None:
+    reject_existing_symlink_components(project_root, SKILL_RELATIVE)
+    reject_existing_symlink_components(project_root, OVERLAY_RELATIVE)
     checks = [
         project_root / SKILL_RELATIVE,
         project_root / OVERLAY_RELATIVE,
@@ -167,6 +169,14 @@ def validate_project_paths(project_root: Path) -> None:
         resolved = path.resolve()
         if not path_is_relative_to(resolved, project_root):
             raise RuntimeError(f"Refusing to write outside project root via resolved path: {path} -> {resolved}")
+
+
+def reject_existing_symlink_components(project_root: Path, relative: Path) -> None:
+    current = project_root
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise RuntimeError(f"Refusing to write through symlink path component: {current}")
 
 
 def existing_skill(project_root: Path) -> dict[str, Any] | None:
@@ -277,6 +287,7 @@ def next_backup_path(path: Path) -> Path:
 
 
 def write_overlay(project_root: Path, *, force_overlay: bool) -> dict[str, Any]:
+    reject_existing_symlink_components(project_root, OVERLAY_RELATIVE)
     overlay = (project_root / OVERLAY_RELATIVE).resolve()
     if not path_is_relative_to(overlay, project_root):
         raise RuntimeError(f"Refusing to write overlay outside project root: {overlay}")

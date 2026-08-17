@@ -6570,6 +6570,29 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
         if symlink_failure_payload.get("ok") is not False or symlink_failure_payload.get("stage") != "project-root":
             raise AssertionError(f"DSH bootstrap should refuse external .dsh symlinks, got: {symlink_failure_payload}")
 
+    overlay_symlink_vault = tmp_root / "overlay-symlink-vault"
+    overlay_symlink_vault_dsh = overlay_symlink_vault / ".dsh"
+    overlay_symlink_vault_dsh.mkdir(parents=True)
+    external_overlay = tmp_root / "external-overlay.yml"
+    external_overlay.write_text("# external overlay\n", encoding="utf-8")
+    try:
+        (overlay_symlink_vault_dsh / "student-os.cordis.yml").symlink_to(external_overlay)
+    except OSError:
+        pass
+    else:
+        overlay_symlink_failure_output = run_root_script_failure(
+            "bootstrap_dsh.py",
+            "--project-root",
+            str(overlay_symlink_vault),
+            "--force-overlay",
+            "--json",
+        )
+        overlay_symlink_failure_payload = json.loads(overlay_symlink_failure_output)
+        if overlay_symlink_failure_payload.get("ok") is not False or overlay_symlink_failure_payload.get("stage") != "project-root":
+            raise AssertionError(
+                f"DSH bootstrap should refuse symlinked overlay files even with --force-overlay, got: {overlay_symlink_failure_payload}"
+            )
+
     if not native_plugin_available:
         return False
 

@@ -190,7 +190,8 @@ If you are DeepSeek Harness and the user asks to install Student OS:
 
    ```bash
    cd /path/to/college-student-workflow
-   python scripts/bootstrap_dsh.py --project-root <current-workspace> --json
+   vault=/path/to/current-workspace
+   python scripts/bootstrap_dsh.py --project-root "$vault" --json
    ```
 
 5. Parse the JSON result.
