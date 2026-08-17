@@ -8,7 +8,7 @@
 | --- | --- |
 | **install** | `install.sh` / `install.ps1` / `scripts/install_student_os.py`；支持 Codex / Claude Code / OpenCode / DeepSeek Harness (DSH)，写入 `.student-os-install.json` |
 | **self-update** | `student-os/scripts/update_student_os.py`：`--check` / `--apply`、备份与 rollback 指引；不碰用户 vault |
-| **DSH native tools** | `integrations/dsh/`：本地 Cordis plugin，提供 `student_os_inspect` / `student_os_group_changes` / `student_os_frontmatter`，复用 Python core |
+| **DSH native tools** | `integrations/dsh/`：本地 Cordis plugin，提供 `student_os_inspect` / `student_os_group_changes` / `student_os_frontmatter`，复用 Python core；官方 API/package smoke 已通过，真实 DSH CLI overlay/runtime 仍需在已安装 DSH 的机器上验证 |
 | **Git safety** | `inspect_repo.py`、`group_git_changes.py`：脏工作区分组、hold-back（冲突/缓存/大文件/venv 等）；默认不自动提交 |
 | **feedback lifecycle** | `log` → `triage` → `resolve` → `summarize`；稳定 `feedback_id` |
 | **GitHub issue publishing** | `prepare_github_issue.py` + `publish_github_issue.py`；需 `gh` 认证，否则 draft 降级 |

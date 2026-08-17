@@ -6463,10 +6463,23 @@ def verify_dsh_native_plugin() -> bool:
     plugin_root = ROOT / "integrations" / "dsh"
     if not (plugin_root / "package.json").exists():
         raise AssertionError("DSH native plugin package.json is missing")
+    if not (plugin_root / "package-lock.json").exists():
+        raise AssertionError("DSH native plugin package-lock.json is required for npm ci")
     node_exe = shutil.which("node.exe") or shutil.which("node")
     npm_exe = shutil.which("npm.cmd") or shutil.which("npm")
     if node_exe is None or npm_exe is None:
         return False
+
+    def git_status_snapshot() -> set[str]:
+        result = subprocess.run(
+            ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        return set(result.stdout.splitlines())
 
     env = {
         **os.environ,
@@ -6474,13 +6487,9 @@ def verify_dsh_native_plugin() -> bool:
         "PYTHONDONTWRITEBYTECODE": "1",
         "STUDENT_OS_REPO_ROOT": str(ROOT),
     }
-    install_cmd = (
-        [npm_exe, "ci", "--ignore-scripts", "--no-audit", "--no-fund"]
-        if (plugin_root / "package-lock.json").exists()
-        else [npm_exe, "install", "--ignore-scripts", "--no-audit", "--no-fund"]
-    )
+    before_status = git_status_snapshot()
     subprocess.run(
-        install_cmd,
+        [npm_exe, "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
         cwd=plugin_root,
         check=True,
         capture_output=True,
@@ -6497,6 +6506,14 @@ def verify_dsh_native_plugin() -> bool:
         encoding="utf-8",
         env=env,
     )
+    after_status = git_status_snapshot()
+    if after_status != before_status:
+        added = sorted(after_status - before_status)
+        removed = sorted(before_status - after_status)
+        raise AssertionError(
+            "DSH native plugin smoke changed Git status; "
+            f"new/changed entries={added}, cleared entries={removed}"
+        )
     return True
 
 

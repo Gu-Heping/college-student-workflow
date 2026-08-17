@@ -77,14 +77,22 @@ cd /path/to/vault
 dsh web --patch /path/to/college-student-workflow/.dsh-student-os.cordis.yml
 ```
 
-Keep this explicit `--patch` path while testing the migration. After the setup is stable on one machine, the same patch entry can be moved into `$DSH_HOME/cordis.patch.yml` as a machine-local preference.
+Keep this explicit `--patch` path while testing the migration. After the setup is stable on one machine, the same patch entry can be moved into the resolved DSH home as `cordis.patch.yml`: use `$DSH_HOME` only when it is non-empty after trimming whitespace; otherwise use `~/.dsh`.
 
 ## Confirm Discovery
 
 Confirm the Skill install path exists:
 
 ```bash
-test -f "${DSH_HOME:-$HOME/.dsh}/skills/student-os/SKILL.md"
+DSH_HOME_RESOLVED="$(python - <<'PY'
+import os
+from pathlib import Path
+
+raw = os.environ.get("DSH_HOME")
+print(Path(raw).expanduser() if raw and raw.strip() else Path.home() / ".dsh")
+PY
+)"
+test -f "$DSH_HOME_RESOLVED/skills/student-os/SKILL.md"
 ```
 
 When using project scope, confirm:
