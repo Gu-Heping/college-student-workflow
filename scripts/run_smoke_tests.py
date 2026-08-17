@@ -6713,6 +6713,39 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
     force_git = force_payload.get("git", {})
     if ".dsh/student-os.cordis.yml" not in force_git.get("dsh_files", {}).get("modified", []):
         raise AssertionError(f"DSH bootstrap --force-overlay should report modified overlay content: {force_git}")
+
+    overlay_path.write_text("# concurrent overlay\n", encoding="utf-8")
+    concurrent_env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONDONTWRITEBYTECODE": "1"}
+    concurrent_args = [
+        sys.executable,
+        "-B",
+        str(ROOT_SCRIPTS / "bootstrap_dsh.py"),
+        "--project-root",
+        str(vault),
+        "--force-overlay",
+        "--json",
+    ]
+    processes = [
+        subprocess.Popen(
+            concurrent_args,
+            cwd=ROOT,
+            env=concurrent_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+        )
+        for _ in range(2)
+    ]
+    for process in processes:
+        stdout, stderr = process.communicate(timeout=120)
+        if process.returncode != 0:
+            raise AssertionError(f"Concurrent DSH bootstrap should succeed, rc={process.returncode}, stdout={stdout}, stderr={stderr}")
+        payload = json.loads(stdout)
+        if payload.get("ok") is not True:
+            raise AssertionError(f"Concurrent DSH bootstrap returned failure payload: {payload}")
+    if "# concurrent overlay" in overlay_path.read_text(encoding="utf-8"):
+        raise AssertionError("Concurrent DSH bootstrap should restore the generated overlay content")
     return True
 
 

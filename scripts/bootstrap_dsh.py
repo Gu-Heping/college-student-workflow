@@ -312,13 +312,24 @@ def write_overlay(project_root: Path, *, force_overlay: bool) -> dict[str, Any]:
     desired = overlay_text(PLUGIN_ENTRY)
     backup_path: Path | None = None
     if overlay.exists():
+        reject_existing_symlink_components(project_root, OVERLAY_RELATIVE)
         current = overlay.read_text(encoding="utf-8")
         if current == desired:
             return {"written": False, "path": json_safe_path(overlay), "status": "unchanged"}
         if not force_overlay:
             raise RuntimeError(f"Overlay already exists with different content: {overlay}. Re-run with --force-overlay to replace it.")
-        backup_path = next_backup_path(overlay)
-        copy_backup_exclusive(overlay, backup_path)
+        while True:
+            backup_path = next_backup_path(overlay)
+            try:
+                copy_backup_exclusive(overlay, backup_path)
+                break
+            except FileExistsError:
+                reject_existing_symlink_components(project_root, OVERLAY_RELATIVE)
+                current = overlay.read_text(encoding="utf-8")
+                if current == desired:
+                    return {"written": False, "path": json_safe_path(overlay), "status": "unchanged"}
+                continue
+    reject_existing_symlink_components(project_root, OVERLAY_RELATIVE)
     overlay.write_text(desired, encoding="utf-8")
     result = {"written": True, "path": json_safe_path(overlay), "status": "written"}
     if backup_path is not None:
