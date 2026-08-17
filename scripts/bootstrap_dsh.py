@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -111,6 +112,63 @@ def git_delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def file_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def dsh_file_snapshot(project_root: Path) -> dict[str, str]:
+    dsh_root = project_root / ".dsh"
+    if not dsh_root.exists():
+        return {}
+    snapshot: dict[str, str] = {}
+    for path in sorted(dsh_root.rglob("*")):
+        if not path.is_file():
+            continue
+        resolved = path.resolve()
+        if not path_is_relative_to(resolved, project_root):
+            continue
+        snapshot[path.relative_to(project_root).as_posix()] = file_digest(path)
+    return snapshot
+
+
+def dsh_file_delta(before: dict[str, str], after: dict[str, str]) -> dict[str, list[str]]:
+    before_keys = set(before)
+    after_keys = set(after)
+    common = before_keys & after_keys
+    return {
+        "added": sorted(after_keys - before_keys),
+        "removed": sorted(before_keys - after_keys),
+        "modified": sorted(path for path in common if before[path] != after[path]),
+    }
+
+
+def operation_delta(
+    before_git: dict[str, Any],
+    before_files: dict[str, str],
+    project_root: Path,
+) -> dict[str, Any]:
+    after_git = git_status(project_root)
+    delta = git_delta(before_git, after_git)
+    delta["dsh_files"] = dsh_file_delta(before_files, dsh_file_snapshot(project_root))
+    return delta
+
+
+def validate_project_paths(project_root: Path) -> None:
+    checks = [
+        project_root / SKILL_RELATIVE,
+        project_root / OVERLAY_RELATIVE,
+        (project_root / OVERLAY_RELATIVE).parent,
+    ]
+    for path in checks:
+        resolved = path.resolve()
+        if not path_is_relative_to(resolved, project_root):
+            raise RuntimeError(f"Refusing to write outside project root via resolved path: {path} -> {resolved}")
+
+
 def existing_skill(project_root: Path) -> dict[str, Any] | None:
     destination = (project_root / SKILL_RELATIVE).resolve()
     manifest_path = destination / MANIFEST_NAME
@@ -220,6 +278,8 @@ def next_backup_path(path: Path) -> Path:
 
 def write_overlay(project_root: Path, *, force_overlay: bool) -> dict[str, Any]:
     overlay = (project_root / OVERLAY_RELATIVE).resolve()
+    if not path_is_relative_to(overlay, project_root):
+        raise RuntimeError(f"Refusing to write overlay outside project root: {overlay}")
     overlay.parent.mkdir(parents=True, exist_ok=True)
     desired = overlay_text(PLUGIN_ENTRY)
     backup_path: Path | None = None
@@ -249,10 +309,21 @@ def bootstrap(project_root: Path, *, force_overlay: bool) -> tuple[int, dict[str
         )
 
     before_git = git_status(project_root)
+    before_files = dsh_file_snapshot(project_root)
     try:
         project_root.mkdir(parents=True, exist_ok=True)
     except Exception as exc:
         return 1, fail("project-root", str(exc), project_root=json_safe_path(project_root))
+
+    try:
+        validate_project_paths(project_root)
+    except Exception as exc:
+        return 1, fail(
+            "project-root",
+            str(exc),
+            project_root=json_safe_path(project_root),
+            git=operation_delta(before_git, before_files, project_root),
+        )
 
     try:
         skill = install_skill(project_root)
@@ -261,7 +332,7 @@ def bootstrap(project_root: Path, *, force_overlay: bool) -> tuple[int, dict[str
             "skill-install",
             str(exc),
             project_root=json_safe_path(project_root),
-            git=git_delta(before_git, git_status(project_root)),
+            git=operation_delta(before_git, before_files, project_root),
         )
 
     try:
@@ -272,7 +343,7 @@ def bootstrap(project_root: Path, *, force_overlay: bool) -> tuple[int, dict[str
             str(exc),
             project_root=json_safe_path(project_root),
             skill=skill,
-            git=git_delta(before_git, git_status(project_root)),
+            git=operation_delta(before_git, before_files, project_root),
         )
 
     try:
@@ -284,7 +355,7 @@ def bootstrap(project_root: Path, *, force_overlay: bool) -> tuple[int, dict[str
             project_root=json_safe_path(project_root),
             skill=skill,
             plugin=plugin,
-            git=git_delta(before_git, git_status(project_root)),
+            git=operation_delta(before_git, before_files, project_root),
         )
 
     argv = ["dsh", "web", "--patch", overlay["path"]]
@@ -294,7 +365,7 @@ def bootstrap(project_root: Path, *, force_overlay: bool) -> tuple[int, dict[str
         "skill": skill,
         "plugin": plugin,
         "overlay": overlay,
-        "git": git_delta(before_git, git_status(project_root)),
+        "git": operation_delta(before_git, before_files, project_root),
         "activation": {
             "active_in_current_process": False,
             "restart_required": True,

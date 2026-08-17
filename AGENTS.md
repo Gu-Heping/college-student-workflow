@@ -10,10 +10,11 @@
 
 ## 仓库性质
 
-`college-student-workflow` 是 Python-only 的 CLI / skill 工具包（核心是 `student-os`）。**没有**长期运行的服务、端口、数据库——开发就是跑 Python CLI 与 smoke tests。
+`college-student-workflow` 是 Python 核心 + 可选 DSH 插件的 CLI / skill 工具包（核心是 `student-os`）。**没有**长期运行的服务、端口、数据库——开发就是跑 Python CLI、DSH 插件 npm 检查与 smoke tests。
 
 - 核心依赖：Python 3 + `git`
 - 可选依赖：`requirements.txt`（`pdfplumber`、`pypdf`、`pymupdf`、`python-docx`、`openpyxl`、`python-pptx`、`mineru-open-sdk`），仅资料导入需要
+- 可选 DSH 插件：`integrations/dsh/`，改动后跑 `npm ci`、`npm run build`、`npm run test`
 - 测试：`python scripts/run_smoke_tests.py`
 - 编译检查：`python -m py_compile scripts/bootstrap_dsh.py scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py`
 - CI：`.github/workflows/smoke.yml`（PR 与 main push）

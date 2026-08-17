@@ -6551,6 +6551,25 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
     if root_failure_payload.get("ok") is not False or root_failure_payload.get("stage") != "project-root":
         raise AssertionError(f"DSH bootstrap should refuse the source checkout as project root, got: {root_failure_payload}")
 
+    symlink_vault = tmp_root / "external-dsh-symlink-vault"
+    external_dsh = tmp_root / "external-dsh-target"
+    symlink_vault.mkdir(parents=True)
+    external_dsh.mkdir()
+    try:
+        (symlink_vault / ".dsh").symlink_to(external_dsh, target_is_directory=True)
+    except OSError:
+        pass
+    else:
+        symlink_failure_output = run_root_script_failure(
+            "bootstrap_dsh.py",
+            "--project-root",
+            str(symlink_vault),
+            "--json",
+        )
+        symlink_failure_payload = json.loads(symlink_failure_output)
+        if symlink_failure_payload.get("ok") is not False or symlink_failure_payload.get("stage") != "project-root":
+            raise AssertionError(f"DSH bootstrap should refuse external .dsh symlinks, got: {symlink_failure_payload}")
+
     if not native_plugin_available:
         return False
 
@@ -6593,6 +6612,9 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
         raise AssertionError(f"DSH bootstrap should report vault Git status when available: {git_payload}")
     if not any(".dsh/" in entry or ".dsh\\" in entry for entry in git_payload.get("added", [])):
         raise AssertionError(f"DSH bootstrap should report newly created project DSH files: {git_payload}")
+    dsh_files = git_payload.get("dsh_files", {})
+    if ".dsh/student-os.cordis.yml" not in dsh_files.get("added", []):
+        raise AssertionError(f"DSH bootstrap should report created overlay content: {git_payload}")
 
     overlay = overlay_path.read_text(encoding="utf-8")
     expected_entry = plugin_entry.resolve().as_posix()
@@ -6647,6 +6669,9 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
     if not backup:
         raise AssertionError("DSH bootstrap --force-overlay should report an overlay backup")
     ensure_exists(Path(backup))
+    force_git = force_payload.get("git", {})
+    if ".dsh/student-os.cordis.yml" not in force_git.get("dsh_files", {}).get("modified", []):
+        raise AssertionError(f"DSH bootstrap --force-overlay should report modified overlay content: {force_git}")
     return True
 
 

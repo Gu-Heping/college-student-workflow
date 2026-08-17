@@ -185,16 +185,17 @@ If you are DeepSeek Harness and the user asks to install Student OS:
 
 1. Treat the current DSH workspace as the target vault.
 2. Keep this repository checkout in a persistent tooling location; the project overlay references its built plugin entry.
-3. Run:
+3. Confirm the target vault is not this repository checkout; before writing, inspect the vault with `student-os/scripts/inspect_repo.py` and `student-os/scripts/group_git_changes.py` so pre-existing dirty files are distinguishable from bootstrap changes.
+4. Run:
 
    ```bash
    cd /path/to/college-student-workflow
    python scripts/bootstrap_dsh.py --project-root <current-workspace> --json
    ```
 
-4. Parse the JSON result.
-5. If `restart_required` is true, show the user the returned `activation.argv`.
-6. Do not modify unrelated vault files or global DSH configuration.
+5. Parse the JSON result.
+6. If `restart_required` is true, show the user the returned `activation.argv`.
+7. Do not modify unrelated vault files or global DSH configuration.
 
 ## 日常使用场景
 

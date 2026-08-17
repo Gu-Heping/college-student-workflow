@@ -23,10 +23,12 @@ Natural-language request example:
 From the `college-student-workflow` checkout, run:
 
 ```bash
+python student-os/scripts/inspect_repo.py /path/to/vault
+python student-os/scripts/group_git_changes.py /path/to/vault
 python scripts/bootstrap_dsh.py --project-root /path/to/vault --json
 ```
 
-`--project-root` is the user's learning vault / current DSH workspace. Do not use this repository checkout as the target vault unless it is truly the user's vault.
+`--project-root` is the user's learning vault / current DSH workspace. Do not use this repository checkout, or a path inside it, as the target vault. Treat the inspect/group output as the read-only baseline so bootstrap-created `.dsh` files can be distinguished from pre-existing dirty files.
 
 On success, the JSON includes the project Skill path, built plugin entry, project-local overlay path, and the exact restart argv:
 
@@ -115,6 +117,8 @@ The test command boots a real Cordis `Context` with DSH `ToolRuntime`, registers
 If you hand-write an overlay, keep it project-local during testing and use an absolute plugin path:
 
 ```bash
+python student-os/scripts/inspect_repo.py /path/to/vault
+python student-os/scripts/group_git_changes.py /path/to/vault
 mkdir -p /path/to/vault/.dsh
 cat > /path/to/vault/.dsh/student-os.cordis.yml <<EOF
 - insert:
