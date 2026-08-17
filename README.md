@@ -171,6 +171,8 @@ DSH 目标路径：
 
 DSH 运行时发现项目 skill 时，会使用最近的 `.git` 祖先作为 project root；找不到 `.git` 时回退到当前 cwd。因此 Git-first 的学习 vault 最适合作为 DSH project 根目录。安装器不会替你向上寻找 Git root，`--project-root` 指向哪里，就安装到哪里的 `.dsh/skills/student-os`。
 
+从 Claude Code 切换到 DSH 时，可选启用本仓库的最小原生 Cordis plugin（`student_os_inspect` / `student_os_group_changes` / `student_os_frontmatter`）。步骤见 [`docs/dsh-migration.md`](docs/dsh-migration.md)。
+
 ## 日常使用场景
 
 最常见的用法是对 agent 说自然语言（见上一节示例），而不是先背脚本。

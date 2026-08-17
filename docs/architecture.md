@@ -22,6 +22,7 @@ college-student-workflow/          # skill 源码仓库（不是用户 vault）
 ├── README.md / AGENTS.md / CHANGELOG.md
 ├── docs/                          # 维护记录
 ├── scripts/                       # 安装器、smoke、兼容包装
+├── integrations/                  # runtime-native adapters outside the portable skill core
 ├── install.sh / install.ps1
 ├── examples/                      # demo vaults + fixtures
 └── student-os/                    # 可安装的 skill 包

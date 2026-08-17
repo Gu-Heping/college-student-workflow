@@ -6459,6 +6459,47 @@ def verify_legacy_link_install_detection(tmp_root: Path) -> None:
         raise AssertionError("Legacy whole-directory symlink installs should not create a manifest in the source repo")
 
 
+def verify_dsh_native_plugin() -> bool:
+    plugin_root = ROOT / "integrations" / "dsh"
+    if not (plugin_root / "package.json").exists():
+        raise AssertionError("DSH native plugin package.json is missing")
+    node_exe = shutil.which("node.exe") or shutil.which("node")
+    npm_exe = shutil.which("npm.cmd") or shutil.which("npm")
+    if node_exe is None or npm_exe is None:
+        return False
+
+    env = {
+        **os.environ,
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "STUDENT_OS_REPO_ROOT": str(ROOT),
+    }
+    install_cmd = (
+        [npm_exe, "ci", "--ignore-scripts", "--no-audit", "--no-fund"]
+        if (plugin_root / "package-lock.json").exists()
+        else [npm_exe, "install", "--ignore-scripts", "--no-audit", "--no-fund"]
+    )
+    subprocess.run(
+        install_cmd,
+        cwd=plugin_root,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+    )
+    subprocess.run(
+        [npm_exe, "run", "test"],
+        cwd=plugin_root,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+    )
+    return True
+
+
 def verify_update_source_override_and_project_copy_detection(tmp_root: Path) -> None:
     install_module = load_root_script_module("install_student_os.py", "student_os_install_override_smoke")
     update_module = load_root_script_module("update_student_os.py", "student_os_update_override_smoke")
@@ -6748,6 +6789,7 @@ def main() -> int:
         verify_dsh_install_paths(tmp_root / "dsh-install-demo")
         verify_dsh_home_resolution(tmp_root / "dsh-home-resolution-demo")
         verify_dsh_update_discovery(tmp_root / "dsh-update-discovery-demo")
+        dsh_native_plugin_ran = verify_dsh_native_plugin()
         verify_legacy_link_install_detection(tmp_root / "legacy-link-install-demo")
         verify_update_source_override_and_project_copy_detection(tmp_root / "update-override-demo")
         verify_self_update_workflow(tmp_root / "self-update-demo")
@@ -6778,6 +6820,7 @@ def main() -> int:
     print("OK dsh-install-demo")
     print("OK dsh-home-resolution-demo")
     print("OK dsh-update-discovery-demo")
+    print("OK dsh-native-plugin" if dsh_native_plugin_ran else "SKIP dsh-native-plugin (node/npm unavailable)")
     print("OK legacy-link-install-demo")
     print("OK update-override-demo")
     print("OK self-update-demo")

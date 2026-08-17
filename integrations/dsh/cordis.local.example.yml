@@ -1,0 +1,6 @@
+# Copy this file to a local overlay and replace the placeholder with the
+# absolute path printed by docs/dsh-migration.md.
+
+- insert:
+    - id: student-os-native
+      name: '/absolute/path/to/college-student-workflow/integrations/dsh/dist/index.js'
