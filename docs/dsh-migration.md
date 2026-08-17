@@ -3,6 +3,7 @@
 This page describes the minimal Claude Code to DeepSeek Harness path for Student OS.
 
 Official DSH reference checked: `deepseek-ai/deepseek-harness` commit `99f6f02fecdb7dff40c3fbc9470f5907c29f74ca`.
+The plugin is built against the matching published packages `@deepseek-ai/dsh-tools@0.1.0-rc.7` and `@deepseek-ai/cordis@4.0.1`.
 
 ## Prerequisites
 
@@ -36,10 +37,12 @@ DSH paths follow official home semantics:
 cd integrations/dsh
 npm ci
 npm run build
+npm run test
 cd ../..
 ```
 
 The plugin is a local Cordis plugin at `integrations/dsh/dist/index.js`. It registers three native tools and delegates all business logic to the existing Python scripts.
+The test command boots a real Cordis `Context` with DSH `ToolRuntime`, registers the plugin through the official `defineTool()` path, and executes all three tools against a temporary vault.
 
 ## Enable the Plugin
 
@@ -74,7 +77,7 @@ cd /path/to/vault
 dsh web --patch /path/to/college-student-workflow/.dsh-student-os.cordis.yml
 ```
 
-For a persistent machine-local setup, place the same patch entry in `$DSH_HOME/cordis.patch.yml`.
+Keep this explicit `--patch` path while testing the migration. After the setup is stable on one machine, the same patch entry can be moved into `$DSH_HOME/cordis.patch.yml` as a machine-local preference.
 
 ## Confirm Discovery
 
@@ -98,11 +101,13 @@ Confirm native tools by asking DSH to call:
 - `student_os_group_changes`
 - `student_os_frontmatter`
 
-For a no-network configuration check when DSH is installed:
+For a no-network patch composition check when DSH is installed:
 
 ```bash
 dsh web --patch /path/to/college-student-workflow/.dsh-student-os.cordis.yml --dump-config
 ```
+
+`--dump-config` confirms that the overlay composes into the selected profile; it does not boot the plugin. Runtime loading is covered by `npm run test` at the package/API layer. A full interactive DSH boot should still be verified on a machine with the `dsh` CLI installed by starting DSH from the vault root with the same `--patch` command above and confirming the three `student_os_*` tools are callable.
 
 ## Claude Code to DSH Mapping
 

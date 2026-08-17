@@ -2,36 +2,12 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { homedir } from 'node:os'
+import type { Context } from '@deepseek-ai/cordis'
+import { defineTool, type JsonValue } from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 
 export const name = 'student-os'
 export const inject = ['tools', 'systemPrompt']
-
-type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
-
-interface ToolExecution {
-  signal: AbortSignal
-}
-
-interface ToolDefinition {
-  name: string
-  description: string
-  parameters: Record<string, unknown>
-  output: {
-    schema: Record<string, unknown>
-    render(args: unknown, value: StudentOsToolResult): { type: 'text'; text: string }[]
-  }
-  execute(args: Record<string, unknown>, exec: ToolExecution): Promise<StudentOsToolResult>
-  isConcurrencySafe?(args: unknown): boolean
-}
-
-interface CordisContext {
-  tools: {
-    register(definition: ToolDefinition): unknown
-  }
-  systemPrompt?: {
-    section(section: { name: string; order: number; text: string }): unknown
-  }
-}
 
 export interface Config {
   repoRoot?: string
@@ -40,11 +16,12 @@ export interface Config {
 
 export interface StudentOsToolResult {
   ok: boolean
-  exitCode: number
+  exitCode: number | null
   cwd: string
   command: string[]
   stdout: string
   stderr: string
+  signal?: string
   payload?: JsonValue
 }
 
@@ -61,14 +38,15 @@ const toolResultSchema = {
   additionalProperties: false,
   properties: {
     ok: { type: 'boolean', required: true },
-    exitCode: { type: 'integer', required: true },
+    exitCode: { oneOf: [{ type: 'integer' }, { type: 'null' }], required: true },
     cwd: { type: 'string', required: true },
     command: { type: 'array', required: true, items: { type: 'string' } },
     stdout: { type: 'string', required: true },
     stderr: { type: 'string', required: true },
+    signal: { type: 'string' },
     payload: { type: 'json' },
   },
-}
+} as const
 
 export function resolveRepoRoot(configured?: string): string {
   const explicit = configured ?? process.env.STUDENT_OS_REPO_ROOT
@@ -122,6 +100,7 @@ export function runStudentOsScript(
   const command = [pythonCommand(options.python), scriptPath, ...args]
 
   return new Promise((resolveResult, reject) => {
+    let settled = false
     const child = spawn(command[0], command.slice(1), {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -136,21 +115,30 @@ export function runStudentOsScript(
     child.stderr.on('data', chunk => stderrChunks.push(Buffer.from(chunk)))
     child.on('error', error => {
       options.signal.removeEventListener('abort', abort)
-      reject(error)
+      if (!settled) {
+        settled = true
+        reject(error)
+      }
     })
-    child.on('close', code => {
+    child.on('close', (code, signal) => {
       options.signal.removeEventListener('abort', abort)
+      if (settled) return
+      settled = true
+      if (options.signal.aborted) {
+        reject(new Error('student-os subprocess aborted'))
+        return
+      }
       const stdout = Buffer.concat(stdoutChunks).toString('utf8')
       const stderr = Buffer.concat(stderrChunks).toString('utf8')
-      const exitCode = code ?? 1
       const payload = parsePayload(stdout)
       resolveResult({
-        ok: exitCode === 0,
-        exitCode,
+        ok: code === 0,
+        exitCode: code,
         cwd: repoRoot,
         command,
         stdout,
         stderr,
+        ...signal === null ? {} : { signal },
         ...payload === undefined ? {} : { payload },
       })
     })
@@ -160,7 +148,9 @@ export function runStudentOsScript(
 function renderResult(toolName: string, value: StudentOsToolResult): { type: 'text'; text: string }[] {
   const header = value.ok
     ? `${toolName} completed with exit code 0.`
-    : `${toolName} failed with exit code ${value.exitCode}.`
+    : value.exitCode === null
+      ? `${toolName} ended without an exit code${value.signal === undefined ? '' : ` (${value.signal})`}.`
+      : `${toolName} failed with exit code ${value.exitCode}.`
   return [{
     type: 'text',
     text: [
@@ -173,21 +163,7 @@ function renderResult(toolName: string, value: StudentOsToolResult): { type: 'te
   }]
 }
 
-function registerScriptTool(
-  ctx: CordisContext,
-  definition: Omit<ToolDefinition, 'output' | 'isConcurrencySafe'>,
-): void {
-  ctx.tools.register({
-    ...definition,
-    output: {
-      schema: toolResultSchema,
-      render: (_args, value) => renderResult(definition.name, value),
-    },
-    isConcurrencySafe: () => true,
-  })
-}
-
-export function apply(ctx: CordisContext, config: Config = {}): void {
+export function apply(ctx: Context, config: Config = {}): void {
   ctx.systemPrompt?.section({
     name: 'student-os',
     order: 118,
@@ -198,31 +174,41 @@ export function apply(ctx: CordisContext, config: Config = {}): void {
     ].join('\n'),
   })
 
-  registerScriptTool(ctx, {
+  ctx.tools.register(defineTool({
     name: 'student_os_inspect',
     description: 'Inspect a Student OS vault using the portable Python inspect_repo.py script.',
     parameters: {
       vault: { type: 'string', description: 'Vault root to inspect. Defaults to the DSH process cwd.' },
     },
+    output: {
+      schema: toolResultSchema,
+      render: (_args, value) => renderResult('student_os_inspect', value),
+    },
+    isConcurrencySafe: () => true,
     execute(args, exec) {
       const vault = resolveUserPath(requireString(args.vault, 'vault', '.'))
       return runStudentOsScript('inspect_repo.py', [vault], { ...config, signal: exec.signal })
     },
-  })
+  }))
 
-  registerScriptTool(ctx, {
+  ctx.tools.register(defineTool({
     name: 'student_os_group_changes',
     description: 'Group git changes in a Student OS vault using the portable Python group_git_changes.py script.',
     parameters: {
       vault: { type: 'string', description: 'Vault root to analyze. Defaults to the DSH process cwd.' },
     },
+    output: {
+      schema: toolResultSchema,
+      render: (_args, value) => renderResult('student_os_group_changes', value),
+    },
+    isConcurrencySafe: () => true,
     execute(args, exec) {
       const vault = resolveUserPath(requireString(args.vault, 'vault', '.'))
       return runStudentOsScript('group_git_changes.py', [vault], { ...config, signal: exec.signal })
     },
-  })
+  }))
 
-  registerScriptTool(ctx, {
+  ctx.tools.register(defineTool({
     name: 'student_os_frontmatter',
     description: 'Add missing Student OS frontmatter to imported markdown sidecars using ensure_frontmatter.py.',
     parameters: {
@@ -231,6 +217,13 @@ export function apply(ctx: CordisContext, config: Config = {}): void {
       include_raw: { type: 'boolean', description: 'Also process *.raw.md files.' },
       course: { type: 'string', description: 'Optional course name to write into frontmatter.' },
       status: { type: 'string', description: 'Frontmatter status. Defaults to active in the Python script.' },
+    },
+    output: {
+      schema: toolResultSchema,
+      render: (_args, value) => renderResult('student_os_frontmatter', value),
+    },
+    isConcurrencySafe(args) {
+      return args.apply !== true
     },
     execute(args, exec) {
       const target = resolveUserPath(requireString(args.path, 'path'))
@@ -241,5 +234,5 @@ export function apply(ctx: CordisContext, config: Config = {}): void {
       scriptArgs.push(target)
       return runStudentOsScript('ensure_frontmatter.py', scriptArgs, { ...config, signal: exec.signal })
     },
-  })
+  }))
 }
