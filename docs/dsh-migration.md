@@ -42,6 +42,7 @@ On success, the JSON includes the project Skill path, built plugin entry, projec
 ```
 
 On failure, bootstrap exits non-zero and returns `ok:false` with a stable `stage`, for example `project-root`, `skill-install`, `plugin-build`, or `overlay-write`.
+If `<vault>/.dsh/student-os.cordis.yml` already exists with different content, bootstrap fails instead of overwriting it; re-run with `--force-overlay` only after confirming the existing overlay can be backed up and replaced.
 
 Start DSH from the vault root with the returned argv. Bootstrap does not hot-load the current DSH session: `active_in_current_process` is `false` and `restart_required` is `true`.
 
@@ -114,6 +115,7 @@ The test command boots a real Cordis `Context` with DSH `ToolRuntime`, registers
 If you hand-write an overlay, keep it project-local during testing and use an absolute plugin path:
 
 ```bash
+mkdir -p /path/to/vault/.dsh
 cat > /path/to/vault/.dsh/student-os.cordis.yml <<EOF
 - insert:
     - id: student-os-native

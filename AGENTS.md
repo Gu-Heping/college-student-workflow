@@ -15,7 +15,7 @@
 - 核心依赖：Python 3 + `git`
 - 可选依赖：`requirements.txt`（`pdfplumber`、`pypdf`、`pymupdf`、`python-docx`、`openpyxl`、`python-pptx`、`mineru-open-sdk`），仅资料导入需要
 - 测试：`python scripts/run_smoke_tests.py`
-- 编译检查：`python -m py_compile scripts/bootstrap_dsh.py scripts/install_student_os.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py`
+- 编译检查：`python -m py_compile scripts/bootstrap_dsh.py scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py`
 - CI：`.github/workflows/smoke.yml`（PR 与 main push）
 
 ## 最重要的安全边界

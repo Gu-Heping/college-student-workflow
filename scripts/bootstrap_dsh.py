@@ -25,6 +25,11 @@ def parse_args() -> argparse.Namespace:
         help="Target learning vault / current DSH workspace. This is not the college-student-workflow checkout.",
     )
     parser.add_argument("--json", action="store_true", help="Print machine-readable output.")
+    parser.add_argument(
+        "--force-overlay",
+        action="store_true",
+        help="Overwrite an existing different project overlay after writing a backup.",
+    )
     return parser.parse_args()
 
 
@@ -65,6 +70,45 @@ def run_checked(argv: list[str], *, cwd: Path, env: dict[str, str] | None = None
 
 def fail(stage: str, error: str, **extra: Any) -> dict[str, Any]:
     return {"ok": False, "stage": stage, "error": error, **extra}
+
+
+def path_is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def git_status(project_root: Path) -> dict[str, Any]:
+    git_exe = shutil.which("git.exe") or shutil.which("git")
+    if git_exe is None:
+        return {"available": False, "entries": [], "error": "git executable was not found on PATH"}
+    result = subprocess.run(
+        [git_exe, "-C", str(project_root), "status", "--porcelain=v1", "--untracked-files=all"],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout).strip()
+        return {"available": False, "entries": [], "error": message}
+    return {"available": True, "entries": sorted(result.stdout.splitlines())}
+
+
+def git_delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    if not before.get("available") or not after.get("available"):
+        return {"before": before, "after": after, "added": [], "removed": []}
+    before_entries = set(before.get("entries", []))
+    after_entries = set(after.get("entries", []))
+    return {
+        "before": before,
+        "after": after,
+        "added": sorted(after_entries - before_entries),
+        "removed": sorted(before_entries - after_entries),
+    }
 
 
 def existing_skill(project_root: Path) -> dict[str, Any] | None:
@@ -162,15 +206,49 @@ def build_plugin() -> dict[str, Any]:
     }
 
 
-def write_overlay(project_root: Path) -> dict[str, Any]:
+def next_backup_path(path: Path) -> Path:
+    backup = path.with_name(path.name + ".bak")
+    if not backup.exists():
+        return backup
+    index = 1
+    while True:
+        candidate = path.with_name(f"{path.name}.bak.{index}")
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def write_overlay(project_root: Path, *, force_overlay: bool) -> dict[str, Any]:
     overlay = (project_root / OVERLAY_RELATIVE).resolve()
     overlay.parent.mkdir(parents=True, exist_ok=True)
-    overlay.write_text(overlay_text(PLUGIN_ENTRY), encoding="utf-8")
-    return {"written": True, "path": json_safe_path(overlay)}
+    desired = overlay_text(PLUGIN_ENTRY)
+    backup_path: Path | None = None
+    if overlay.exists():
+        current = overlay.read_text(encoding="utf-8")
+        if current == desired:
+            return {"written": False, "path": json_safe_path(overlay), "status": "unchanged"}
+        if not force_overlay:
+            raise RuntimeError(f"Overlay already exists with different content: {overlay}. Re-run with --force-overlay to replace it.")
+        backup_path = next_backup_path(overlay)
+        shutil.copy2(overlay, backup_path)
+    overlay.write_text(desired, encoding="utf-8")
+    result = {"written": True, "path": json_safe_path(overlay), "status": "written"}
+    if backup_path is not None:
+        result["backup"] = json_safe_path(backup_path)
+    return result
 
 
-def bootstrap(project_root: Path) -> tuple[int, dict[str, Any]]:
+def bootstrap(project_root: Path, *, force_overlay: bool) -> tuple[int, dict[str, Any]]:
     project_root = project_root.resolve()
+    root = ROOT.resolve()
+    if project_root == root or path_is_relative_to(project_root, root):
+        return 1, fail(
+            "project-root",
+            "Refusing to use the college-student-workflow checkout as the target DSH project root.",
+            project_root=json_safe_path(project_root),
+        )
+
+    before_git = git_status(project_root)
     try:
         project_root.mkdir(parents=True, exist_ok=True)
     except Exception as exc:
@@ -179,15 +257,26 @@ def bootstrap(project_root: Path) -> tuple[int, dict[str, Any]]:
     try:
         skill = install_skill(project_root)
     except Exception as exc:
-        return 1, fail("skill-install", str(exc), project_root=json_safe_path(project_root))
+        return 1, fail(
+            "skill-install",
+            str(exc),
+            project_root=json_safe_path(project_root),
+            git=git_delta(before_git, git_status(project_root)),
+        )
 
     try:
         plugin = build_plugin()
     except Exception as exc:
-        return 1, fail("plugin-build", str(exc), project_root=json_safe_path(project_root), skill=skill)
+        return 1, fail(
+            "plugin-build",
+            str(exc),
+            project_root=json_safe_path(project_root),
+            skill=skill,
+            git=git_delta(before_git, git_status(project_root)),
+        )
 
     try:
-        overlay = write_overlay(project_root)
+        overlay = write_overlay(project_root, force_overlay=force_overlay)
     except Exception as exc:
         return 1, fail(
             "overlay-write",
@@ -195,6 +284,7 @@ def bootstrap(project_root: Path) -> tuple[int, dict[str, Any]]:
             project_root=json_safe_path(project_root),
             skill=skill,
             plugin=plugin,
+            git=git_delta(before_git, git_status(project_root)),
         )
 
     argv = ["dsh", "web", "--patch", overlay["path"]]
@@ -204,6 +294,7 @@ def bootstrap(project_root: Path) -> tuple[int, dict[str, Any]]:
         "skill": skill,
         "plugin": plugin,
         "overlay": overlay,
+        "git": git_delta(before_git, git_status(project_root)),
         "activation": {
             "active_in_current_process": False,
             "restart_required": True,
@@ -219,7 +310,7 @@ def bootstrap(project_root: Path) -> tuple[int, dict[str, Any]]:
 
 def main() -> int:
     args = parse_args()
-    exit_code, payload = bootstrap(Path(args.project_root))
+    exit_code, payload = bootstrap(Path(args.project_root), force_overlay=args.force_overlay)
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     elif payload.get("ok"):

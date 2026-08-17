@@ -188,6 +188,7 @@ If you are DeepSeek Harness and the user asks to install Student OS:
 3. Run:
 
    ```bash
+   cd /path/to/college-student-workflow
    python scripts/bootstrap_dsh.py --project-root <current-workspace> --json
    ```
 

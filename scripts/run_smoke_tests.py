@@ -6541,10 +6541,21 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
     if "activation" in failure_payload:
         raise AssertionError("DSH bootstrap failure should not claim activation instructions")
 
+    root_failure_output = run_root_script_failure(
+        "bootstrap_dsh.py",
+        "--project-root",
+        str(ROOT),
+        "--json",
+    )
+    root_failure_payload = json.loads(root_failure_output)
+    if root_failure_payload.get("ok") is not False or root_failure_payload.get("stage") != "project-root":
+        raise AssertionError(f"DSH bootstrap should refuse the source checkout as project root, got: {root_failure_payload}")
+
     if not native_plugin_available:
         return False
 
     vault = tmp_root / "vault"
+    init_git_repo(vault)
     first_output = run_root_script(
         "bootstrap_dsh.py",
         "--project-root",
@@ -6577,6 +6588,11 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
     expected_argv = ["dsh", "web", "--patch", str(overlay_path.resolve())]
     if activation.get("argv") != expected_argv:
         raise AssertionError(f"DSH bootstrap restart argv mismatch: {activation.get('argv')}")
+    git_payload = first_payload.get("git", {})
+    if git_payload.get("before", {}).get("available") is not True or git_payload.get("after", {}).get("available") is not True:
+        raise AssertionError(f"DSH bootstrap should report vault Git status when available: {git_payload}")
+    if not any(".dsh/" in entry or ".dsh\\" in entry for entry in git_payload.get("added", [])):
+        raise AssertionError(f"DSH bootstrap should report newly created project DSH files: {git_payload}")
 
     overlay = overlay_path.read_text(encoding="utf-8")
     expected_entry = plugin_entry.resolve().as_posix()
@@ -6606,6 +6622,31 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
     if len(list((vault / ".dsh").glob("student-os*.cordis.yml"))) != 1:
         raise AssertionError("Repeated DSH bootstrap should not create extra overlays")
     ensure_exists(skill_path / "SKILL.md")
+
+    overlay_path.write_text("# user overlay\n", encoding="utf-8")
+    conflict_output = run_root_script_failure(
+        "bootstrap_dsh.py",
+        "--project-root",
+        str(vault),
+        "--json",
+    )
+    conflict_payload = json.loads(conflict_output)
+    if conflict_payload.get("ok") is not False or conflict_payload.get("stage") != "overlay-write":
+        raise AssertionError(f"DSH bootstrap should reject a different existing overlay, got: {conflict_payload}")
+    force_output = run_root_script(
+        "bootstrap_dsh.py",
+        "--project-root",
+        str(vault),
+        "--force-overlay",
+        "--json",
+    )
+    force_payload = json.loads(force_output)
+    if force_payload.get("ok") is not True:
+        raise AssertionError(f"DSH bootstrap --force-overlay should succeed, got: {force_payload}")
+    backup = force_payload.get("overlay", {}).get("backup")
+    if not backup:
+        raise AssertionError("DSH bootstrap --force-overlay should report an overlay backup")
+    ensure_exists(Path(backup))
     return True
 
 
