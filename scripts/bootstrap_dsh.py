@@ -276,14 +276,31 @@ def build_plugin() -> dict[str, Any]:
 
 def next_backup_path(path: Path) -> Path:
     backup = path.with_name(path.name + ".bak")
+    if backup.is_symlink():
+        raise RuntimeError(f"Refusing to use symlink backup path: {backup}")
     if not backup.exists():
         return backup
     index = 1
     while True:
         candidate = path.with_name(f"{path.name}.bak.{index}")
+        if candidate.is_symlink():
+            raise RuntimeError(f"Refusing to use symlink backup path: {candidate}")
         if not candidate.exists():
             return candidate
         index += 1
+
+
+def copy_backup_exclusive(source: Path, backup: Path) -> None:
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    fd = os.open(str(backup), flags)
+    try:
+        with source.open("rb") as source_handle, os.fdopen(fd, "wb") as backup_handle:
+            fd = -1
+            shutil.copyfileobj(source_handle, backup_handle)
+        shutil.copystat(source, backup)
+    finally:
+        if fd != -1:
+            os.close(fd)
 
 
 def write_overlay(project_root: Path, *, force_overlay: bool) -> dict[str, Any]:
@@ -301,7 +318,7 @@ def write_overlay(project_root: Path, *, force_overlay: bool) -> dict[str, Any]:
         if not force_overlay:
             raise RuntimeError(f"Overlay already exists with different content: {overlay}. Re-run with --force-overlay to replace it.")
         backup_path = next_backup_path(overlay)
-        shutil.copy2(overlay, backup_path)
+        copy_backup_exclusive(overlay, backup_path)
     overlay.write_text(desired, encoding="utf-8")
     result = {"written": True, "path": json_safe_path(overlay), "status": "written"}
     if backup_path is not None:

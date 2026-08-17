@@ -6678,6 +6678,24 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
     conflict_payload = json.loads(conflict_output)
     if conflict_payload.get("ok") is not False or conflict_payload.get("stage") != "overlay-write":
         raise AssertionError(f"DSH bootstrap should reject a different existing overlay, got: {conflict_payload}")
+    dangling_backup = overlay_path.with_name(overlay_path.name + ".bak")
+    dangling_target = tmp_root / "missing-overlay-backup-target.yml"
+    try:
+        dangling_backup.symlink_to(dangling_target)
+    except OSError:
+        pass
+    else:
+        dangling_backup_output = run_root_script_failure(
+            "bootstrap_dsh.py",
+            "--project-root",
+            str(vault),
+            "--force-overlay",
+            "--json",
+        )
+        dangling_backup_payload = json.loads(dangling_backup_output)
+        if dangling_backup_payload.get("ok") is not False or dangling_backup_payload.get("stage") != "overlay-write":
+            raise AssertionError(f"DSH bootstrap should reject symlink backup paths, got: {dangling_backup_payload}")
+        dangling_backup.unlink()
     force_output = run_root_script(
         "bootstrap_dsh.py",
         "--project-root",
