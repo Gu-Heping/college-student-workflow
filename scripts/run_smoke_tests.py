@@ -6640,9 +6640,9 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
         raise AssertionError(f"DSH bootstrap should report created overlay content: {git_payload}")
 
     overlay = overlay_path.read_text(encoding="utf-8")
-    expected_entry = plugin_entry.resolve().as_posix()
+    expected_entry = plugin_entry.resolve().as_uri()
     if expected_entry not in overlay:
-        raise AssertionError("DSH bootstrap overlay should reference the absolute plugin entry")
+        raise AssertionError("DSH bootstrap overlay should reference the absolute plugin entry as a file:// URL")
     if str(plugin_entry) in overlay and "\\" in str(plugin_entry):
         raise AssertionError("DSH bootstrap overlay should not use backslash-escaped Windows paths")
     if len(list((vault / ".dsh").glob("student-os*.cordis.yml"))) != 1:

@@ -114,7 +114,7 @@ cd ../..
 The plugin is a local Cordis plugin at `integrations/dsh/dist/index.js`. It registers three native tools and delegates all business logic to the existing Python scripts.
 The test command boots a real Cordis `Context` with DSH `ToolRuntime`, registers the plugin through the official `defineTool()` path, and executes all three tools against a temporary vault.
 
-If you hand-write an overlay, keep it project-local during testing and use an absolute plugin path:
+If you hand-write an overlay, keep it project-local during testing and use an absolute plugin path. **On Windows the plugin `name` must be a `file://` URL** (Node's ESM loader rejects bare absolute paths like `D:/...` with `ERR_UNSUPPORTED_ESM_URL_SCHEME`); on macOS/Linux a plain absolute path works:
 
 ```bash
 python student-os/scripts/inspect_repo.py /path/to/vault
@@ -123,7 +123,10 @@ mkdir -p /path/to/vault/.dsh
 cat > /path/to/vault/.dsh/student-os.cordis.yml <<EOF
 - insert:
     - id: student-os-native
+      # macOS / Linux:
       name: '/absolute/path/to/college-student-workflow/integrations/dsh/dist/index.js'
+      # Windows: use a file:// URL, e.g.
+      # name: 'file:///D:/repos/college-student-workflow/integrations/dsh/dist/index.js'
 EOF
 ```
 
