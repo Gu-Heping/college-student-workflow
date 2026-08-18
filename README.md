@@ -171,6 +171,33 @@ DSH 目标路径：
 
 DSH 运行时发现项目 skill 时，会使用最近的 `.git` 祖先作为 project root；找不到 `.git` 时回退到当前 cwd。因此 Git-first 的学习 vault 最适合作为 DSH project 根目录。安装器不会替你向上寻找 Git root，`--project-root` 指向哪里，就安装到哪里的 `.dsh/skills/student-os`。
 
+从 Claude Code 切换到 DSH 时，可选启用本仓库的最小原生 Cordis plugin（`student_os_inspect` / `student_os_group_changes` / `student_os_frontmatter`）。步骤见 [`docs/dsh-migration.md`](docs/dsh-migration.md)。
+
+### Install with DeepSeek Harness
+
+一句话示例：
+
+```text
+从 https://github.com/Gu-Heping/college-student-workflow 安装 Student OS 到当前项目，并启用 DSH 原生支持。按照仓库提供的 DSH bootstrap 流程执行，不要修改全局 DSH 配置。
+```
+
+If you are DeepSeek Harness and the user asks to install Student OS:
+
+1. Treat the current DSH workspace as the target vault.
+2. Keep this repository checkout in a persistent tooling location; the project overlay references its built plugin entry.
+3. Confirm the target vault is not this repository checkout; before writing, inspect the vault with `student-os/scripts/inspect_repo.py` and `student-os/scripts/group_git_changes.py` so pre-existing dirty files are distinguishable from bootstrap changes.
+4. Run:
+
+   ```bash
+   cd /path/to/college-student-workflow
+   vault=/path/to/current-workspace
+   python scripts/bootstrap_dsh.py --project-root "$vault" --json
+   ```
+
+5. Parse the JSON result.
+6. If `restart_required` is true, show the user the returned `activation.argv`.
+7. Do not modify unrelated vault files or global DSH configuration.
+
 ## 日常使用场景
 
 最常见的用法是对 agent 说自然语言（见上一节示例），而不是先背脚本。
@@ -311,7 +338,7 @@ docs/           # 维护记录文档
 ## 测试
 
 ```bash
-python -m py_compile scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py
+python -m py_compile scripts/bootstrap_dsh.py scripts/dsh_plugin_build.py scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py
 python scripts/run_smoke_tests.py
 ```
 
