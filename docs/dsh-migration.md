@@ -51,7 +51,7 @@ Start DSH from the vault root with the returned argv. Bootstrap does not hot-loa
 Bootstrap performs:
 
 - project-scope Skill install via `scripts/install_student_os.py --agent dsh --scope project --project-root <vault>`
-- reproducible plugin build with `npm ci` and `npm run build` in `integrations/dsh/`
+- reproducible plugin build in `integrations/dsh/`; unchanged inputs reuse the existing `dist/index.js`, source-only changes run `npm run build`, and dependency changes or missing `node_modules` run `npm ci` followed by `npm run build`
 - project-local overlay write to `<vault>/.dsh/student-os.cordis.yml`
 
 The generated overlay references this checkout's `integrations/dsh/dist/index.js`, so the checkout is a runtime dependency. Keep it in a persistent tooling location and do not delete it after bootstrap. This PR intentionally does not publish an npm package or install a machine-level DSH profile package.
@@ -78,7 +78,7 @@ For a no-network patch composition check when DSH is installed:
 dsh web --patch /path/to/vault/.dsh/student-os.cordis.yml --dump-config
 ```
 
-`--dump-config` confirms that the overlay composes into the selected profile; it does not boot the plugin. Runtime loading is covered by `npm run test` at the package/API layer. A full interactive DSH boot should still be verified on a machine with the `dsh` CLI installed by starting DSH from the vault root with the same `--patch` argv above and confirming the three `student_os_*` tools are callable.
+`--dump-config` confirms that the overlay composes into the selected profile; it does not boot the plugin. Runtime loading is covered by `npm run test` at the package/API layer. Windows acceptance has also verified project Skill discovery, plugin mount, and all three `student_os_*` tools in a real installed DSH runtime using the project-local `--patch` overlay. Other OSes should still run the same acceptance path when validating this local checkout.
 
 ## Manual Troubleshooting
 
@@ -114,7 +114,7 @@ cd ../..
 The plugin is a local Cordis plugin at `integrations/dsh/dist/index.js`. It registers three native tools and delegates all business logic to the existing Python scripts.
 The test command boots a real Cordis `Context` with DSH `ToolRuntime`, registers the plugin through the official `defineTool()` path, and executes all three tools against a temporary vault.
 
-If you hand-write an overlay, keep it project-local during testing and use an absolute plugin path. **On Windows the plugin `name` must be a `file://` URL** (Node's ESM loader rejects bare absolute paths like `D:/...` with `ERR_UNSUPPORTED_ESM_URL_SCHEME`); on macOS/Linux a plain absolute path works:
+If you hand-write an overlay, keep it project-local during testing and use a `file://` URL for the built plugin entry. **On Windows the plugin `name` must be a `file://` URL** (Node's ESM loader rejects bare absolute paths like `D:/...` with `ERR_UNSUPPORTED_ESM_URL_SCHEME`); macOS/Linux also accept the generated `file:///...` form:
 
 ```bash
 python student-os/scripts/inspect_repo.py /path/to/vault
@@ -123,14 +123,14 @@ mkdir -p /path/to/vault/.dsh
 cat > /path/to/vault/.dsh/student-os.cordis.yml <<EOF
 - insert:
     - id: student-os-native
-      # macOS / Linux:
-      name: '/absolute/path/to/college-student-workflow/integrations/dsh/dist/index.js'
-      # Windows: use a file:// URL, e.g.
+      name: 'file:///absolute/path/to/college-student-workflow/integrations/dsh/dist/index.js'
+      # Windows example:
       # name: 'file:///D:/repos/college-student-workflow/integrations/dsh/dist/index.js'
 EOF
 ```
 
 Do not make `$DSH_HOME/cordis.patch.yml` the default while validating this PR. Machine-level DSH profile/package distribution is a later design step.
+Avoid running destructive npm maintenance commands concurrently against the same local checkout; the repository bootstrap and smoke paths share a filesystem build lock, but this PR does not try to defend against unrelated external processes deleting `integrations/dsh/node_modules` at arbitrary times.
 
 ## Claude Code to DSH Mapping
 

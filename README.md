@@ -338,7 +338,7 @@ docs/           # 维护记录文档
 ## 测试
 
 ```bash
-python -m py_compile scripts/bootstrap_dsh.py scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py
+python -m py_compile scripts/bootstrap_dsh.py scripts/dsh_plugin_build.py scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py
 python scripts/run_smoke_tests.py
 ```
 

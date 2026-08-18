@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dsh_plugin_build import ensure_dsh_plugin_build
+
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "scripts" / "install_student_os.py"
@@ -251,32 +253,6 @@ def install_skill(project_root: Path) -> dict[str, Any]:
     }
 
 
-def build_plugin() -> dict[str, Any]:
-    if not (PLUGIN_ROOT / "package-lock.json").exists():
-        raise RuntimeError("integrations/dsh/package-lock.json is required for npm ci")
-    node_exe = shutil.which("node.exe") or shutil.which("node")
-    npm_exe = shutil.which("npm.cmd") or shutil.which("npm")
-    if node_exe is None:
-        raise RuntimeError("Node.js executable was not found on PATH")
-    if npm_exe is None:
-        raise RuntimeError("npm executable was not found on PATH")
-
-    try:
-        run_checked([npm_exe, "ci", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=PLUGIN_ROOT)
-        run_checked([npm_exe, "run", "build"], cwd=PLUGIN_ROOT)
-    except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or exc.stdout or str(exc)).strip()
-        raise RuntimeError(detail) from exc
-
-    if not PLUGIN_ENTRY.exists():
-        raise RuntimeError(f"Plugin build did not create {PLUGIN_ENTRY}")
-    return {
-        "built": True,
-        "source": json_safe_path(PLUGIN_ROOT),
-        "entry": json_safe_path(PLUGIN_ENTRY),
-    }
-
-
 def next_backup_path(path: Path) -> Path:
     backup = path.with_name(path.name + ".bak")
     if backup.is_symlink():
@@ -378,7 +354,7 @@ def bootstrap(project_root: Path, *, force_overlay: bool) -> tuple[int, dict[str
         )
 
     try:
-        plugin = build_plugin()
+        plugin = ensure_dsh_plugin_build()
     except Exception as exc:
         return 1, fail(
             "plugin-build",

@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -63,11 +63,13 @@ function runOptionalDshCliOverlayCheck(vault) {
   assert.equal(versionProbe.status, 0, versionProbe.stderr || versionProbe.stdout)
 
   const overlay = join(tmpRoot, 'student-os.cordis.yml')
+  const pluginUrl = pathToFileURL(resolve(pluginRoot, 'dist', 'index.js')).href
   writeFileSync(
     overlay,
-    `- insert:\n    - id: student-os-native\n      name: '${resolve(pluginRoot, 'dist', 'index.js').replaceAll('\\', '/')}'\n`,
+    `- insert:\n    - id: student-os-native\n      name: '${pluginUrl}'\n`,
     'utf8',
   )
+  assert.match(readFileSync(overlay, 'utf8'), /name: 'file:\/\//)
   execFileSync('dsh', ['web', '--patch', overlay, '--dump-config'], {
     cwd: vault,
     env: { ...process.env, DSH_HOME: join(tmpRoot, 'dsh-cli-home') },

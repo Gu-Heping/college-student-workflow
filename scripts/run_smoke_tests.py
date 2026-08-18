@@ -6465,6 +6465,7 @@ def verify_dsh_native_plugin() -> bool:
         raise AssertionError("DSH native plugin package.json is missing")
     if not (plugin_root / "package-lock.json").exists():
         raise AssertionError("DSH native plugin package-lock.json is required for npm ci")
+    build_module = load_root_script_module("dsh_plugin_build.py", "student_os_dsh_plugin_build_smoke")
     node_exe = shutil.which("node.exe") or shutil.which("node")
     npm_exe = shutil.which("npm.cmd") or shutil.which("npm")
     if node_exe is None or npm_exe is None:
@@ -6489,15 +6490,7 @@ def verify_dsh_native_plugin() -> bool:
     }
     before_status = git_status_snapshot()
     try:
-        subprocess.run(
-            [npm_exe, "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
-            cwd=plugin_root,
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            env=env,
-        )
+        build_module.ensure_dsh_plugin_build(env=env)
         subprocess.run(
             [npm_exe, "run", "test"],
             cwd=plugin_root,
@@ -6517,6 +6510,168 @@ def verify_dsh_native_plugin() -> bool:
                 f"new/changed entries={added}, cleared entries={removed}"
             )
     return True
+
+
+def write_fake_dsh_plugin_package(plugin_root: Path) -> None:
+    (plugin_root / "src").mkdir(parents=True)
+    (plugin_root / "package.json").write_text(
+        json.dumps({"scripts": {"build": "fake-build"}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (plugin_root / "package-lock.json").write_text(
+        json.dumps({"lockfileVersion": 3, "packages": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (plugin_root / "tsconfig.json").write_text("{}", encoding="utf-8")
+    (plugin_root / "src" / "index.ts").write_text("export const value = 1\n", encoding="utf-8")
+
+
+def write_fake_node_and_npm(bin_dir: Path) -> None:
+    bin_dir.mkdir(parents=True)
+    fake_npm = bin_dir / "fake_npm.py"
+    fake_npm.write_text(
+        "\n".join(
+            [
+                "import os, sys, time",
+                "from pathlib import Path",
+                "root = Path.cwd()",
+                "args = sys.argv[1:]",
+                "if os.environ.get('STUDENT_OS_DSH_SLEEP'):",
+                "    time.sleep(float(os.environ['STUDENT_OS_DSH_SLEEP']))",
+                "if args[:1] == ['ci']:",
+                "    if os.environ.get('STUDENT_OS_DSH_FAIL_CI'): sys.exit(7)",
+                "    (root / 'node_modules').mkdir(exist_ok=True)",
+                "    sys.exit(0)",
+                "if args[:1] == ['ls']:",
+                "    sys.exit(0 if (root / 'node_modules').is_dir() else 1)",
+                "if args[:2] == ['run', 'build']:",
+                "    if os.environ.get('STUDENT_OS_DSH_FAIL_BUILD'): sys.exit(9)",
+                "    (root / 'dist').mkdir(exist_ok=True)",
+                "    (root / 'dist' / 'index.js').write_text('export default {}\\n', encoding='utf-8')",
+                "    (root / 'dist' / 'index.d.ts').write_text('export {}\\n', encoding='utf-8')",
+                "    sys.exit(0)",
+                "sys.exit(0)",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    if os.name == "nt":
+        (bin_dir / "node.cmd").write_text("@echo off\r\nexit /b 0\r\n", encoding="utf-8")
+        (bin_dir / "npm.cmd").write_text(f'@echo off\r\n"{sys.executable}" "{fake_npm}" %*\r\nexit /b %ERRORLEVEL%\r\n', encoding="utf-8")
+    else:
+        node = bin_dir / "node"
+        npm = bin_dir / "npm"
+        node.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        npm.write_text(f"#!/bin/sh\nexec {sys.executable!r} {str(fake_npm)!r} \"$@\"\n", encoding="utf-8")
+        node.chmod(0o755)
+        npm.chmod(0o755)
+
+
+def read_dsh_build_log(log_path: Path) -> list[list[str]]:
+    if not log_path.exists():
+        return []
+    return [json.loads(line)["argv"][1:] for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def clear_dsh_build_log(log_path: Path) -> None:
+    log_path.write_text("", encoding="utf-8")
+
+
+def verify_dsh_plugin_build_lifecycle(tmp_root: Path) -> None:
+    build_module = load_root_script_module("dsh_plugin_build.py", "student_os_dsh_build_lifecycle_smoke")
+    fake_bin = tmp_root / "fake-bin"
+    write_fake_node_and_npm(fake_bin)
+    plugin_root = tmp_root / "plugin"
+    write_fake_dsh_plugin_package(plugin_root)
+    log_path = tmp_root / "build-commands.jsonl"
+    env = {"PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""), "STUDENT_OS_DSH_BUILD_LOG": str(log_path)}
+
+    first = build_module.ensure_dsh_plugin_build(plugin_root=plugin_root, env=env, lock_timeout_seconds=10)
+    if first["npm_ci"] is not True or first["build"] is not True or first["reused"] is not False:
+        raise AssertionError(f"First DSH plugin build should run npm ci and build, got: {first}")
+    first_commands = read_dsh_build_log(log_path)
+    if ["ci", "--ignore-scripts", "--no-audit", "--no-fund"] not in first_commands or ["run", "build"] not in first_commands:
+        raise AssertionError(f"First DSH plugin build should log npm ci and build, got: {first_commands}")
+
+    clear_dsh_build_log(log_path)
+    second = build_module.ensure_dsh_plugin_build(plugin_root=plugin_root, env=env, lock_timeout_seconds=10)
+    if second["reused"] is not True or second["npm_ci"] is not False or second["build"] is not False:
+        raise AssertionError(f"Second DSH plugin build should reuse existing build, got: {second}")
+    if read_dsh_build_log(log_path):
+        raise AssertionError("Reused DSH plugin build should not execute npm commands")
+
+    (plugin_root / "src" / "index.ts").write_text("export const value = 2\n", encoding="utf-8")
+    source_changed = build_module.ensure_dsh_plugin_build(plugin_root=plugin_root, env=env, lock_timeout_seconds=10)
+    if source_changed["npm_ci"] is not False or source_changed["build"] is not True:
+        raise AssertionError(f"Source-only DSH plugin change should rebuild without npm ci, got: {source_changed}")
+    source_commands = read_dsh_build_log(log_path)
+    if ["ci", "--ignore-scripts", "--no-audit", "--no-fund"] in source_commands or ["run", "build"] not in source_commands:
+        raise AssertionError(f"Source-only DSH plugin change command set is wrong: {source_commands}")
+
+    shutil.rmtree(plugin_root / "node_modules")
+    clear_dsh_build_log(log_path)
+    missing_deps = build_module.ensure_dsh_plugin_build(plugin_root=plugin_root, env=env, lock_timeout_seconds=10)
+    if missing_deps["npm_ci"] is not True or missing_deps["build"] is not True:
+        raise AssertionError(f"Missing DSH plugin dependencies should run npm ci and build, got: {missing_deps}")
+
+    (plugin_root / "src" / "index.ts").write_text("export const value = 3\n", encoding="utf-8")
+    clear_dsh_build_log(log_path)
+    try:
+        build_module.ensure_dsh_plugin_build(
+            plugin_root=plugin_root,
+            env={**env, "STUDENT_OS_DSH_FAIL_BUILD": "1"},
+            lock_timeout_seconds=10,
+        )
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("Failing DSH plugin build should raise")
+    if (plugin_root / "dist" / ".student-os-build.lock").exists():
+        raise AssertionError("DSH plugin build lock should be released after failures")
+    recovered = build_module.ensure_dsh_plugin_build(plugin_root=plugin_root, env=env, lock_timeout_seconds=10)
+    if recovered["build"] is not True:
+        raise AssertionError(f"DSH plugin build should recover after a failed build, got: {recovered}")
+
+    concurrent_root = tmp_root / "concurrent-plugin"
+    write_fake_dsh_plugin_package(concurrent_root)
+    concurrent_log = tmp_root / "concurrent-build-commands.jsonl"
+    concurrent_env = {
+        **os.environ,
+        "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
+        "STUDENT_OS_DSH_BUILD_LOG": str(concurrent_log),
+        "STUDENT_OS_DSH_SLEEP": "0.25",
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    script = (
+        "import importlib.util, pathlib, sys;"
+        f"p=pathlib.Path({str(ROOT_SCRIPTS / 'dsh_plugin_build.py')!r});"
+        "s=importlib.util.spec_from_file_location('dsh_plugin_build_subprocess', p);"
+        "m=importlib.util.module_from_spec(s); s.loader.exec_module(m);"
+        f"m.ensure_dsh_plugin_build(plugin_root=pathlib.Path({str(concurrent_root)!r}), lock_timeout_seconds=10)"
+    )
+    processes = [
+        subprocess.Popen(
+            [sys.executable, "-B", "-c", script],
+            cwd=ROOT,
+            env=concurrent_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+        )
+        for _ in range(2)
+    ]
+    for process in processes:
+        stdout, stderr = process.communicate(timeout=30)
+        if process.returncode != 0:
+            raise AssertionError(f"Concurrent DSH plugin build failed, rc={process.returncode}, stdout={stdout}, stderr={stderr}")
+    concurrent_commands = read_dsh_build_log(concurrent_log)
+    ci_count = sum(1 for argv in concurrent_commands if argv[:1] == ["ci"])
+    build_count = sum(1 for argv in concurrent_commands if argv[:2] == ["run", "build"])
+    if ci_count != 1 or build_count != 1:
+        raise AssertionError(f"Concurrent DSH plugin build should run one npm ci and one build, got: {concurrent_commands}")
 
 
 def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
@@ -6597,12 +6752,15 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
         return False
 
     vault = tmp_root / "vault"
+    bootstrap_build_log = tmp_root / "bootstrap-build-commands.jsonl"
+    bootstrap_env = {"STUDENT_OS_DSH_BUILD_LOG": str(bootstrap_build_log)}
     init_git_repo(vault)
     first_output = run_root_script(
         "bootstrap_dsh.py",
         "--project-root",
         str(vault),
         "--json",
+        env=bootstrap_env,
     )
     first_payload = json.loads(first_output)
     if first_payload.get("ok") is not True:
@@ -6649,11 +6807,13 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
         raise AssertionError("DSH bootstrap should create exactly one project-local Student OS overlay")
 
     first_manifest = manifest_path.read_text(encoding="utf-8")
+    clear_dsh_build_log(bootstrap_build_log)
     second_output = run_root_script(
         "bootstrap_dsh.py",
         "--project-root",
         str(vault),
         "--json",
+        env=bootstrap_env,
     )
     second_payload = json.loads(second_output)
     if second_payload.get("ok") is not True:
@@ -6666,6 +6826,10 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
         raise AssertionError("DSH bootstrap idempotency should not rewrite the install manifest")
     if len(list((vault / ".dsh").glob("student-os*.cordis.yml"))) != 1:
         raise AssertionError("Repeated DSH bootstrap should not create extra overlays")
+    if second_payload.get("plugin", {}).get("reused") is not True:
+        raise AssertionError(f"Second DSH bootstrap should reuse the existing plugin build, got: {second_payload.get('plugin')}")
+    if read_dsh_build_log(bootstrap_build_log):
+        raise AssertionError("Second DSH bootstrap should not execute npm ci or npm run build")
     ensure_exists(skill_path / "SKILL.md")
 
     overlay_path.write_text("# user overlay\n", encoding="utf-8")
@@ -7038,6 +7202,7 @@ def main() -> int:
         verify_dsh_install_paths(tmp_root / "dsh-install-demo")
         verify_dsh_home_resolution(tmp_root / "dsh-home-resolution-demo")
         verify_dsh_update_discovery(tmp_root / "dsh-update-discovery-demo")
+        verify_dsh_plugin_build_lifecycle(tmp_root / "dsh-build-lifecycle-demo")
         dsh_native_plugin_ran = verify_dsh_native_plugin()
         dsh_bootstrap_ran = verify_dsh_bootstrap(tmp_root / "dsh-bootstrap-demo", dsh_native_plugin_ran)
         verify_legacy_link_install_detection(tmp_root / "legacy-link-install-demo")
@@ -7070,6 +7235,7 @@ def main() -> int:
     print("OK dsh-install-demo")
     print("OK dsh-home-resolution-demo")
     print("OK dsh-update-discovery-demo")
+    print("OK dsh-build-lifecycle-demo")
     print("OK dsh-native-plugin" if dsh_native_plugin_ran else "SKIP dsh-native-plugin (node/npm unavailable)")
     print("OK dsh-bootstrap-demo" if dsh_bootstrap_ran else "SKIP dsh-bootstrap-demo (node/npm unavailable)")
     print("OK legacy-link-install-demo")
