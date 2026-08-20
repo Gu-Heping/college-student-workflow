@@ -1158,6 +1158,98 @@ def verify_mineru_agent_helper_guards() -> None:
                     os.environ[key] = value
             proxy_source.unlink(missing_ok=True)
 
+    class FakeProxyForHttpsTunnel:
+        def __init__(self) -> None:
+            self.connect_request: str | None = None
+            self.server: http.server.ThreadingHTTPServer | None = None
+            self.thread: threading.Thread | None = None
+
+        @property
+        def url(self) -> str:
+            if self.server is None:
+                raise RuntimeError("Fake proxy server is not running")
+            host, port = self.server.server_address
+            return f"http://{host}:{port}"
+
+        def __enter__(self) -> "FakeProxyForHttpsTunnel":
+            owner = self
+
+            class Handler(http.server.BaseHTTPRequestHandler):
+                def log_message(self, _format: str, *_args: object) -> None:
+                    return
+
+                def do_CONNECT(self) -> None:
+                    owner.connect_request = self.requestline
+                    while True:
+                        line = self.rfile.readline()
+                        if line in (b"\r\n", b"\n", b""):
+                            break
+                    self.send_response(200)
+                    self.end_headers()
+                    # Give the client a moment to begin the TLS handshake, then close.
+                    try:
+                        self.rfile.read(1)
+                    except OSError:
+                        pass
+
+            self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+            self.thread.start()
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+            if self.server is not None:
+                self.server.shutdown()
+                self.server.server_close()
+            if self.thread is not None:
+                self.thread.join(timeout=5)
+
+    with FakeProxyForHttpsTunnel() as proxy:
+        proxy_fd, proxy_name = tempfile.mkstemp()
+        os.close(proxy_fd)
+        proxy_source = Path(proxy_name)
+        proxy_source.write_bytes(b"proxy-upload")
+        previous_base_url = os.environ.get("STUDENT_OS_MINERU_AGENT_BASE_URL")
+        proxy_keys = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy")
+        previous_proxy_env = {key: os.environ.get(key) for key in proxy_keys}
+        original_proxy_bypass = materials_convert.urllib.request.proxy_bypass
+        materials_convert.urllib.request.proxy_bypass = lambda _host: False
+        expected_line = "CONNECT fake-target.example.com:443 HTTP/1.0"
+        connect_seen = False
+        try:
+            os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = "https://fake-target.example.com/api/v1/agent"
+            os.environ["HTTP_PROXY"] = proxy.url
+            os.environ["HTTPS_PROXY"] = proxy.url
+            os.environ["http_proxy"] = proxy.url
+            os.environ["https_proxy"] = proxy.url
+            os.environ["NO_PROXY"] = ""
+            os.environ["no_proxy"] = ""
+            try:
+                materials_convert.http_put_file(
+                    "https://fake-target.example.com/upload/proxy-task", proxy_source, timeout=5
+                )
+            except RuntimeError:
+                # TLS handshake with the fake proxy will fail; we only care about CONNECT.
+                pass
+            if proxy.connect_request == expected_line:
+                connect_seen = True
+        finally:
+            materials_convert.urllib.request.proxy_bypass = original_proxy_bypass
+            if previous_base_url is None:
+                os.environ.pop("STUDENT_OS_MINERU_AGENT_BASE_URL", None)
+            else:
+                os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = previous_base_url
+            for key, value in previous_proxy_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            proxy_source.unlink(missing_ok=True)
+        if not connect_seen:
+            raise AssertionError(
+                f"Expected HTTPS proxy CONNECT {expected_line!r}, got {proxy.connect_request!r}"
+            )
+
     with tempfile.TemporaryDirectory(prefix="student-os-agent-chunks-") as tmp:
         work_dir = Path(tmp)
         original_split_pdf = materials_convert.split_pdf
