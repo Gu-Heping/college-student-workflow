@@ -9,6 +9,10 @@ import os
 import shutil
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +25,7 @@ from material_types import (
     LEGACY_OFFICE_SUFFIXES,
     LEGACY_PPT_SUFFIXES,
     LEGACY_XLS_SUFFIXES,
+    MINERU_AGENT_MAX_FILE_BYTES,
     PDF_SUFFIXES,
     PPTX_SUFFIXES,
     TEXT_SKIP_SUFFIXES,
@@ -59,6 +64,8 @@ class ConversionContext:
 
 DEFAULT_PDF_CHUNK_SIZE = 200
 MINERU_MAX_PAGES = 200
+MINERU_AGENT_MAX_PAGES = 20
+MINERU_AGENT_BASE_URL = "https://mineru.net/api/v1/agent"
 
 
 def _resolve_max_file_bytes() -> int:
@@ -461,6 +468,172 @@ def get_mineru_client(ctx: ConversionContext) -> Any:
     return ctx.mineru_client
 
 
+def mineru_agent_base_url() -> str:
+    return os.environ.get("STUDENT_OS_MINERU_AGENT_BASE_URL", MINERU_AGENT_BASE_URL).rstrip("/")
+
+
+def mineru_agent_url_allowed(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise RuntimeError(f"MinerU v1 Agent returned unsupported URL scheme: {parsed.scheme or '(empty)'}")
+    base = urllib.parse.urlparse(mineru_agent_base_url())
+    allowed_netlocs = {base.netloc}
+    raw_extra_hosts = os.environ.get("STUDENT_OS_MINERU_AGENT_ALLOWED_HOSTS", "")
+    allowed_hosts = {host.strip().lower() for host in raw_extra_hosts.split(",") if host.strip()}
+    allowed_suffixes = {".mineru.net", ".openxlab.org.cn"}
+    host = (parsed.hostname or "").lower()
+    netloc = parsed.netloc.lower()
+    if netloc in {value.lower() for value in allowed_netlocs}:
+        return url
+    if host in allowed_hosts or any(host.endswith(suffix) for suffix in allowed_suffixes):
+        return url
+    raise RuntimeError(f"MinerU v1 Agent returned an unexpected URL host: {parsed.netloc}")
+
+
+def http_json(method: str, url: str, *, payload: dict[str, Any] | None = None, timeout: int = 300) -> dict[str, Any]:
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=data,
+        method=method,
+        headers={"Content-Type": "application/json"} if payload is not None else {},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"MinerU v1 Agent API HTTP {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"MinerU v1 Agent API request failed: {exc.reason}") from exc
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"MinerU v1 Agent API returned non-JSON response: {raw[:200]}") from exc
+
+
+def http_put_file(url: str, source_file: Path, *, timeout: int = 300) -> None:
+    url = mineru_agent_url_allowed(url)
+    data = source_file.read_bytes()
+    request = urllib.request.Request(
+        url,
+        data=data,
+        method="PUT",
+        headers={"Content-Type": "application/octet-stream", "Content-Length": str(len(data))},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            response.read()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"MinerU v1 Agent upload HTTP {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"MinerU v1 Agent upload failed: {exc.reason}") from exc
+
+
+def http_text(url: str, *, timeout: int = 300) -> str:
+    class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+            return None
+
+    def build_text_opener(current_url: str) -> urllib.request.OpenerDirector:
+        parsed = urllib.parse.urlparse(current_url)
+        handlers: list[Any] = [NoRedirectHandler]
+        if (parsed.hostname or "").lower() in {"127.0.0.1", "localhost", "::1"}:
+            handlers.insert(0, urllib.request.ProxyHandler({}))
+        return urllib.request.build_opener(*handlers)
+
+    current_url = mineru_agent_url_allowed(url)
+    for _redirect_count in range(6):
+        request = urllib.request.Request(current_url, method="GET")
+        opener = build_text_opener(current_url)
+        try:
+            with opener.open(request, timeout=timeout) as response:
+                return response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            if exc.code in {301, 302, 303, 307, 308}:
+                location = exc.headers.get("Location")
+                if not location:
+                    raise RuntimeError("MinerU v1 Agent markdown redirect missing Location header") from exc
+                current_url = mineru_agent_url_allowed(urllib.parse.urljoin(current_url, location))
+                continue
+            detail = exc.read().decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"MinerU v1 Agent markdown download HTTP {exc.code}: {detail}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"MinerU v1 Agent markdown download failed: {exc.reason}") from exc
+    raise RuntimeError("MinerU v1 Agent markdown download exceeded redirect limit")
+
+
+def unwrap_mineru_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(payload.get("data"), dict):
+        return payload["data"]
+    return payload
+
+
+def task_status(payload: dict[str, Any]) -> str:
+    data = unwrap_mineru_payload(payload)
+    for key in ("state", "status"):
+        value = data.get(key)
+        if value is not None:
+            return str(value).lower()
+    return ""
+
+
+def task_error(payload: dict[str, Any]) -> str:
+    data = unwrap_mineru_payload(payload)
+    for key in ("error", "err_msg", "message", "msg"):
+        value = data.get(key) or payload.get(key)
+        if value:
+            return str(value)
+    return "MinerU v1 Agent parse failed"
+
+
+def markdown_from_task(payload: dict[str, Any], *, timeout: int) -> str | None:
+    data = unwrap_mineru_payload(payload)
+    for key in ("markdown", "md", "content"):
+        value = data.get(key)
+        if value:
+            return str(value)
+    for key in ("markdown_url", "md_url", "result_url"):
+        value = data.get(key)
+        if value:
+            return http_text(str(value), timeout=timeout)
+    return None
+
+
+def extract_mineru_agent_markdown(source_file: Path, ctx: ConversionContext) -> str:
+    base_url = mineru_agent_base_url()
+    create_payload = http_json(
+        "POST",
+        f"{base_url}/parse/file",
+        payload={"file_name": source_file.name},
+        timeout=ctx.timeout,
+    )
+    create_data = unwrap_mineru_payload(create_payload)
+    task_id = create_data.get("task_id") or create_data.get("id")
+    upload_url = create_data.get("file_url") or create_data.get("upload_url")
+    if not task_id or not upload_url:
+        raise RuntimeError(f"MinerU v1 Agent create-task response missing task_id/file_url: {create_payload}")
+    http_put_file(str(upload_url), source_file, timeout=ctx.timeout)
+
+    deadline = time.monotonic() + max(ctx.timeout, 1)
+    poll_timeout = max(1, min(ctx.timeout, 10))
+    last_payload: dict[str, Any] = {}
+    while time.monotonic() <= deadline:
+        last_payload = http_json("GET", f"{base_url}/parse/{task_id}", timeout=poll_timeout)
+        status = task_status(last_payload)
+        if status in {"failed", "error", "fail"}:
+            raise RuntimeError(task_error(last_payload))
+        if status in {"done", "finished", "success", "completed"} or not status:
+            markdown = markdown_from_task(last_payload, timeout=poll_timeout)
+            if markdown:
+                return markdown
+        if status in {"done", "finished", "success", "completed"}:
+            break
+        time.sleep(min(1, max(deadline - time.monotonic(), 0)))
+    raise RuntimeError(f"MinerU v1 Agent timed out or returned no markdown output: {last_payload}")
+
+
 def save_mineru_images(output_path: Path, images: list[Any], *, prefix: str | None = None) -> dict[str, str]:
     """
     Persist MinerU images beside ``output_path`` under an ``images`` directory.
@@ -722,6 +895,204 @@ def convert_with_mineru_chunked(
     return payload
 
 
+def effective_agent_chunk_pages(chunk_size: int) -> int:
+    return max(1, min(chunk_size, MINERU_AGENT_MAX_PAGES))
+
+
+def remove_split_chunks(chunks: list[dict[str, Any]]) -> None:
+    for chunk in chunks:
+        part_path = Path(chunk["path"])
+        if part_path.exists():
+            part_path.unlink()
+
+
+def split_pdf_for_mineru_agent(source_file: Path, chunk_pages: int, work_dir: Path) -> tuple[list[dict[str, Any]], int]:
+    effective_chunk_pages = chunk_pages
+    while effective_chunk_pages >= 1:
+        chunks = split_pdf(source_file, effective_chunk_pages, work_dir)
+        oversized = [chunk for chunk in chunks if Path(chunk["path"]).stat().st_size > MINERU_AGENT_MAX_FILE_BYTES]
+        if not oversized:
+            return chunks, effective_chunk_pages
+        remove_split_chunks(chunks)
+        if effective_chunk_pages == 1:
+            raise RuntimeError(
+                f"PDF split chunk exceeds MinerU v1 Agent's {MINERU_AGENT_MAX_FILE_BYTES // (1024 * 1024)}MB size limit; "
+                "provide MINERU_TOKEN to use the v4 precision API."
+            )
+        effective_chunk_pages = max(1, effective_chunk_pages // 2)
+    raise RuntimeError("Failed to split PDF into MinerU v1 Agent-compatible chunks")
+
+
+def convert_with_mineru_agent_chunked(
+    source_file: Path,
+    output_path: Path,
+    ctx: ConversionContext,
+    page_count: int,
+    chunk_pages: int,
+    file_size: int,
+) -> dict[str, Any]:
+    if file_size > MINERU_AGENT_MAX_FILE_BYTES:
+        raise RuntimeError(
+            f"PDF exceeds MinerU v1 Agent's {MINERU_AGENT_MAX_FILE_BYTES // (1024 * 1024)}MB size limit; "
+            "provide MINERU_TOKEN to use the v4 precision API."
+        )
+    if not ctx.auto_split:
+        raise RuntimeError(
+            f"PDF has {page_count} pages which exceeds MinerU v1 Agent's {MINERU_AGENT_MAX_PAGES}-page limit. "
+            "Re-run without --no-auto-split or provide MINERU_TOKEN to use the v4 precision API."
+        )
+    work_dir = output_path.parent / f".{output_path.stem}.split-tmp"
+    if work_dir.exists():
+        for stale in work_dir.glob("*"):
+            if stale.is_file():
+                stale.unlink()
+    else:
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+    chunks: list[dict[str, Any]] = []
+    part_results: list[dict[str, Any]] = []
+    part_outputs: list[str] = []
+    part_repairs: list[dict[str, Any]] = []
+    try:
+        chunks, chunk_pages = split_pdf_for_mineru_agent(source_file, chunk_pages, work_dir)
+        if not ctx.merge and not ctx.overwrite:
+            for chunk in chunks:
+                candidate = part_output_path(output_path, chunk["part_index"])
+                if candidate.exists():
+                    return {
+                        "status": "skipped",
+                        "source": str(source_file),
+                        "output": str(candidate),
+                        "reason": "output-exists",
+                    }
+        for chunk in chunks:
+            part_markdown = extract_mineru_agent_markdown(chunk["path"], ctx)
+            part_payload = {**chunk, "markdown": part_markdown}
+            part_results.append(part_payload)
+            if not ctx.merge:
+                part_output = part_output_path(output_path, chunk["part_index"])
+                write_markdown(
+                    part_output,
+                    wrap_mineru_markdown(
+                        source_file=source_file,
+                        markdown_body=(
+                            f"<!-- PART {chunk['part_index']}: pages {chunk['start_page']}-{chunk['end_page']} -->\n\n"
+                            + part_markdown
+                        ),
+                        import_method="mineru-agent-v1",
+                        course=ctx.course,
+                    ),
+                )
+                part_outputs.append(str(part_output))
+                if ctx.repair:
+                    repair_payload = repair_generated_markdown(part_output)
+                    part_repairs.append(
+                        {
+                            "part_index": chunk["part_index"],
+                            "output": str(part_output),
+                            "raw_output": str(part_output.with_name(f"{part_output.stem}.raw{part_output.suffix}")),
+                            "repair_summary": repair_payload["summary_path"],
+                            "repairs": repair_payload["repairs"],
+                        }
+                    )
+        if ctx.merge:
+            merged_body = merge_md_files(part_results)
+            write_markdown(
+                output_path,
+                wrap_mineru_markdown(
+                    source_file=source_file,
+                    markdown_body=merged_body,
+                    import_method="mineru-agent-v1",
+                    course=ctx.course,
+                ),
+            )
+            final_output = str(output_path)
+        else:
+            final_output = part_outputs[0] if part_outputs else str(output_path)
+    finally:
+        remove_split_chunks(chunks)
+        if work_dir.exists():
+            try:
+                work_dir.rmdir()
+            except OSError:
+                pass
+
+    payload: dict[str, Any] = {
+        "status": "converted",
+        "source": str(source_file),
+        "output": final_output,
+        "kind": "mineru-agent",
+        "import_method": "mineru-agent-v1",
+        "split": {
+            "enabled": True,
+            "page_count": page_count,
+            "chunk_size": chunk_pages,
+            "requested_chunk_size": ctx.chunk_size,
+            "part_count": len(part_results),
+            "merged": ctx.merge,
+            "parts": [
+                {"part_index": part["part_index"], "start_page": part["start_page"], "end_page": part["end_page"]}
+                for part in part_results
+            ],
+        },
+    }
+    if part_outputs:
+        payload["part_outputs"] = part_outputs
+    if ctx.repair and ctx.merge:
+        repair_payload = repair_generated_markdown(output_path)
+        payload["raw_output"] = str(output_path.with_name(f"{output_path.stem}.raw{output_path.suffix}"))
+        payload["repair_summary"] = repair_payload["summary_path"]
+        payload["repairs"] = repair_payload["repairs"]
+    if part_repairs:
+        payload["part_repairs"] = part_repairs
+    return payload
+
+
+def convert_with_mineru_agent(source_file: Path, output_path: Path, ctx: ConversionContext) -> dict[str, Any]:
+    file_size = source_file.stat().st_size
+    if file_size > MINERU_AGENT_MAX_FILE_BYTES:
+        raise RuntimeError(
+            f"File exceeds MinerU v1 Agent's {MINERU_AGENT_MAX_FILE_BYTES // (1024 * 1024)}MB size limit; "
+            "provide MINERU_TOKEN to use the v4 precision API."
+        )
+    if source_file.suffix.lower() in PDF_SUFFIXES:
+        if ctx.pages:
+            raise RuntimeError("MinerU v1 Agent mode does not support --pages; split the PDF or provide MINERU_TOKEN for v4.")
+        try:
+            page_count = get_pdf_page_count(source_file)
+        except SystemExit:
+            raise
+        except Exception as exc:
+            raise RuntimeError(f"Failed to read PDF for page-count probe: {exc}") from exc
+        chunk_pages = effective_agent_chunk_pages(ctx.chunk_size)
+        if page_count > chunk_pages:
+            return convert_with_mineru_agent_chunked(source_file, output_path, ctx, page_count, chunk_pages, file_size)
+
+    markdown = extract_mineru_agent_markdown(source_file, ctx)
+    write_markdown(
+        output_path,
+        wrap_mineru_markdown(
+            source_file=source_file,
+            markdown_body=markdown,
+            import_method="mineru-agent-v1",
+            course=ctx.course,
+        ),
+    )
+    payload: dict[str, Any] = {
+        "status": "converted",
+        "source": str(source_file),
+        "output": str(output_path),
+        "kind": "mineru-agent",
+        "import_method": "mineru-agent-v1",
+    }
+    if ctx.repair:
+        repair_payload = repair_generated_markdown(output_path)
+        payload["raw_output"] = str(output_path.with_name(f"{output_path.stem}.raw{output_path.suffix}"))
+        payload["repair_summary"] = repair_payload["summary_path"]
+        payload["repairs"] = repair_payload["repairs"]
+    return payload
+
+
 def convert_with_mineru(source_file: Path, output_path: Path, ctx: ConversionContext) -> dict[str, Any]:
     if source_file.suffix.lower() in PDF_SUFFIXES and not ctx.pages:
         try:
@@ -911,9 +1282,14 @@ def convert_with_tool(
         }
     if tool == "mineru-api":
         if not ctx.api_token:
+            if probe.get("agent_api") and ctx.method == "auto" and not ctx.force_strategy:
+                payload = convert_with_mineru_agent(source_file, output_path, ctx)
+                payload["probe"] = probe
+                return payload
             if probe.get("forced") or ctx.method == "api" or ctx.force_strategy in {"ocr", "mineru-api"}:
                 raise RuntimeError(
-                    "MinerU API strategy requires a token via --api-token, MINERU_TOKEN, or .env"
+                    "MinerU API strategy requires a token via --api-token, MINERU_TOKEN, or .env, "
+                    "or an input eligible for MinerU v1 Agent mode."
                 )
             return {
                 "status": "skipped",
@@ -1277,7 +1653,7 @@ def main() -> int:
             skipped.append(payload)
 
     api_like = any(
-        str(item.get("import_method", "")).startswith("mineru-api:") for item in converted
+        str(item.get("import_method", "")).startswith(("mineru-api:", "mineru-agent-")) for item in converted
     )
     result = {
         "source": str(source),

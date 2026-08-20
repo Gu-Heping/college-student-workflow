@@ -13,6 +13,7 @@ from material_types import (
     DOCX_SUFFIXES,
     IMAGE_SUFFIXES,
     LEGACY_OFFICE_SUFFIXES,
+    MINERU_AGENT_MAX_FILE_BYTES,
     PDF_SUFFIXES,
     PPTX_SUFFIXES,
     TEXT_SKIP_SUFFIXES,
@@ -495,8 +496,21 @@ def resolve_probe(
         probe["source"] = str(path)
         probe["suffix"] = suffix
 
-    # Without a token, API-needed strategies degrade unless the user forced an API strategy.
+    # In auto mode, API-needed strategies use MinerU v1 Agent mode for
+    # supported files when no token is configured. Explicit --method api and
+    # forced remote strategies remain strict and keep the token requirement.
     if probe.get("needs_api") and not has_api_token and not probe.get("forced"):
+        if suffix in API_SUPPORTED_SUFFIXES:
+            return {
+                **probe,
+                "strategy": "mineru-agent-v1",
+                "tool": "mineru-api",
+                "needs_api": False,
+                "agent_api": True,
+                "agent_api_limit_bytes": MINERU_AGENT_MAX_FILE_BYTES,
+                "reason": f"{probe.get('reason')}; MinerU token unavailable, using MinerU v1 Agent API",
+            }
+            return probe
         if suffix in PDF_SUFFIXES:
             fallback_tool = "pdf-to-md"
             fallback_strategy = "api-unavailable-pdf"
