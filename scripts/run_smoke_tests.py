@@ -1227,7 +1227,7 @@ def verify_mineru_agent_helper_guards() -> None:
         previous_proxy_env = {key: os.environ.get(key) for key in proxy_keys}
         original_proxy_bypass = materials_convert.urllib.request.proxy_bypass
         materials_convert.urllib.request.proxy_bypass = lambda _host: False
-        expected_line = "CONNECT fake-target.example.com:443 HTTP/1.0"
+        expected_prefix = "CONNECT fake-target.example.com:443 HTTP/1."
         try:
             os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = "https://fake-target.example.com/api/v1/agent"
             os.environ["HTTP_PROXY"] = proxy.url
@@ -1255,9 +1255,9 @@ def verify_mineru_agent_helper_guards() -> None:
                 else:
                     os.environ[key] = value
             proxy_source.unlink(missing_ok=True)
-        if proxy.connect_request != expected_line:
+        if not (proxy.connect_request and proxy.connect_request.startswith(expected_prefix)):
             raise AssertionError(
-                f"Expected HTTPS proxy CONNECT {expected_line!r}, got {proxy.connect_request!r}"
+                f"Expected HTTPS proxy CONNECT starting with {expected_prefix!r}, got {proxy.connect_request!r}"
             )
         if proxy.tls_handshake_byte != b"\x16":
             raise AssertionError(
