@@ -73,7 +73,8 @@ PDF_FORMULA_RATIO = _env_float("STUDENT_OS_PDF_FORMULA_RATIO", 0.045)
 FORMULA_CHAR_RE = re.compile(
     r"[\u2200-\u22FF\u27C0-\u27EF\u2980-\u29FF\u2A00-\u2AFF∫∑∏√∞≈≠≤≥±∂∇α-ωΑ-Ω]"
 )
-MOJIBAKE_CHAR_RE = re.compile(r"[\u0080-\u024F]")
+# C1 control characters and the Unicode replacement character are strong mojibake signals.
+MOJIBAKE_CHAR_RE = re.compile(r"[\u0080-\u009F\uFFFD]")
 CJK_CHAR_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]")
 
 

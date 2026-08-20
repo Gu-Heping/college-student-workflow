@@ -955,12 +955,24 @@ def verify_mineru_agent_helper_guards() -> None:
 
     if not materials_convert.mineru_agent_url_allowed("https://mineru.oss-cn-shanghai.aliyuncs.com/demo/result.md"):
         raise AssertionError("Expected MinerU OSS result host to be allowed by default")
-    if not probe_materials.mojibake_metrics("Æµ‚SØ‡‰K" * 40)["mojibake_suspect"]:
-        raise AssertionError("Expected repeated latin-extended mojibake sample to be detected")
+    if not probe_materials.mojibake_metrics("\u0080" * 200)["mojibake_suspect"]:
+        raise AssertionError("Expected repeated C1-control mojibake sample to be detected")
+
+    # Normal Latin-script text with accents must not be flagged as mojibake.
+    for normal_sample in (
+        "tiếng Việt có dấu tiếng Việt có dấu " * 10,
+        "Le français utilise des accents comme é è à ç " * 10,
+        "Polski używa znaków takich jak ą ę ś ć ń " * 10,
+    ):
+        normal_metrics = probe_materials.mojibake_metrics(normal_sample)
+        if normal_metrics["mojibake_suspect"]:
+            raise AssertionError(
+                f"Expected normal text not to be mojibake, got: {normal_metrics}"
+            )
 
     class MojibakePage:
         def extract_text(self) -> str:
-            return "Æµ‚SØ‡‰K" * 40
+            return "\u0080" * 200
 
     class MojibakeReader:
         def __init__(self, _path: str) -> None:
@@ -1049,7 +1061,7 @@ def verify_mineru_agent_helper_guards() -> None:
             upload_server.tasks[task_id] = {"filename": "manual.pdf", "content": b"", "headers": ""}
             materials_convert.http_put_file(f"{upload_server.base_url.rsplit('/api/v1/agent', 1)[0]}/upload/{task_id}", upload_source)
             upload_headers = json.loads(str(upload_server.tasks[task_id]["headers"]))
-            if "Content-Type" in upload_headers:
+            if any(key.lower() == "content-type" for key in upload_headers):
                 raise AssertionError(f"MinerU Agent signed upload must not send Content-Type, got: {upload_headers}")
         finally:
             if previous_base_url is None:
