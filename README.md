@@ -30,7 +30,7 @@
 - 检查或初始化一个学习 vault（笔记库）
 - 新建课程空间：课堂笔记、作业、复习、实验报告等目录
 - 整理周计划、deadline、考试倒计时
-- 把 PDF / DOCX / PPTX / XLSX 转成可读的 Markdown 资料（有 MinerU token 时走 v4 精准 API；无 token 的小文件可走 MinerU v1 Agent 免登录 API，超限时会提示配置 token；本地 fallback 仍会保留索引占位）
+- 把 PDF / DOCX / PPTX / XLSX 转成可读的 Markdown 资料（有 MinerU token 时走 v4 精准 API；`auto` 无 token 的小文件可走 MinerU v1 Agent 免登录 API，超限时会提示配置 token；本地 fallback 仍会保留索引占位）
 - 对导入后的 markdown 做保守修复（repair）
 - 对历年试卷做 **exam-census**（题型普查 → 频率统计 → 题型解析 → 备考资料包）
 - 把使用中的问题记到 `feedback/`，并准备/发布隐私检查后的 GitHub Issue

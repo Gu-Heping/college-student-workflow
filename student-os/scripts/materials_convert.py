@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,7 @@ from material_types import (
     LEGACY_OFFICE_SUFFIXES,
     LEGACY_PPT_SUFFIXES,
     LEGACY_XLS_SUFFIXES,
+    MINERU_AGENT_MAX_FILE_BYTES,
     PDF_SUFFIXES,
     PPTX_SUFFIXES,
     TEXT_SKIP_SUFFIXES,
@@ -81,21 +83,6 @@ def _resolve_max_file_bytes() -> int:
 
 
 MINERU_MAX_FILE_BYTES = _resolve_max_file_bytes()
-
-
-def _resolve_agent_max_file_bytes() -> int:
-    override = os.environ.get("STUDENT_OS_MINERU_AGENT_MAX_FILE_BYTES")
-    if override:
-        try:
-            value = int(override)
-        except ValueError:
-            value = 0
-        if value > 0:
-            return value
-    return 10 * 1024 * 1024
-
-
-MINERU_AGENT_MAX_FILE_BYTES = _resolve_agent_max_file_bytes()
 
 
 def yaml_string(value: str) -> str:
@@ -485,6 +472,24 @@ def mineru_agent_base_url() -> str:
     return os.environ.get("STUDENT_OS_MINERU_AGENT_BASE_URL", MINERU_AGENT_BASE_URL).rstrip("/")
 
 
+def mineru_agent_url_allowed(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise RuntimeError(f"MinerU v1 Agent returned unsupported URL scheme: {parsed.scheme or '(empty)'}")
+    base = urllib.parse.urlparse(mineru_agent_base_url())
+    allowed_netlocs = {base.netloc}
+    raw_extra_hosts = os.environ.get("STUDENT_OS_MINERU_AGENT_ALLOWED_HOSTS", "")
+    allowed_hosts = {host.strip().lower() for host in raw_extra_hosts.split(",") if host.strip()}
+    allowed_suffixes = {".mineru.net", ".openxlab.org.cn"}
+    host = (parsed.hostname or "").lower()
+    netloc = parsed.netloc.lower()
+    if netloc in {value.lower() for value in allowed_netlocs}:
+        return url
+    if host in allowed_hosts or any(host.endswith(suffix) for suffix in allowed_suffixes):
+        return url
+    raise RuntimeError(f"MinerU v1 Agent returned an unexpected URL host: {parsed.netloc}")
+
+
 def http_json(method: str, url: str, *, payload: dict[str, Any] | None = None, timeout: int = 300) -> dict[str, Any]:
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
@@ -508,6 +513,7 @@ def http_json(method: str, url: str, *, payload: dict[str, Any] | None = None, t
 
 
 def http_put_file(url: str, source_file: Path, *, timeout: int = 300) -> None:
+    url = mineru_agent_url_allowed(url)
     data = source_file.read_bytes()
     request = urllib.request.Request(
         url,
@@ -526,6 +532,7 @@ def http_put_file(url: str, source_file: Path, *, timeout: int = 300) -> None:
 
 
 def http_text(url: str, *, timeout: int = 300) -> str:
+    url = mineru_agent_url_allowed(url)
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:
             return response.read().decode("utf-8", errors="replace")
@@ -589,18 +596,20 @@ def extract_mineru_agent_markdown(source_file: Path, ctx: ConversionContext) -> 
     http_put_file(str(upload_url), source_file, timeout=ctx.timeout)
 
     deadline = time.monotonic() + max(ctx.timeout, 1)
+    poll_timeout = max(1, min(ctx.timeout, 10))
     last_payload: dict[str, Any] = {}
     while time.monotonic() <= deadline:
-        last_payload = http_json("GET", f"{base_url}/parse/{task_id}", timeout=ctx.timeout)
+        last_payload = http_json("GET", f"{base_url}/parse/{task_id}", timeout=poll_timeout)
         status = task_status(last_payload)
-        markdown = markdown_from_task(last_payload, timeout=ctx.timeout)
-        if markdown:
-            return markdown
-        if status in {"done", "finished", "success", "completed"}:
-            break
         if status in {"failed", "error", "fail"}:
             raise RuntimeError(task_error(last_payload))
-        time.sleep(1)
+        if status in {"done", "finished", "success", "completed"} or not status:
+            markdown = markdown_from_task(last_payload, timeout=poll_timeout)
+            if markdown:
+                return markdown
+        if status in {"done", "finished", "success", "completed"}:
+            break
+        time.sleep(min(1, max(deadline - time.monotonic(), 0)))
     raise RuntimeError(f"MinerU v1 Agent timed out or returned no markdown output: {last_payload}")
 
 
@@ -865,7 +874,7 @@ def convert_with_mineru_chunked(
     return payload
 
 
-def effective_agent_chunk_pages(page_count: int, chunk_size: int) -> int:
+def effective_agent_chunk_pages(chunk_size: int) -> int:
     return max(1, min(chunk_size, MINERU_AGENT_MAX_PAGES))
 
 
@@ -1014,7 +1023,7 @@ def convert_with_mineru_agent(source_file: Path, output_path: Path, ctx: Convers
             raise
         except Exception as exc:
             raise RuntimeError(f"Failed to read PDF for page-count probe: {exc}") from exc
-        chunk_pages = effective_agent_chunk_pages(page_count, ctx.chunk_size)
+        chunk_pages = effective_agent_chunk_pages(ctx.chunk_size)
         if page_count > chunk_pages:
             return convert_with_mineru_agent_chunked(source_file, output_path, ctx, page_count, chunk_pages, file_size)
 
@@ -1232,10 +1241,9 @@ def convert_with_tool(
         }
     if tool == "mineru-api":
         if not ctx.api_token:
-            if probe.get("agent_api"):
+            if probe.get("agent_api") and ctx.method == "auto" and not ctx.force_strategy:
                 payload = convert_with_mineru_agent(source_file, output_path, ctx)
                 payload["probe"] = probe
-                payload["ocr"] = effective_ocr(ctx, probe)
                 return payload
             if probe.get("forced") or ctx.method == "api" or ctx.force_strategy in {"ocr", "mineru-api"}:
                 raise RuntimeError(

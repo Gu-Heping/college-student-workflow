@@ -181,6 +181,12 @@ def ensure_contains(path: Path, needle: str) -> None:
         raise AssertionError(f"{path} does not contain expected text: {needle}")
 
 
+def ensure_not_contains(path: Path, needle: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if needle in text:
+        raise AssertionError(f"{path} contains unexpected text: {needle}")
+
+
 def ensure_exists(path: Path) -> None:
     if not path.exists():
         raise AssertionError(f"Expected path to exist: {path}")
@@ -852,7 +858,8 @@ class FakeMineruAgentServer:
                         self.send_error(404)
                         return
                     filename = str(task.get("filename", "unknown"))
-                    data = f"# Agent Parsed - {filename}\n\n- task: {task_id}\n".encode("utf-8")
+                    uploaded = len(task.get("content") or b"")
+                    data = f"# Agent Parsed - {filename}\n\n- task: {task_id}\n- uploaded_bytes: {uploaded}\n".encode("utf-8")
                     self.send_response(200)
                     self.send_header("Content-Type", "text/markdown; charset=utf-8")
                     self.send_header("Content-Length", str(len(data)))
@@ -1103,9 +1110,11 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_exists(fixture_root / "linear-algebra-handout.pdf.md")
     ensure_contains(fixture_root / "linear-algebra-handout.pdf.md", "Import method: mineru-agent-v1")
     ensure_contains(fixture_root / "linear-algebra-handout.pdf.md", "# Agent Parsed - linear-algebra-handout.pdf")
+    ensure_not_contains(fixture_root / "linear-algebra-handout.pdf.md", "- uploaded_bytes: 0")
     ensure_exists(fixture_root / "homework-photo.png.md")
     ensure_contains(fixture_root / "homework-photo.png.md", "Import method: mineru-agent-v1")
     ensure_contains(fixture_root / "homework-photo.png.md", "# Agent Parsed - homework-photo.png")
+    ensure_not_contains(fixture_root / "homework-photo.png.md", "- uploaded_bytes: 0")
     ensure_exists(fixture_root / "fpga-lab.bit.md")
     ensure_contains(fixture_root / "fpga-lab.bit.md", "Binary or tool-specific source detected.")
     if len(materials_repair_payload["converted"]) != 1:
@@ -1548,25 +1557,39 @@ def exercise_import_workflows(repo: Path) -> None:
     ].get("error", ""):
         raise AssertionError(f"Expected invalid --pages error, got: {invalid_pages_payload}")
 
-    with FakeMineruAgentServer() as method_api_agent_server:
-        method_api_payload = json.loads(
-            run_script(
-                "materials_convert.py",
-                str(manual_pdf),
-                "--output-root",
-                str(repo / "references" / "imports" / "method-api-no-token"),
-                "--method",
-                "api",
-                "--overwrite",
-                cwd=empty_skill_root,
-                env={
-                    **no_token_env,
-                    "STUDENT_OS_MINERU_AGENT_BASE_URL": method_api_agent_server.base_url,
-                },
-            )
-        )
-    if method_api_payload["converted"][0].get("import_method") != "mineru-agent-v1":
-        raise AssertionError(f"Expected --method api without token to use MinerU v1 Agent, got: {method_api_payload}")
+    method_api_no_token = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(STUDENT_OS_SCRIPTS / "materials_convert.py"),
+            str(manual_pdf),
+            "--output-root",
+            str(repo / "references" / "imports" / "method-api-no-token"),
+            "--method",
+            "api",
+            "--overwrite",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=empty_skill_root,
+        env={
+            **os.environ,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONIOENCODING": "utf-8",
+            **no_token_env,
+        },
+    )
+    if method_api_no_token.returncode == 0:
+        raise AssertionError("Expected --method api without token to exit nonzero")
+    method_api_payload = json.loads(method_api_no_token.stdout)
+    if method_api_payload.get("converted"):
+        raise AssertionError(f"--method api without token must not convert locally, got: {method_api_payload}")
+    if not method_api_payload.get("errors") or "requires a token" not in method_api_payload["errors"][0].get(
+        "error", ""
+    ):
+        raise AssertionError(f"Expected --method api without token to error, got: {method_api_payload}")
 
     forced_api_no_token = subprocess.run(
         [
@@ -1711,11 +1734,11 @@ def exercise_import_workflows(repo: Path) -> None:
         agent_payload = json.loads(
             run_script(
                 "materials_convert.py",
-                str(manual_pdf),
+                str(scanned_pdf),
                 "--output-root",
                 str(agent_output_root),
                 "--method",
-                "api",
+                "auto",
                 "--overwrite",
                 cwd=empty_skill_root,
                 env=agent_env,
@@ -1725,9 +1748,10 @@ def exercise_import_workflows(repo: Path) -> None:
             raise AssertionError(f"Expected v1 Agent to count as API mode, got: {agent_payload}")
         agent_converted = agent_payload["converted"][0]
         if agent_converted.get("import_method") != "mineru-agent-v1":
-            raise AssertionError(f"Expected --method api without token to use v1 Agent, got: {agent_converted}")
-        ensure_contains(agent_output_root / "text-manual.pdf.md", "Import method: mineru-agent-v1")
-        ensure_contains(agent_output_root / "text-manual.pdf.md", "# Agent Parsed - text-manual.pdf")
+            raise AssertionError(f"Expected --method auto without token to use v1 Agent, got: {agent_converted}")
+        ensure_contains(agent_output_root / "scanned-blank.pdf.md", "Import method: mineru-agent-v1")
+        ensure_contains(agent_output_root / "scanned-blank.pdf.md", "# Agent Parsed - scanned-blank.pdf")
+        ensure_not_contains(agent_output_root / "scanned-blank.pdf.md", "- uploaded_bytes: 0")
 
         agent_split_pdf = fixture_root / "agent-split.pdf"
         write_multipage_pdf_fixture(agent_split_pdf, 21)
@@ -1755,11 +1779,11 @@ def exercise_import_workflows(repo: Path) -> None:
                 sys.executable,
                 "-B",
                 str(STUDENT_OS_SCRIPTS / "materials_convert.py"),
-                str(manual_pdf),
+                str(scanned_pdf),
                 "--output-root",
                 str(repo / "references" / "imports" / "agent-too-large"),
                 "--method",
-                "api",
+                "auto",
                 "--overwrite",
             ],
             check=False,

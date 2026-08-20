@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
+
 
 PDF_SUFFIXES = {".pdf"}
 DOCX_SUFFIXES = {".docx"}
@@ -38,3 +40,17 @@ API_SUPPORTED_SUFFIXES = (
     | IMAGE_SUFFIXES
     | LEGACY_OFFICE_SUFFIXES
 )
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+MINERU_AGENT_MAX_FILE_BYTES = _env_positive_int("STUDENT_OS_MINERU_AGENT_MAX_FILE_BYTES", 10 * 1024 * 1024)
