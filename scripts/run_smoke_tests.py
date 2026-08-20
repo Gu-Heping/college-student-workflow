@@ -959,6 +959,15 @@ def verify_mineru_agent_helper_guards() -> None:
     if not probe_materials.mojibake_metrics("\u0080" * 200)["mojibake_suspect"]:
         raise AssertionError("Expected repeated C1-control mojibake sample to be detected")
 
+    # Latin-1 Supplement / punctuation mojibake (e.g. no-ToUnicode SimSun subset PDFs)
+    # must be detected even when C1-control ratio alone is below the threshold.
+    latin_mojibake_sample = "\u00C6\u00B5\u201AS\u00D8\u2021\u2030K" * 100
+    latin_mojibake_metrics = probe_materials.mojibake_metrics(latin_mojibake_sample)
+    if not latin_mojibake_metrics["mojibake_suspect"]:
+        raise AssertionError(
+            f"Expected Latin-1/punctuation mojibake sample to be detected, got: {latin_mojibake_metrics}"
+        )
+
     # Normal Latin-script text with accents must not be flagged as mojibake.
     for normal_sample in (
         "tiếng Việt có dấu tiếng Việt có dấu " * 10,
