@@ -39,7 +39,7 @@ PDF_SCANNED_CHARS_PER_PAGE = 40
 DOCX_IMAGE_HEAVY_TEXT = 50
 PPTX_CHARS_PER_SLIDE = 40
 PDF_MOJIBAKE_MIN_TEXT_LEN = 200
-PDF_MOJIBAKE_LATIN_EXT_RATIO = 0.08
+PDF_MOJIBAKE_LATIN_EXT_RATIO = 0.15
 PDF_MOJIBAKE_CJK_MAX_RATIO = 0.01
 
 
@@ -73,8 +73,9 @@ PDF_FORMULA_RATIO = _env_float("STUDENT_OS_PDF_FORMULA_RATIO", 0.045)
 FORMULA_CHAR_RE = re.compile(
     r"[\u2200-\u22FF\u27C0-\u27EF\u2980-\u29FF\u2A00-\u2AFF∫∑∏√∞≈≠≤≥±∂∇α-ωΑ-Ω]"
 )
-# C1 control characters and the Unicode replacement character are strong mojibake signals.
-MOJIBAKE_CHAR_RE = re.compile(r"[\u0080-\u009F\uFFFD]")
+# C1 controls, Latin-1 Supplement mojibake glyphs, common mis-mapped punctuation,
+# and the Unicode replacement character are strong mojibake signals.
+MOJIBAKE_CHAR_RE = re.compile(r"[\u0080-\u00FF\u2018-\u2030\uFFFD]")
 CJK_CHAR_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]")
 
 
