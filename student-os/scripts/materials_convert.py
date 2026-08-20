@@ -527,6 +527,8 @@ def http_put_file(url: str, source_file: Path, *, timeout: int = 300) -> None:
     path = parsed.path or "/"
     if parsed.query:
         path += f"?{parsed.query}"
+    target_host = parsed.hostname or ""
+    target_port = parsed.port or (443 if parsed.scheme == "https" else 80)
 
     proxy_env = os.environ.get("HTTPS_PROXY" if parsed.scheme == "https" else "HTTP_PROXY")
     if proxy_env:
@@ -535,13 +537,18 @@ def http_put_file(url: str, source_file: Path, *, timeout: int = 300) -> None:
         proxy_port = proxy_parsed.port or (443 if proxy_parsed.scheme == "https" else 80)
         proxy_cls = http.client.HTTPSConnection if proxy_parsed.scheme == "https" else http.client.HTTPConnection
         connection = proxy_cls(proxy_host, proxy_port, timeout=timeout)
-        connection.set_tunnel(parsed.netloc)
+        connection.set_tunnel(target_host, port=target_port)
     else:
         connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
-        connection = connection_cls(parsed.netloc, timeout=timeout)
+        connection = connection_cls(target_host, target_port, timeout=timeout)
 
     try:
-        connection.request("PUT", path, body=data, headers={"Content-Length": str(len(data))})
+        connection.request(
+            "PUT",
+            path,
+            body=data,
+            headers={"Host": parsed.netloc, "Content-Length": str(len(data))},
+        )
         response = connection.getresponse()
         response_body = response.read()
     except OSError as exc:
