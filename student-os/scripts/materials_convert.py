@@ -536,10 +536,17 @@ def http_text(url: str, *, timeout: int = 300) -> str:
         def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
             return None
 
+    def build_text_opener(current_url: str) -> urllib.request.OpenerDirector:
+        parsed = urllib.parse.urlparse(current_url)
+        handlers: list[Any] = [NoRedirectHandler]
+        if (parsed.hostname or "").lower() in {"127.0.0.1", "localhost", "::1"}:
+            handlers.insert(0, urllib.request.ProxyHandler({}))
+        return urllib.request.build_opener(*handlers)
+
     current_url = mineru_agent_url_allowed(url)
-    opener = urllib.request.build_opener(NoRedirectHandler)
     for _redirect_count in range(6):
         request = urllib.request.Request(current_url, method="GET")
+        opener = build_text_opener(current_url)
         try:
             with opener.open(request, timeout=timeout) as response:
                 return response.read().decode("utf-8", errors="replace")

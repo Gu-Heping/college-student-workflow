@@ -963,7 +963,13 @@ def verify_mineru_agent_helper_guards() -> None:
     try:
         redirect_url = f"http://127.0.0.1:{redirect_server.server_port}/markdown"
         previous_base_url = os.environ.get("STUDENT_OS_MINERU_AGENT_BASE_URL")
+        proxy_keys = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy")
+        previous_proxy_env = {key: os.environ.get(key) for key in proxy_keys}
         os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = f"http://127.0.0.1:{redirect_server.server_port}/api/v1/agent"
+        os.environ["HTTP_PROXY"] = "http://127.0.0.1:9"
+        os.environ["HTTPS_PROXY"] = "http://127.0.0.1:9"
+        os.environ["NO_PROXY"] = ""
+        os.environ["no_proxy"] = ""
         try:
             try:
                 materials_convert.http_text(redirect_url, timeout=5)
@@ -977,6 +983,11 @@ def verify_mineru_agent_helper_guards() -> None:
                 os.environ.pop("STUDENT_OS_MINERU_AGENT_BASE_URL", None)
             else:
                 os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = previous_base_url
+            for key, value in previous_proxy_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
     finally:
         redirect_server.shutdown()
         redirect_server.server_close()
