@@ -530,9 +530,10 @@ def http_put_file(url: str, source_file: Path, *, timeout: int = 300) -> None:
     target_host = parsed.hostname or ""
     target_port = parsed.port or (443 if parsed.scheme == "https" else 80)
 
-    proxy_env = os.environ.get("HTTPS_PROXY" if parsed.scheme == "https" else "HTTP_PROXY")
-    if proxy_env:
-        proxy_parsed = urllib.parse.urlsplit(proxy_env)
+    proxies = urllib.request.getproxies()
+    proxy_url = proxies.get(parsed.scheme)
+    if proxy_url and not urllib.request.proxy_bypass(target_host):
+        proxy_parsed = urllib.parse.urlsplit(proxy_url)
         proxy_host = proxy_parsed.hostname
         proxy_port = proxy_parsed.port or (443 if proxy_parsed.scheme == "https" else 80)
         proxy_cls = http.client.HTTPSConnection if proxy_parsed.scheme == "https" else http.client.HTTPConnection
