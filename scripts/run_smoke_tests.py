@@ -1055,8 +1055,12 @@ def verify_mineru_agent_helper_guards() -> None:
         upload_source = Path(upload_name)
         upload_source.write_bytes(b"student-os-upload")
         previous_base_url = os.environ.get("STUDENT_OS_MINERU_AGENT_BASE_URL")
+        proxy_keys = ("NO_PROXY", "no_proxy")
+        previous_proxy_env = {key: os.environ.get(key) for key in proxy_keys}
         try:
             os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = upload_server.base_url
+            os.environ["NO_PROXY"] = "127.0.0.1,localhost,::1"
+            os.environ["no_proxy"] = "127.0.0.1,localhost,::1"
             task_id = "manual-put"
             upload_server.tasks[task_id] = {"filename": "manual.pdf", "content": b"", "headers": ""}
             materials_convert.http_put_file(f"{upload_server.base_url.rsplit('/api/v1/agent', 1)[0]}/upload/{task_id}", upload_source)
@@ -1068,6 +1072,11 @@ def verify_mineru_agent_helper_guards() -> None:
                 os.environ.pop("STUDENT_OS_MINERU_AGENT_BASE_URL", None)
             else:
                 os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = previous_base_url
+            for key, value in previous_proxy_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
             upload_source.unlink(missing_ok=True)
 
     class FakeForwardProxy:
