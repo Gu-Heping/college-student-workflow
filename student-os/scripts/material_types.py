@@ -53,4 +53,8 @@ def _env_positive_int(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
-MINERU_AGENT_MAX_FILE_BYTES = _env_positive_int("STUDENT_OS_MINERU_AGENT_MAX_FILE_BYTES", 10 * 1024 * 1024)
+MINERU_AGENT_HARD_MAX_FILE_BYTES = 10 * 1024 * 1024
+MINERU_AGENT_MAX_FILE_BYTES = min(
+    _env_positive_int("STUDENT_OS_MINERU_AGENT_MAX_FILE_BYTES", MINERU_AGENT_HARD_MAX_FILE_BYTES),
+    MINERU_AGENT_HARD_MAX_FILE_BYTES,
+)

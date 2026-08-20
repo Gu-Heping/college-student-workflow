@@ -912,8 +912,116 @@ def verify_material_type_constants() -> None:
             raise AssertionError(f"probe_materials.py drifted from material_types.{name}")
 
 
+def verify_mineru_agent_helper_guards() -> None:
+    previous_sys_path = list(sys.path)
+    previous_high = os.environ.get("STUDENT_OS_MINERU_AGENT_MAX_FILE_BYTES")
+    sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
+    try:
+        os.environ["STUDENT_OS_MINERU_AGENT_MAX_FILE_BYTES"] = str(20 * 1024 * 1024)
+        high_limit_types = load_student_os_script_module("material_types.py", "student_os_material_types_high_limit_smoke")
+        if high_limit_types.MINERU_AGENT_MAX_FILE_BYTES != 10 * 1024 * 1024:
+            raise AssertionError("MinerU Agent limit override must not exceed the 10 MiB hard limit")
+
+        os.environ["STUDENT_OS_MINERU_AGENT_MAX_FILE_BYTES"] = "1234"
+        low_limit_types = load_student_os_script_module("material_types.py", "student_os_material_types_low_limit_smoke")
+        if low_limit_types.MINERU_AGENT_MAX_FILE_BYTES != 1234:
+            raise AssertionError("MinerU Agent limit override should allow lower test limits")
+    finally:
+        if previous_high is None:
+            os.environ.pop("STUDENT_OS_MINERU_AGENT_MAX_FILE_BYTES", None)
+        else:
+            os.environ["STUDENT_OS_MINERU_AGENT_MAX_FILE_BYTES"] = previous_high
+        sys.path = previous_sys_path
+
+    previous_sys_path = list(sys.path)
+    sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
+    try:
+        materials_convert = load_student_os_script_module(
+            "materials_convert.py", "student_os_materials_convert_agent_guard_smoke"
+        )
+    finally:
+        sys.path = previous_sys_path
+
+    secret_fd, secret_name = tempfile.mkstemp()
+    os.close(secret_fd)
+    secret = Path(secret_name)
+    secret.write_text("LOCAL_SECRET", encoding="utf-8")
+
+    class RedirectToFile(http.server.BaseHTTPRequestHandler):
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+        def do_GET(self) -> None:
+            self.send_response(302)
+            self.send_header("Location", secret.as_uri())
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+    redirect_server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), RedirectToFile)
+    redirect_thread = threading.Thread(target=redirect_server.serve_forever, daemon=True)
+    redirect_thread.start()
+    try:
+        redirect_url = f"http://127.0.0.1:{redirect_server.server_port}/markdown"
+        previous_base_url = os.environ.get("STUDENT_OS_MINERU_AGENT_BASE_URL")
+        os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = f"http://127.0.0.1:{redirect_server.server_port}/api/v1/agent"
+        try:
+            try:
+                materials_convert.http_text(redirect_url, timeout=5)
+            except RuntimeError as exc:
+                if "unsupported URL scheme" not in str(exc):
+                    raise AssertionError(f"Expected redirect URL scheme rejection, got: {exc}") from exc
+            else:
+                raise AssertionError("Expected MinerU Agent markdown redirect to file:// to be rejected")
+        finally:
+            if previous_base_url is None:
+                os.environ.pop("STUDENT_OS_MINERU_AGENT_BASE_URL", None)
+            else:
+                os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = previous_base_url
+    finally:
+        redirect_server.shutdown()
+        redirect_server.server_close()
+        redirect_thread.join(timeout=5)
+        secret.unlink(missing_ok=True)
+
+    with tempfile.TemporaryDirectory(prefix="student-os-agent-chunks-") as tmp:
+        work_dir = Path(tmp)
+        original_split_pdf = materials_convert.split_pdf
+        original_limit = materials_convert.MINERU_AGENT_MAX_FILE_BYTES
+
+        def fake_split_pdf(_source_file: Path, chunk_size: int, split_dir: Path) -> list[dict[str, object]]:
+            for child in split_dir.glob("*"):
+                child.unlink()
+            sizes = [120, 50] if chunk_size > 10 else [80, 80, 40]
+            chunks: list[dict[str, object]] = []
+            start_page = 1
+            for index, size in enumerate(sizes, start=1):
+                path = split_dir / f"part{index}.pdf"
+                path.write_bytes(b"x" * size)
+                chunks.append(
+                    {
+                        "path": path,
+                        "part_index": index,
+                        "start_page": start_page,
+                        "end_page": start_page + chunk_size - 1,
+                    }
+                )
+                start_page += chunk_size
+            return chunks
+
+        try:
+            materials_convert.split_pdf = fake_split_pdf
+            materials_convert.MINERU_AGENT_MAX_FILE_BYTES = 100
+            chunks, chunk_pages = materials_convert.split_pdf_for_mineru_agent(Path("source.pdf"), 20, work_dir)
+            if chunk_pages != 10 or any(Path(chunk["path"]).stat().st_size > 100 for chunk in chunks):
+                raise AssertionError("Expected MinerU Agent chunk splitter to shrink oversized chunks")
+        finally:
+            materials_convert.split_pdf = original_split_pdf
+            materials_convert.MINERU_AGENT_MAX_FILE_BYTES = original_limit
+
+
 def exercise_import_workflows(repo: Path) -> None:
     verify_material_type_constants()
+    verify_mineru_agent_helper_guards()
     fixture_root = repo / "references" / "imports" / "source"
     fixture_root.mkdir(parents=True, exist_ok=True)
     docx_path = fixture_root / "linear-algebra-outline.docx"

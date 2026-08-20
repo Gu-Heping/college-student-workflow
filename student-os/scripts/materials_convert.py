@@ -532,15 +532,29 @@ def http_put_file(url: str, source_file: Path, *, timeout: int = 300) -> None:
 
 
 def http_text(url: str, *, timeout: int = 300) -> str:
-    url = mineru_agent_url_allowed(url)
-    try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
-            return response.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace").strip()
-        raise RuntimeError(f"MinerU v1 Agent markdown download HTTP {exc.code}: {detail}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"MinerU v1 Agent markdown download failed: {exc.reason}") from exc
+    class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+            return None
+
+    current_url = mineru_agent_url_allowed(url)
+    opener = urllib.request.build_opener(NoRedirectHandler)
+    for _redirect_count in range(6):
+        request = urllib.request.Request(current_url, method="GET")
+        try:
+            with opener.open(request, timeout=timeout) as response:
+                return response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            if exc.code in {301, 302, 303, 307, 308}:
+                location = exc.headers.get("Location")
+                if not location:
+                    raise RuntimeError("MinerU v1 Agent markdown redirect missing Location header") from exc
+                current_url = mineru_agent_url_allowed(urllib.parse.urljoin(current_url, location))
+                continue
+            detail = exc.read().decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"MinerU v1 Agent markdown download HTTP {exc.code}: {detail}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"MinerU v1 Agent markdown download failed: {exc.reason}") from exc
+    raise RuntimeError("MinerU v1 Agent markdown download exceeded redirect limit")
 
 
 def unwrap_mineru_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -878,6 +892,30 @@ def effective_agent_chunk_pages(chunk_size: int) -> int:
     return max(1, min(chunk_size, MINERU_AGENT_MAX_PAGES))
 
 
+def remove_split_chunks(chunks: list[dict[str, Any]]) -> None:
+    for chunk in chunks:
+        part_path = Path(chunk["path"])
+        if part_path.exists():
+            part_path.unlink()
+
+
+def split_pdf_for_mineru_agent(source_file: Path, chunk_pages: int, work_dir: Path) -> tuple[list[dict[str, Any]], int]:
+    effective_chunk_pages = chunk_pages
+    while effective_chunk_pages >= 1:
+        chunks = split_pdf(source_file, effective_chunk_pages, work_dir)
+        oversized = [chunk for chunk in chunks if Path(chunk["path"]).stat().st_size > MINERU_AGENT_MAX_FILE_BYTES]
+        if not oversized:
+            return chunks, effective_chunk_pages
+        remove_split_chunks(chunks)
+        if effective_chunk_pages == 1:
+            raise RuntimeError(
+                f"PDF split chunk exceeds MinerU v1 Agent's {MINERU_AGENT_MAX_FILE_BYTES // (1024 * 1024)}MB size limit; "
+                "provide MINERU_TOKEN to use the v4 precision API."
+            )
+        effective_chunk_pages = max(1, effective_chunk_pages // 2)
+    raise RuntimeError("Failed to split PDF into MinerU v1 Agent-compatible chunks")
+
+
 def convert_with_mineru_agent_chunked(
     source_file: Path,
     output_path: Path,
@@ -896,18 +934,6 @@ def convert_with_mineru_agent_chunked(
             f"PDF has {page_count} pages which exceeds MinerU v1 Agent's {MINERU_AGENT_MAX_PAGES}-page limit. "
             "Re-run without --no-auto-split or provide MINERU_TOKEN to use the v4 precision API."
         )
-    if not ctx.merge and not ctx.overwrite:
-        expected_parts = math.ceil(page_count / chunk_pages)
-        for index in range(1, expected_parts + 1):
-            candidate = part_output_path(output_path, index)
-            if candidate.exists():
-                return {
-                    "status": "skipped",
-                    "source": str(source_file),
-                    "output": str(candidate),
-                    "reason": "output-exists",
-                }
-
     work_dir = output_path.parent / f".{output_path.stem}.split-tmp"
     if work_dir.exists():
         for stale in work_dir.glob("*"):
@@ -916,11 +942,22 @@ def convert_with_mineru_agent_chunked(
     else:
         work_dir.mkdir(parents=True, exist_ok=True)
 
-    chunks = split_pdf(source_file, chunk_pages, work_dir)
+    chunks: list[dict[str, Any]] = []
     part_results: list[dict[str, Any]] = []
     part_outputs: list[str] = []
     part_repairs: list[dict[str, Any]] = []
     try:
+        chunks, chunk_pages = split_pdf_for_mineru_agent(source_file, chunk_pages, work_dir)
+        if not ctx.merge and not ctx.overwrite:
+            for chunk in chunks:
+                candidate = part_output_path(output_path, chunk["part_index"])
+                if candidate.exists():
+                    return {
+                        "status": "skipped",
+                        "source": str(source_file),
+                        "output": str(candidate),
+                        "reason": "output-exists",
+                    }
         for chunk in chunks:
             part_markdown = extract_mineru_agent_markdown(chunk["path"], ctx)
             part_payload = {**chunk, "markdown": part_markdown}
@@ -966,10 +1003,7 @@ def convert_with_mineru_agent_chunked(
         else:
             final_output = part_outputs[0] if part_outputs else str(output_path)
     finally:
-        for chunk in chunks:
-            part_path = Path(chunk["path"])
-            if part_path.exists():
-                part_path.unlink()
+        remove_split_chunks(chunks)
         if work_dir.exists():
             try:
                 work_dir.rmdir()
