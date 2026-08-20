@@ -961,7 +961,7 @@ def verify_mineru_agent_helper_guards() -> None:
 
     # Latin-1 Supplement / punctuation mojibake (e.g. no-ToUnicode SimSun subset PDFs)
     # must be detected even when C1-control ratio alone is below the threshold.
-    latin_mojibake_sample = "Æµ‚SØ‡‰K" * 100
+    latin_mojibake_sample = "\u00C6\u00B5\u201AS\u00D8\u2021\u2030K" * 100
     latin_mojibake_metrics = probe_materials.mojibake_metrics(latin_mojibake_sample)
     if not latin_mojibake_metrics["mojibake_suspect"]:
         raise AssertionError(
