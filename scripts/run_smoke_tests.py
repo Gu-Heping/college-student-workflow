@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import types
 from datetime import date, timedelta
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from urllib.parse import urlparse
@@ -808,7 +809,7 @@ class FakeMineruAgentServer:
                 owner.counter += 1
                 task_id = f"task-{owner.counter}"
                 filename = payload.get("file_name") or payload.get("filename") or ""
-                owner.tasks[task_id] = {"filename": str(filename), "content": b""}
+                owner.tasks[task_id] = {"filename": str(filename), "content": b"", "headers": ""}
                 self.send_json(
                     {
                         "code": 0,
@@ -830,6 +831,7 @@ class FakeMineruAgentServer:
                     self.send_error(404)
                     return
                 owner.tasks[task_id]["content"] = self.rfile.read(length)
+                owner.tasks[task_id]["headers"] = json.dumps(dict(self.headers), sort_keys=True)
                 self.send_response(200)
                 self.end_headers()
 
@@ -859,7 +861,13 @@ class FakeMineruAgentServer:
                         return
                     filename = str(task.get("filename", "unknown"))
                     uploaded = len(task.get("content") or b"")
-                    data = f"# Agent Parsed - {filename}\n\n- task: {task_id}\n- uploaded_bytes: {uploaded}\n".encode("utf-8")
+                    headers = str(task.get("headers", "{}"))
+                    data = (
+                        f"# Agent Parsed - {filename}\n\n"
+                        f"- task: {task_id}\n"
+                        f"- uploaded_bytes: {uploaded}\n"
+                        f"- upload_headers: {headers}\n"
+                    ).encode("utf-8")
                     self.send_response(200)
                     self.send_header("Content-Type", "text/markdown; charset=utf-8")
                     self.send_header("Content-Length", str(len(data)))
@@ -939,8 +947,55 @@ def verify_mineru_agent_helper_guards() -> None:
         materials_convert = load_student_os_script_module(
             "materials_convert.py", "student_os_materials_convert_agent_guard_smoke"
         )
+        probe_materials = load_student_os_script_module(
+            "probe_materials.py", "student_os_probe_materials_agent_guard_smoke"
+        )
     finally:
         sys.path = previous_sys_path
+
+    if not materials_convert.mineru_agent_url_allowed("https://mineru.oss-cn-shanghai.aliyuncs.com/demo/result.md"):
+        raise AssertionError("Expected MinerU OSS result host to be allowed by default")
+    if not probe_materials.mojibake_metrics("\u0080" * 200)["mojibake_suspect"]:
+        raise AssertionError("Expected repeated C1-control mojibake sample to be detected")
+
+    # Normal Latin-script text with accents must not be flagged as mojibake.
+    for normal_sample in (
+        "tiếng Việt có dấu tiếng Việt có dấu " * 10,
+        "Le français utilise des accents comme é è à ç " * 10,
+        "Polski używa znaków takich jak ą ę ś ć ń " * 10,
+    ):
+        normal_metrics = probe_materials.mojibake_metrics(normal_sample)
+        if normal_metrics["mojibake_suspect"]:
+            raise AssertionError(
+                f"Expected normal text not to be mojibake, got: {normal_metrics}"
+            )
+
+    class MojibakePage:
+        def extract_text(self) -> str:
+            return "\u0080" * 200
+
+    class MojibakeReader:
+        def __init__(self, _path: str) -> None:
+            self.pages = [MojibakePage()]
+
+    previous_pypdf = sys.modules.get("pypdf")
+    sys.modules["pypdf"] = types.SimpleNamespace(PdfReader=MojibakeReader)
+    try:
+        mojibake_fd, mojibake_name = tempfile.mkstemp(suffix=".pdf")
+        os.close(mojibake_fd)
+        mojibake_pdf = Path(mojibake_name)
+        mojibake_pdf.write_bytes(b"%PDF-1.4\n")
+        try:
+            mojibake_probe = probe_materials.probe_pdf(mojibake_pdf)
+        finally:
+            mojibake_pdf.unlink(missing_ok=True)
+    finally:
+        if previous_pypdf is None:
+            sys.modules.pop("pypdf", None)
+        else:
+            sys.modules["pypdf"] = previous_pypdf
+    if mojibake_probe["tool"] != "mineru-api" or mojibake_probe["strategy"] != "mojibake-text-layer":
+        raise AssertionError(f"Expected mojibake PDF text layer to route to MinerU API, got: {mojibake_probe}")
 
     secret_fd, secret_name = tempfile.mkstemp()
     os.close(secret_fd)
@@ -993,6 +1048,115 @@ def verify_mineru_agent_helper_guards() -> None:
         redirect_server.server_close()
         redirect_thread.join(timeout=5)
         secret.unlink(missing_ok=True)
+
+    with FakeMineruAgentServer() as upload_server:
+        upload_fd, upload_name = tempfile.mkstemp()
+        os.close(upload_fd)
+        upload_source = Path(upload_name)
+        upload_source.write_bytes(b"student-os-upload")
+        previous_base_url = os.environ.get("STUDENT_OS_MINERU_AGENT_BASE_URL")
+        proxy_keys = ("NO_PROXY", "no_proxy")
+        previous_proxy_env = {key: os.environ.get(key) for key in proxy_keys}
+        try:
+            os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = upload_server.base_url
+            os.environ["NO_PROXY"] = "127.0.0.1,localhost,::1"
+            os.environ["no_proxy"] = "127.0.0.1,localhost,::1"
+            task_id = "manual-put"
+            upload_server.tasks[task_id] = {"filename": "manual.pdf", "content": b"", "headers": ""}
+            materials_convert.http_put_file(f"{upload_server.base_url.rsplit('/api/v1/agent', 1)[0]}/upload/{task_id}", upload_source)
+            upload_headers = json.loads(str(upload_server.tasks[task_id]["headers"]))
+            if any(key.lower() == "content-type" for key in upload_headers):
+                raise AssertionError(f"MinerU Agent signed upload must not send Content-Type, got: {upload_headers}")
+        finally:
+            if previous_base_url is None:
+                os.environ.pop("STUDENT_OS_MINERU_AGENT_BASE_URL", None)
+            else:
+                os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = previous_base_url
+            for key, value in previous_proxy_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            upload_source.unlink(missing_ok=True)
+
+    class FakeForwardProxy:
+        def __init__(self) -> None:
+            self.request_line: str | None = None
+            self.server: http.server.ThreadingHTTPServer | None = None
+            self.thread: threading.Thread | None = None
+
+        @property
+        def url(self) -> str:
+            if self.server is None:
+                raise RuntimeError("Fake proxy server is not running")
+            host, port = self.server.server_address
+            return f"http://{host}:{port}"
+
+        def __enter__(self) -> "FakeForwardProxy":
+            owner = self
+
+            class Handler(http.server.BaseHTTPRequestHandler):
+                def log_message(self, _format: str, *_args: object) -> None:
+                    return
+
+                def do_PUT(self) -> None:
+                    owner.request_line = self.requestline
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if length:
+                        self.rfile.read(length)
+                    self.send_response(200)
+                    self.end_headers()
+
+            self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+            self.thread.start()
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+            if self.server is not None:
+                self.server.shutdown()
+                self.server.server_close()
+            if self.thread is not None:
+                self.thread.join(timeout=5)
+
+    with FakeForwardProxy() as proxy:
+        proxy_fd, proxy_name = tempfile.mkstemp()
+        os.close(proxy_fd)
+        proxy_source = Path(proxy_name)
+        proxy_source.write_bytes(b"proxy-upload")
+        previous_base_url = os.environ.get("STUDENT_OS_MINERU_AGENT_BASE_URL")
+        proxy_keys = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy")
+        previous_proxy_env = {key: os.environ.get(key) for key in proxy_keys}
+        original_proxy_bypass = materials_convert.urllib.request.proxy_bypass
+        materials_convert.urllib.request.proxy_bypass = lambda _host: False
+        try:
+            os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = "http://fake-target.example.com/api/v1/agent"
+            os.environ["HTTP_PROXY"] = proxy.url
+            os.environ["HTTPS_PROXY"] = proxy.url
+            os.environ["http_proxy"] = proxy.url
+            os.environ["https_proxy"] = proxy.url
+            os.environ["NO_PROXY"] = ""
+            os.environ["no_proxy"] = ""
+            materials_convert.http_put_file(
+                "http://fake-target.example.com/upload/proxy-task", proxy_source, timeout=5
+            )
+            expected_line = "PUT http://fake-target.example.com/upload/proxy-task HTTP/1.1"
+            if proxy.request_line != expected_line:
+                raise AssertionError(
+                    f"Expected HTTP proxy request line {expected_line!r}, got {proxy.request_line!r}"
+                )
+        finally:
+            materials_convert.urllib.request.proxy_bypass = original_proxy_bypass
+            if previous_base_url is None:
+                os.environ.pop("STUDENT_OS_MINERU_AGENT_BASE_URL", None)
+            else:
+                os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = previous_base_url
+            for key, value in previous_proxy_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            proxy_source.unlink(missing_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="student-os-agent-chunks-") as tmp:
         work_dir = Path(tmp)

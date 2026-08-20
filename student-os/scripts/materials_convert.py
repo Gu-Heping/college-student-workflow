@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import fnmatch
 import json
 import math
@@ -472,6 +473,12 @@ def mineru_agent_base_url() -> str:
     return os.environ.get("STUDENT_OS_MINERU_AGENT_BASE_URL", MINERU_AGENT_BASE_URL).rstrip("/")
 
 
+# Known MinerU OSS result/upload hosts. Expand via STUDENT_OS_MINERU_AGENT_ALLOWED_HOSTS.
+_MINERU_AGENT_OSS_HOSTS = {
+    "mineru.oss-cn-shanghai.aliyuncs.com",
+}
+
+
 def mineru_agent_url_allowed(url: str) -> str:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in {"http", "https"}:
@@ -480,6 +487,7 @@ def mineru_agent_url_allowed(url: str) -> str:
     allowed_netlocs = {base.netloc}
     raw_extra_hosts = os.environ.get("STUDENT_OS_MINERU_AGENT_ALLOWED_HOSTS", "")
     allowed_hosts = {host.strip().lower() for host in raw_extra_hosts.split(",") if host.strip()}
+    allowed_hosts |= _MINERU_AGENT_OSS_HOSTS
     allowed_suffixes = {".mineru.net", ".openxlab.org.cn"}
     host = (parsed.hostname or "").lower()
     netloc = parsed.netloc.lower()
@@ -515,20 +523,45 @@ def http_json(method: str, url: str, *, payload: dict[str, Any] | None = None, t
 def http_put_file(url: str, source_file: Path, *, timeout: int = 300) -> None:
     url = mineru_agent_url_allowed(url)
     data = source_file.read_bytes()
-    request = urllib.request.Request(
-        url,
-        data=data,
-        method="PUT",
-        headers={"Content-Type": "application/octet-stream", "Content-Length": str(len(data))},
-    )
+    parsed = urllib.parse.urlsplit(url)
+    request_path = parsed.path or "/"
+    if parsed.query:
+        request_path += f"?{parsed.query}"
+    target_host = parsed.hostname or ""
+    target_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+    proxies = urllib.request.getproxies()
+    proxy_url = proxies.get(parsed.scheme)
+    if proxy_url and not urllib.request.proxy_bypass(target_host):
+        proxy_parsed = urllib.parse.urlsplit(proxy_url)
+        proxy_host = proxy_parsed.hostname
+        proxy_port = proxy_parsed.port or (443 if proxy_parsed.scheme == "https" else 80)
+        proxy_cls = http.client.HTTPSConnection if proxy_parsed.scheme == "https" else http.client.HTTPConnection
+        connection = proxy_cls(proxy_host, proxy_port, timeout=timeout)
+        if parsed.scheme == "https":
+            connection.set_tunnel(target_host, port=target_port)
+        else:
+            request_path = url
+    else:
+        connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+        connection = connection_cls(target_host, target_port, timeout=timeout)
+
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            response.read()
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace").strip()
-        raise RuntimeError(f"MinerU v1 Agent upload HTTP {exc.code}: {detail}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"MinerU v1 Agent upload failed: {exc.reason}") from exc
+        connection.request(
+            "PUT",
+            request_path,
+            body=data,
+            headers={"Host": parsed.netloc, "Content-Length": str(len(data))},
+        )
+        response = connection.getresponse()
+        response_body = response.read()
+    except (OSError, http.client.HTTPException) as exc:
+        raise RuntimeError(f"MinerU v1 Agent upload failed: {exc}") from exc
+    finally:
+        connection.close()
+    if not 200 <= response.status < 300:
+        detail = response_body.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"MinerU v1 Agent upload HTTP {response.status}: {detail}") from None
 
 
 def http_text(url: str, *, timeout: int = 300) -> str:
