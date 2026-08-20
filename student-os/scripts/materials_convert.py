@@ -536,11 +536,14 @@ def http_put_file(url: str, source_file: Path, *, timeout: int = 300) -> None:
         proxy_parsed = urllib.parse.urlsplit(proxy_url)
         proxy_host = proxy_parsed.hostname
         proxy_port = proxy_parsed.port or (443 if proxy_parsed.scheme == "https" else 80)
-        proxy_cls = http.client.HTTPSConnection if proxy_parsed.scheme == "https" else http.client.HTTPConnection
-        connection = proxy_cls(proxy_host, proxy_port, timeout=timeout)
         if parsed.scheme == "https":
+            # HTTPS target via proxy: HTTPSConnection wraps the CONNECT tunnel in TLS.
+            connection = http.client.HTTPSConnection(proxy_host, proxy_port, timeout=timeout)
             connection.set_tunnel(target_host, port=target_port)
         else:
+            # HTTP target via proxy: connect to proxy (TLS if proxy is HTTPS) and send the full URL.
+            proxy_cls = http.client.HTTPSConnection if proxy_parsed.scheme == "https" else http.client.HTTPConnection
+            connection = proxy_cls(proxy_host, proxy_port, timeout=timeout)
             request_path = url
     else:
         connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection

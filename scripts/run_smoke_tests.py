@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -1157,6 +1158,111 @@ def verify_mineru_agent_helper_guards() -> None:
                 else:
                     os.environ[key] = value
             proxy_source.unlink(missing_ok=True)
+
+    class FakeProxyForHttpsTunnel:
+        def __init__(self) -> None:
+            self.connect_request: str | None = None
+            self.tls_handshake_byte: bytes | None = None
+            self._sock: socket.socket | None = None
+            self._thread: threading.Thread | None = None
+            self._stop = threading.Event()
+
+        @property
+        def url(self) -> str:
+            if self._sock is None:
+                raise RuntimeError("Fake proxy server is not running")
+            host, port = self._sock.getsockname()
+            return f"http://{host}:{port}"
+
+        def _serve(self) -> None:
+            self._sock.settimeout(1.0)
+            while not self._stop.is_set():
+                try:
+                    conn, _addr = self._sock.accept()
+                except (socket.timeout, OSError):
+                    continue
+                try:
+                    conn.settimeout(2.0)
+                    data = b""
+                    while b"\r\n\r\n" not in data:
+                        chunk = conn.recv(1024)
+                        if not chunk:
+                            break
+                        data += chunk
+                    if not data:
+                        conn.close()
+                        continue
+                    first_line = data.split(b"\r\n", 1)[0].decode("latin-1")
+                    self.connect_request = first_line
+                    conn.sendall(b"HTTP/1.0 200 Connection established\r\n\r\n")
+                    try:
+                        self.tls_handshake_byte = conn.recv(1)
+                    except OSError:
+                        pass
+                finally:
+                    conn.close()
+
+        def __enter__(self) -> "FakeProxyForHttpsTunnel":
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._sock.bind(("127.0.0.1", 0))
+            self._sock.listen(1)
+            self._thread = threading.Thread(target=self._serve, daemon=True)
+            self._thread.start()
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+            self._stop.set()
+            if self._sock is not None:
+                self._sock.close()
+            if self._thread is not None:
+                self._thread.join(timeout=5)
+
+    with FakeProxyForHttpsTunnel() as proxy:
+        proxy_fd, proxy_name = tempfile.mkstemp()
+        os.close(proxy_fd)
+        proxy_source = Path(proxy_name)
+        proxy_source.write_bytes(b"proxy-upload")
+        previous_base_url = os.environ.get("STUDENT_OS_MINERU_AGENT_BASE_URL")
+        proxy_keys = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy")
+        previous_proxy_env = {key: os.environ.get(key) for key in proxy_keys}
+        original_proxy_bypass = materials_convert.urllib.request.proxy_bypass
+        materials_convert.urllib.request.proxy_bypass = lambda _host: False
+        expected_prefix = "CONNECT fake-target.example.com:443 HTTP/1."
+        try:
+            os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = "https://fake-target.example.com/api/v1/agent"
+            os.environ["HTTP_PROXY"] = proxy.url
+            os.environ["HTTPS_PROXY"] = proxy.url
+            os.environ["http_proxy"] = proxy.url
+            os.environ["https_proxy"] = proxy.url
+            os.environ["NO_PROXY"] = ""
+            os.environ["no_proxy"] = ""
+            try:
+                materials_convert.http_put_file(
+                    "https://fake-target.example.com/upload/proxy-task", proxy_source, timeout=5
+                )
+            except RuntimeError:
+                # TLS handshake with the fake proxy will fail; we only care about CONNECT + TLS start.
+                pass
+        finally:
+            materials_convert.urllib.request.proxy_bypass = original_proxy_bypass
+            if previous_base_url is None:
+                os.environ.pop("STUDENT_OS_MINERU_AGENT_BASE_URL", None)
+            else:
+                os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = previous_base_url
+            for key, value in previous_proxy_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            proxy_source.unlink(missing_ok=True)
+        if not (proxy.connect_request and proxy.connect_request.startswith(expected_prefix)):
+            raise AssertionError(
+                f"Expected HTTPS proxy CONNECT starting with {expected_prefix!r}, got {proxy.connect_request!r}"
+            )
+        if proxy.tls_handshake_byte != b"\x16":
+            raise AssertionError(
+                f"Expected TLS handshake first byte 0x16, got {proxy.tls_handshake_byte!r}"
+            )
 
     with tempfile.TemporaryDirectory(prefix="student-os-agent-chunks-") as tmp:
         work_dir = Path(tmp)
