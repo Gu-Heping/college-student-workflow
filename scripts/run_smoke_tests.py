@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -1161,48 +1162,60 @@ def verify_mineru_agent_helper_guards() -> None:
     class FakeProxyForHttpsTunnel:
         def __init__(self) -> None:
             self.connect_request: str | None = None
-            self.server: http.server.ThreadingHTTPServer | None = None
-            self.thread: threading.Thread | None = None
+            self.tls_handshake_byte: bytes | None = None
+            self._sock: socket.socket | None = None
+            self._thread: threading.Thread | None = None
+            self._stop = threading.Event()
 
         @property
         def url(self) -> str:
-            if self.server is None:
+            if self._sock is None:
                 raise RuntimeError("Fake proxy server is not running")
-            host, port = self.server.server_address
+            host, port = self._sock.getsockname()
             return f"http://{host}:{port}"
 
-        def __enter__(self) -> "FakeProxyForHttpsTunnel":
-            owner = self
-
-            class Handler(http.server.BaseHTTPRequestHandler):
-                def log_message(self, _format: str, *_args: object) -> None:
-                    return
-
-                def do_CONNECT(self) -> None:
-                    owner.connect_request = self.requestline
-                    while True:
-                        line = self.rfile.readline()
-                        if line in (b"\r\n", b"\n", b""):
+        def _serve(self) -> None:
+            self._sock.settimeout(1.0)
+            while not self._stop.is_set():
+                try:
+                    conn, _addr = self._sock.accept()
+                except (socket.timeout, OSError):
+                    continue
+                try:
+                    conn.settimeout(2.0)
+                    data = b""
+                    while b"\r\n\r\n" not in data:
+                        chunk = conn.recv(1024)
+                        if not chunk:
                             break
-                    self.send_response(200)
-                    self.end_headers()
-                    # Give the client a moment to begin the TLS handshake, then close.
+                        data += chunk
+                    if not data:
+                        conn.close()
+                        continue
+                    first_line = data.split(b"\r\n", 1)[0].decode("latin-1")
+                    self.connect_request = first_line
+                    conn.sendall(b"HTTP/1.0 200 Connection established\r\n\r\n")
                     try:
-                        self.rfile.read(1)
+                        self.tls_handshake_byte = conn.recv(1)
                     except OSError:
                         pass
+                finally:
+                    conn.close()
 
-            self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-            self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-            self.thread.start()
+        def __enter__(self) -> "FakeProxyForHttpsTunnel":
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._sock.bind(("127.0.0.1", 0))
+            self._sock.listen(1)
+            self._thread = threading.Thread(target=self._serve, daemon=True)
+            self._thread.start()
             return self
 
         def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
-            if self.server is not None:
-                self.server.shutdown()
-                self.server.server_close()
-            if self.thread is not None:
-                self.thread.join(timeout=5)
+            self._stop.set()
+            if self._sock is not None:
+                self._sock.close()
+            if self._thread is not None:
+                self._thread.join(timeout=5)
 
     with FakeProxyForHttpsTunnel() as proxy:
         proxy_fd, proxy_name = tempfile.mkstemp()
@@ -1215,7 +1228,6 @@ def verify_mineru_agent_helper_guards() -> None:
         original_proxy_bypass = materials_convert.urllib.request.proxy_bypass
         materials_convert.urllib.request.proxy_bypass = lambda _host: False
         expected_line = "CONNECT fake-target.example.com:443 HTTP/1.0"
-        connect_seen = False
         try:
             os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = "https://fake-target.example.com/api/v1/agent"
             os.environ["HTTP_PROXY"] = proxy.url
@@ -1229,10 +1241,8 @@ def verify_mineru_agent_helper_guards() -> None:
                     "https://fake-target.example.com/upload/proxy-task", proxy_source, timeout=5
                 )
             except RuntimeError:
-                # TLS handshake with the fake proxy will fail; we only care about CONNECT.
+                # TLS handshake with the fake proxy will fail; we only care about CONNECT + TLS start.
                 pass
-            if proxy.connect_request == expected_line:
-                connect_seen = True
         finally:
             materials_convert.urllib.request.proxy_bypass = original_proxy_bypass
             if previous_base_url is None:
@@ -1245,9 +1255,13 @@ def verify_mineru_agent_helper_guards() -> None:
                 else:
                     os.environ[key] = value
             proxy_source.unlink(missing_ok=True)
-        if not connect_seen:
+        if proxy.connect_request != expected_line:
             raise AssertionError(
                 f"Expected HTTPS proxy CONNECT {expected_line!r}, got {proxy.connect_request!r}"
+            )
+        if proxy.tls_handshake_byte != b"\x16":
+            raise AssertionError(
+                f"Expected TLS handshake first byte 0x16, got {proxy.tls_handshake_byte!r}"
             )
 
     with tempfile.TemporaryDirectory(prefix="student-os-agent-chunks-") as tmp:
