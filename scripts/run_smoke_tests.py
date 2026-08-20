@@ -1070,6 +1070,83 @@ def verify_mineru_agent_helper_guards() -> None:
                 os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = previous_base_url
             upload_source.unlink(missing_ok=True)
 
+    class FakeForwardProxy:
+        def __init__(self) -> None:
+            self.request_line: str | None = None
+            self.server: http.server.ThreadingHTTPServer | None = None
+            self.thread: threading.Thread | None = None
+
+        @property
+        def url(self) -> str:
+            if self.server is None:
+                raise RuntimeError("Fake proxy server is not running")
+            host, port = self.server.server_address
+            return f"http://{host}:{port}"
+
+        def __enter__(self) -> "FakeForwardProxy":
+            owner = self
+
+            class Handler(http.server.BaseHTTPRequestHandler):
+                def log_message(self, _format: str, *_args: object) -> None:
+                    return
+
+                def do_PUT(self) -> None:
+                    owner.request_line = self.requestline
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if length:
+                        self.rfile.read(length)
+                    self.send_response(200)
+                    self.end_headers()
+
+            self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+            self.thread.start()
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+            if self.server is not None:
+                self.server.shutdown()
+                self.server.server_close()
+            if self.thread is not None:
+                self.thread.join(timeout=5)
+
+    with FakeForwardProxy() as proxy:
+        proxy_fd, proxy_name = tempfile.mkstemp()
+        os.close(proxy_fd)
+        proxy_source = Path(proxy_name)
+        proxy_source.write_bytes(b"proxy-upload")
+        previous_base_url = os.environ.get("STUDENT_OS_MINERU_AGENT_BASE_URL")
+        proxy_keys = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy")
+        previous_proxy_env = {key: os.environ.get(key) for key in proxy_keys}
+        original_proxy_bypass = materials_convert.urllib.request.proxy_bypass
+        materials_convert.urllib.request.proxy_bypass = lambda _host: False
+        try:
+            os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = "http://fake-target.example.com/api/v1/agent"
+            os.environ["HTTP_PROXY"] = proxy.url
+            os.environ["HTTPS_PROXY"] = proxy.url
+            os.environ["NO_PROXY"] = ""
+            os.environ["no_proxy"] = ""
+            materials_convert.http_put_file(
+                "http://fake-target.example.com/upload/proxy-task", proxy_source, timeout=5
+            )
+            expected_line = "PUT http://fake-target.example.com/upload/proxy-task HTTP/1.1"
+            if proxy.request_line != expected_line:
+                raise AssertionError(
+                    f"Expected HTTP proxy request line {expected_line!r}, got {proxy.request_line!r}"
+                )
+        finally:
+            materials_convert.urllib.request.proxy_bypass = original_proxy_bypass
+            if previous_base_url is None:
+                os.environ.pop("STUDENT_OS_MINERU_AGENT_BASE_URL", None)
+            else:
+                os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = previous_base_url
+            for key, value in previous_proxy_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            proxy_source.unlink(missing_ok=True)
+
     with tempfile.TemporaryDirectory(prefix="student-os-agent-chunks-") as tmp:
         work_dir = Path(tmp)
         original_split_pdf = materials_convert.split_pdf
