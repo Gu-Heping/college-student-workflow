@@ -37,6 +37,7 @@ PDF_SAMPLE_PAGES = 5
 PDF_SCANNED_CHARS_PER_PAGE = 40
 DOCX_IMAGE_HEAVY_TEXT = 50
 PPTX_CHARS_PER_SLIDE = 40
+MINERU_AGENT_MAX_FILE_BYTES = 10 * 1024 * 1024
 
 
 def _env_int(name: str, default: int) -> int:
@@ -495,8 +496,33 @@ def resolve_probe(
         probe["source"] = str(path)
         probe["suffix"] = suffix
 
-    # Without a token, API-needed strategies degrade unless the user forced an API strategy.
+    # Without a token, API-needed strategies use MinerU v1 Agent mode for
+    # supported files. That preserves remote API semantics without requiring
+    # credentials; size/page limits are enforced by materials_convert.py before
+    # upload and split as needed for PDFs.
+    if probe.get("needs_api") and not has_api_token and method == "api" and not force_strategy and suffix in API_SUPPORTED_SUFFIXES:
+        probe = {
+            **probe,
+            "strategy": "mineru-agent-v1",
+            "tool": "mineru-api",
+            "needs_api": False,
+            "agent_api": True,
+            "agent_api_limit_bytes": MINERU_AGENT_MAX_FILE_BYTES,
+            "reason": f"{probe.get('reason')}; MinerU token unavailable, using MinerU v1 Agent API",
+        }
+        return probe
     if probe.get("needs_api") and not has_api_token and not probe.get("forced"):
+        if suffix in API_SUPPORTED_SUFFIXES:
+            probe = {
+                **probe,
+                "strategy": "mineru-agent-v1",
+                "tool": "mineru-api",
+                "needs_api": False,
+                "agent_api": True,
+                "agent_api_limit_bytes": MINERU_AGENT_MAX_FILE_BYTES,
+                "reason": f"{probe.get('reason')}; MinerU token unavailable, using MinerU v1 Agent API",
+            }
+            return probe
         if suffix in PDF_SUFFIXES:
             fallback_tool = "pdf-to-md"
             fallback_strategy = "api-unavailable-pdf"

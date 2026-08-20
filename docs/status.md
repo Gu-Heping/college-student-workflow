@@ -14,7 +14,7 @@
 | **GitHub issue publishing** | `prepare_github_issue.py` + `publish_github_issue.py`；需 `gh` 认证，否则 draft 降级 |
 | **privacy redaction** | `--stdin` / `--check-stdin` / `--check-only`；`sanitize_and_post.py` 包装 `gh`；有 warning 默认拦截 |
 | **materials_convert** | 批量 PDF/DOCX/PPTX/XLSX/图片/旧 Office → markdown sidecar；positional 为 source，非 vault |
-| **MinerU API** | `--method auto` / `--method api`；token 来自 CLI / env / `.env`；大 PDF 可自动拆分合并 |
+| **MinerU API** | `--method auto` / `--method api`；有 token 时走 v4 精准 API；无 token 的 ≤10MB/≤20页文件可走 v1 Agent 免登录 API，PDF 超 20 页且 ≤10MB 可自动拆分合并 |
 | **markdown repair** | `repair_markdown_import.py`；`materials_convert --repair` / `--repair-only` |
 | **exam-census** | Init → taxonomy → annotate → aggregate；Phase A–E（fill / quality / multi-dim / deep-dive / cross-val）；备考包模板；多平台 adapters |
 | **smoke tests / CI** | `scripts/run_smoke_tests.py`；`.github/workflows/smoke.yml` |
@@ -23,7 +23,7 @@
 
 | 能力 | 注意 |
 | --- | --- |
-| **MinerU / OCR** | 无 token 时 `auto` 会降级；强制 `api`/`ocr` 会失败。质量依赖源文件与 API |
+| **MinerU / OCR** | 无 token 且超过 v1 Agent 10MB 限制时需配置 token；`--force-strategy ocr/mineru-api` 仍按强制策略处理。质量依赖源文件与 API |
 | **旧 vault 接入** | 可映射，不强制改名；复杂布局需人工确认 `repo-profile.md` |
 | **exam-census 内容质量** | 脚本生成骨架与门禁；题型解析正文仍依赖 agent 填写，需跑 Phase B |
 | **GitHub 发布** | 隐私 warning 需显式确认；裸管道接 `gh` 不安全 |

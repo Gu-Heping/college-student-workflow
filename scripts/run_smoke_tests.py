@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import http.server
 import importlib.util
 import json
 import os
@@ -10,8 +11,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from datetime import date, timedelta
 from pathlib import Path, PurePosixPath, PureWindowsPath
+from urllib.parse import urlparse
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -760,6 +763,117 @@ def write_fake_mineru_sdk(root: Path) -> Path:
     return root
 
 
+class FakeMineruAgentServer:
+    def __init__(self) -> None:
+        self.tasks: dict[str, dict[str, str | bytes]] = {}
+        self.counter = 0
+        self.server: http.server.ThreadingHTTPServer | None = None
+        self.thread: threading.Thread | None = None
+
+    @property
+    def base_url(self) -> str:
+        if self.server is None:
+            raise RuntimeError("Fake MinerU Agent server is not running")
+        host, port = self.server.server_address
+        return f"http://{host}:{port}/api/v1/agent"
+
+    def __enter__(self) -> "FakeMineruAgentServer":
+        owner = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, _format: str, *_args: object) -> None:
+                return
+
+            def send_json(self, payload: dict[str, object]) -> None:
+                data = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_POST(self) -> None:
+                if self.path != "/api/v1/agent/parse/file":
+                    self.send_error(404)
+                    return
+                length = int(self.headers.get("Content-Length", "0"))
+                body = self.rfile.read(length).decode("utf-8") if length else "{}"
+                payload = json.loads(body)
+                owner.counter += 1
+                task_id = f"task-{owner.counter}"
+                filename = payload.get("file_name") or payload.get("filename") or ""
+                owner.tasks[task_id] = {"filename": str(filename), "content": b""}
+                self.send_json(
+                    {
+                        "code": 0,
+                        "data": {
+                            "task_id": task_id,
+                            "file_url": f"http://{self.server.server_address[0]}:{self.server.server_address[1]}/upload/{task_id}",
+                        },
+                    }
+                )
+
+            def do_PUT(self) -> None:
+                parsed = urlparse(self.path)
+                if not parsed.path.startswith("/upload/"):
+                    self.send_error(404)
+                    return
+                task_id = parsed.path.rsplit("/", 1)[-1]
+                length = int(self.headers.get("Content-Length", "0"))
+                if task_id not in owner.tasks:
+                    self.send_error(404)
+                    return
+                owner.tasks[task_id]["content"] = self.rfile.read(length)
+                self.send_response(200)
+                self.end_headers()
+
+            def do_GET(self) -> None:
+                parsed = urlparse(self.path)
+                if parsed.path.startswith("/api/v1/agent/parse/"):
+                    task_id = parsed.path.rsplit("/", 1)[-1]
+                    if task_id not in owner.tasks:
+                        self.send_error(404)
+                        return
+                    self.send_json(
+                        {
+                            "code": 0,
+                            "data": {
+                                "task_id": task_id,
+                                "state": "done",
+                                "markdown_url": f"http://{self.server.server_address[0]}:{self.server.server_address[1]}/markdown/{task_id}",
+                            },
+                        }
+                    )
+                    return
+                if parsed.path.startswith("/markdown/"):
+                    task_id = parsed.path.rsplit("/", 1)[-1]
+                    task = owner.tasks.get(task_id)
+                    if task is None:
+                        self.send_error(404)
+                        return
+                    filename = str(task.get("filename", "unknown"))
+                    data = f"# Agent Parsed - {filename}\n\n- task: {task_id}\n".encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/markdown; charset=utf-8")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                self.send_error(404)
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        if self.server is not None:
+            self.server.shutdown()
+            self.server.server_close()
+        if self.thread is not None:
+            self.thread.join(timeout=5)
+
+
 def verify_material_type_constants() -> None:
     previous_sys_path = list(sys.path)
     sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
@@ -828,14 +942,20 @@ def exercise_import_workflows(repo: Path) -> None:
     pdf_mineru_payload = json.loads(
         run_script("pdf_to_markdown.py", str(pdf_path), "--output", str(pdf_mineru_output), "--mode", "mineru-style")
     )
-    materials_payload = json.loads(
-        run_script(
-            "materials_convert.py",
-            str(fixture_root),
-            "--course",
-            "Linear Algebra",
+    with FakeMineruAgentServer() as default_agent_server:
+        materials_payload = json.loads(
+            run_script(
+                "materials_convert.py",
+                str(fixture_root),
+                "--course",
+                "Linear Algebra",
+                env={
+                    "MINERU_TOKEN": "",
+                    "MINERU_API_TOKEN": "",
+                    "STUDENT_OS_MINERU_AGENT_BASE_URL": default_agent_server.base_url,
+                },
+            )
         )
-    )
     materials_repair_payload = json.loads(
         run_script(
             "materials_convert.py",
@@ -981,11 +1101,11 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_exists(fixture_root / "linear-algebra-week-2.pptx.md")
     ensure_contains(fixture_root / "linear-algebra-week-2.pptx.md", "## Slide 1: Linear Algebra Week 2")
     ensure_exists(fixture_root / "linear-algebra-handout.pdf.md")
-    ensure_exists(fixture_root / "linear-algebra-handout.pdf.raw.md")
-    ensure_exists(fixture_root / "linear-algebra-handout.pdf-repair-summary.md")
-    ensure_contains(fixture_root / "linear-algebra-handout.pdf.md", "repair_status: repaired")
+    ensure_contains(fixture_root / "linear-algebra-handout.pdf.md", "Import method: mineru-agent-v1")
+    ensure_contains(fixture_root / "linear-algebra-handout.pdf.md", "# Agent Parsed - linear-algebra-handout.pdf")
     ensure_exists(fixture_root / "homework-photo.png.md")
-    ensure_contains(fixture_root / "homework-photo.png.md", "OCR is not bundled in the local workflow yet.")
+    ensure_contains(fixture_root / "homework-photo.png.md", "Import method: mineru-agent-v1")
+    ensure_contains(fixture_root / "homework-photo.png.md", "# Agent Parsed - homework-photo.png")
     ensure_exists(fixture_root / "fpga-lab.bit.md")
     ensure_contains(fixture_root / "fpga-lab.bit.md", "Binary or tool-specific source detected.")
     if len(materials_repair_payload["converted"]) != 1:
@@ -1331,12 +1451,16 @@ def exercise_import_workflows(repo: Path) -> None:
     if not probe_only_payload.get("probe_only") or not probe_only_payload.get("probes"):
         raise AssertionError(f"Expected --probe-only JSON report, got: {probe_only_payload}")
     probes_by_name = {Path(item["source"]).name: item for item in probe_only_payload["probes"]}
-    if probes_by_name["linear-algebra-handout.pdf"]["tool"] not in {"pdf-to-md", "pymupdf"}:
+    if probes_by_name["linear-algebra-handout.pdf"]["tool"] != "mineru-api" or not probes_by_name[
+        "linear-algebra-handout.pdf"
+    ].get("agent_api"):
         raise AssertionError(
-            f"Without a token, PDF probes should stay local, got: {probes_by_name['linear-algebra-handout.pdf']}"
+            f"Without a token, API-needed PDF probes should use MinerU v1 Agent, got: {probes_by_name['linear-algebra-handout.pdf']}"
         )
-    if probes_by_name["homework-photo.png"]["tool"] != "image-index":
-        raise AssertionError("Without a token, image probes should degrade to image-index")
+    if probes_by_name["homework-photo.png"]["tool"] != "mineru-api" or not probes_by_name["homework-photo.png"].get(
+        "agent_api"
+    ):
+        raise AssertionError(f"Without a token, image probes should use MinerU v1 Agent, got: {probes_by_name['homework-photo.png']}")
     if probes_by_name["linear-algebra-outline.docx"]["tool"] not in {"pandoc", "docx-to-md"}:
         raise AssertionError(f"Unexpected DOCX tool: {probes_by_name['linear-algebra-outline.docx']}")
 
@@ -1424,39 +1548,25 @@ def exercise_import_workflows(repo: Path) -> None:
     ].get("error", ""):
         raise AssertionError(f"Expected invalid --pages error, got: {invalid_pages_payload}")
 
-    method_api_no_token = subprocess.run(
-        [
-            sys.executable,
-            "-B",
-            str(STUDENT_OS_SCRIPTS / "materials_convert.py"),
-            str(manual_pdf),
-            "--output-root",
-            str(repo / "references" / "imports" / "method-api-no-token"),
-            "--method",
-            "api",
-            "--overwrite",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        cwd=empty_skill_root,
-        env={
-            **os.environ,
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "PYTHONIOENCODING": "utf-8",
-            **no_token_env,
-        },
-    )
-    if method_api_no_token.returncode == 0:
-        raise AssertionError("Expected --method api without token to exit nonzero")
-    method_api_payload = json.loads(method_api_no_token.stdout)
-    if method_api_payload.get("converted"):
-        raise AssertionError(f"--method api without token must not convert locally, got: {method_api_payload}")
-    if not method_api_payload.get("errors") or "requires a token" not in method_api_payload["errors"][0].get(
-        "error", ""
-    ):
-        raise AssertionError(f"Expected --method api without token to error, got: {method_api_payload}")
+    with FakeMineruAgentServer() as method_api_agent_server:
+        method_api_payload = json.loads(
+            run_script(
+                "materials_convert.py",
+                str(manual_pdf),
+                "--output-root",
+                str(repo / "references" / "imports" / "method-api-no-token"),
+                "--method",
+                "api",
+                "--overwrite",
+                cwd=empty_skill_root,
+                env={
+                    **no_token_env,
+                    "STUDENT_OS_MINERU_AGENT_BASE_URL": method_api_agent_server.base_url,
+                },
+            )
+        )
+    if method_api_payload["converted"][0].get("import_method") != "mineru-agent-v1":
+        raise AssertionError(f"Expected --method api without token to use MinerU v1 Agent, got: {method_api_payload}")
 
     forced_api_no_token = subprocess.run(
         [
@@ -1589,8 +1699,90 @@ def exercise_import_workflows(repo: Path) -> None:
             env=no_token_env,
         )
     )["probes"][0]
-    if legacy_no_token["tool"] != "legacy-office-index":
-        raise AssertionError(f"Expected legacy .doc without token to degrade to index, got: {legacy_no_token}")
+    if legacy_no_token["tool"] != "mineru-api" or not legacy_no_token.get("agent_api"):
+        raise AssertionError(f"Expected legacy .doc without token to use MinerU v1 Agent, got: {legacy_no_token}")
+
+    with FakeMineruAgentServer() as agent_server:
+        agent_env = {
+            **no_token_env,
+            "STUDENT_OS_MINERU_AGENT_BASE_URL": agent_server.base_url,
+        }
+        agent_output_root = repo / "references" / "imports" / "agent-output"
+        agent_payload = json.loads(
+            run_script(
+                "materials_convert.py",
+                str(manual_pdf),
+                "--output-root",
+                str(agent_output_root),
+                "--method",
+                "api",
+                "--overwrite",
+                cwd=empty_skill_root,
+                env=agent_env,
+            )
+        )
+        if agent_payload["applied_method"] != "api":
+            raise AssertionError(f"Expected v1 Agent to count as API mode, got: {agent_payload}")
+        agent_converted = agent_payload["converted"][0]
+        if agent_converted.get("import_method") != "mineru-agent-v1":
+            raise AssertionError(f"Expected --method api without token to use v1 Agent, got: {agent_converted}")
+        ensure_contains(agent_output_root / "text-manual.pdf.md", "Import method: mineru-agent-v1")
+        ensure_contains(agent_output_root / "text-manual.pdf.md", "# Agent Parsed - text-manual.pdf")
+
+        agent_split_pdf = fixture_root / "agent-split.pdf"
+        write_multipage_pdf_fixture(agent_split_pdf, 21)
+        agent_split_root = repo / "references" / "imports" / "agent-split-output"
+        agent_split_payload = json.loads(
+            run_script(
+                "materials_convert.py",
+                str(agent_split_pdf),
+                "--output-root",
+                str(agent_split_root),
+                "--method",
+                "auto",
+                "--overwrite",
+                cwd=empty_skill_root,
+                env=agent_env,
+            )
+        )
+        split_info = agent_split_payload["converted"][0].get("split")
+        if not split_info or split_info.get("part_count") != 2 or split_info.get("chunk_size") != 20:
+            raise AssertionError(f"Expected v1 Agent PDF to split at 20 pages, got: {agent_split_payload}")
+        ensure_contains(agent_split_root / "agent-split.pdf.md", "<!-- MERGED from 2 parts: pages 1-20, pages 21-21 -->")
+
+        agent_too_large = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(STUDENT_OS_SCRIPTS / "materials_convert.py"),
+                str(manual_pdf),
+                "--output-root",
+                str(repo / "references" / "imports" / "agent-too-large"),
+                "--method",
+                "api",
+                "--overwrite",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=empty_skill_root,
+            env={
+                **os.environ,
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONIOENCODING": "utf-8",
+                **agent_env,
+                "STUDENT_OS_MINERU_AGENT_MAX_FILE_BYTES": "1",
+            },
+        )
+        if agent_too_large.returncode == 0:
+            raise AssertionError("Expected v1 Agent over size limit without token to exit nonzero")
+        agent_too_large_payload = json.loads(agent_too_large.stdout)
+        if not agent_too_large_payload.get("errors") or "provide MINERU_TOKEN" not in agent_too_large_payload["errors"][
+            0
+        ].get("error", ""):
+            raise AssertionError(f"Expected v1 Agent size-limit token hint, got: {agent_too_large_payload}")
+        agent_split_pdf.unlink()
 
     scanned_pdf.unlink()
     manual_pdf.unlink()
