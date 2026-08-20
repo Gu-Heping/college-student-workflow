@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import types
 from datetime import date, timedelta
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from urllib.parse import urlparse
@@ -808,7 +809,7 @@ class FakeMineruAgentServer:
                 owner.counter += 1
                 task_id = f"task-{owner.counter}"
                 filename = payload.get("file_name") or payload.get("filename") or ""
-                owner.tasks[task_id] = {"filename": str(filename), "content": b""}
+                owner.tasks[task_id] = {"filename": str(filename), "content": b"", "headers": ""}
                 self.send_json(
                     {
                         "code": 0,
@@ -830,6 +831,7 @@ class FakeMineruAgentServer:
                     self.send_error(404)
                     return
                 owner.tasks[task_id]["content"] = self.rfile.read(length)
+                owner.tasks[task_id]["headers"] = json.dumps(dict(self.headers), sort_keys=True)
                 self.send_response(200)
                 self.end_headers()
 
@@ -859,7 +861,13 @@ class FakeMineruAgentServer:
                         return
                     filename = str(task.get("filename", "unknown"))
                     uploaded = len(task.get("content") or b"")
-                    data = f"# Agent Parsed - {filename}\n\n- task: {task_id}\n- uploaded_bytes: {uploaded}\n".encode("utf-8")
+                    headers = str(task.get("headers", "{}"))
+                    data = (
+                        f"# Agent Parsed - {filename}\n\n"
+                        f"- task: {task_id}\n"
+                        f"- uploaded_bytes: {uploaded}\n"
+                        f"- upload_headers: {headers}\n"
+                    ).encode("utf-8")
                     self.send_response(200)
                     self.send_header("Content-Type", "text/markdown; charset=utf-8")
                     self.send_header("Content-Length", str(len(data)))
@@ -939,8 +947,43 @@ def verify_mineru_agent_helper_guards() -> None:
         materials_convert = load_student_os_script_module(
             "materials_convert.py", "student_os_materials_convert_agent_guard_smoke"
         )
+        probe_materials = load_student_os_script_module(
+            "probe_materials.py", "student_os_probe_materials_agent_guard_smoke"
+        )
     finally:
         sys.path = previous_sys_path
+
+    if not materials_convert.mineru_agent_url_allowed("https://mineru.oss-cn-shanghai.aliyuncs.com/demo/result.md"):
+        raise AssertionError("Expected MinerU OSS result host to be allowed by default")
+    if not probe_materials.mojibake_metrics("Æµ‚SØ‡‰K" * 40)["mojibake_suspect"]:
+        raise AssertionError("Expected repeated latin-extended mojibake sample to be detected")
+
+    class MojibakePage:
+        def extract_text(self) -> str:
+            return "Æµ‚SØ‡‰K" * 40
+
+    class MojibakeReader:
+        def __init__(self, _path: str) -> None:
+            self.pages = [MojibakePage()]
+
+    previous_pypdf = sys.modules.get("pypdf")
+    sys.modules["pypdf"] = types.SimpleNamespace(PdfReader=MojibakeReader)
+    try:
+        mojibake_fd, mojibake_name = tempfile.mkstemp(suffix=".pdf")
+        os.close(mojibake_fd)
+        mojibake_pdf = Path(mojibake_name)
+        mojibake_pdf.write_bytes(b"%PDF-1.4\n")
+        try:
+            mojibake_probe = probe_materials.probe_pdf(mojibake_pdf)
+        finally:
+            mojibake_pdf.unlink(missing_ok=True)
+    finally:
+        if previous_pypdf is None:
+            sys.modules.pop("pypdf", None)
+        else:
+            sys.modules["pypdf"] = previous_pypdf
+    if mojibake_probe["tool"] != "mineru-api" or mojibake_probe["strategy"] != "mojibake-text-layer":
+        raise AssertionError(f"Expected mojibake PDF text layer to route to MinerU API, got: {mojibake_probe}")
 
     secret_fd, secret_name = tempfile.mkstemp()
     os.close(secret_fd)
@@ -993,6 +1036,27 @@ def verify_mineru_agent_helper_guards() -> None:
         redirect_server.server_close()
         redirect_thread.join(timeout=5)
         secret.unlink(missing_ok=True)
+
+    with FakeMineruAgentServer() as upload_server:
+        upload_fd, upload_name = tempfile.mkstemp()
+        os.close(upload_fd)
+        upload_source = Path(upload_name)
+        upload_source.write_bytes(b"student-os-upload")
+        previous_base_url = os.environ.get("STUDENT_OS_MINERU_AGENT_BASE_URL")
+        try:
+            os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = upload_server.base_url
+            task_id = "manual-put"
+            upload_server.tasks[task_id] = {"filename": "manual.pdf", "content": b"", "headers": ""}
+            materials_convert.http_put_file(f"{upload_server.base_url.rsplit('/api/v1/agent', 1)[0]}/upload/{task_id}", upload_source)
+            upload_headers = json.loads(str(upload_server.tasks[task_id]["headers"]))
+            if "Content-Type" in upload_headers:
+                raise AssertionError(f"MinerU Agent signed upload must not send Content-Type, got: {upload_headers}")
+        finally:
+            if previous_base_url is None:
+                os.environ.pop("STUDENT_OS_MINERU_AGENT_BASE_URL", None)
+            else:
+                os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = previous_base_url
+            upload_source.unlink(missing_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="student-os-agent-chunks-") as tmp:
         work_dir = Path(tmp)

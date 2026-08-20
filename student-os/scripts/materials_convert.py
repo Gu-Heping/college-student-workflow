@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import fnmatch
 import json
 import math
@@ -487,6 +488,8 @@ def mineru_agent_url_allowed(url: str) -> str:
         return url
     if host in allowed_hosts or any(host.endswith(suffix) for suffix in allowed_suffixes):
         return url
+    if host.endswith(".aliyuncs.com") and ".oss-" in host:
+        return url
     raise RuntimeError(f"MinerU v1 Agent returned an unexpected URL host: {parsed.netloc}")
 
 
@@ -515,20 +518,23 @@ def http_json(method: str, url: str, *, payload: dict[str, Any] | None = None, t
 def http_put_file(url: str, source_file: Path, *, timeout: int = 300) -> None:
     url = mineru_agent_url_allowed(url)
     data = source_file.read_bytes()
-    request = urllib.request.Request(
-        url,
-        data=data,
-        method="PUT",
-        headers={"Content-Type": "application/octet-stream", "Content-Length": str(len(data))},
-    )
+    parsed = urllib.parse.urlsplit(url)
+    path = parsed.path or "/"
+    if parsed.query:
+        path += f"?{parsed.query}"
+    connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+    connection = connection_cls(parsed.netloc, timeout=timeout)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            response.read()
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace").strip()
-        raise RuntimeError(f"MinerU v1 Agent upload HTTP {exc.code}: {detail}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"MinerU v1 Agent upload failed: {exc.reason}") from exc
+        connection.request("PUT", path, body=data, headers={"Content-Length": str(len(data))})
+        response = connection.getresponse()
+        response_body = response.read()
+    except OSError as exc:
+        raise RuntimeError(f"MinerU v1 Agent upload failed: {exc}") from exc
+    finally:
+        connection.close()
+    if response.status >= 400:
+        detail = response_body.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"MinerU v1 Agent upload HTTP {response.status}: {detail}") from None
 
 
 def http_text(url: str, *, timeout: int = 300) -> str:

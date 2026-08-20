@@ -38,6 +38,9 @@ PDF_SAMPLE_PAGES = 5
 PDF_SCANNED_CHARS_PER_PAGE = 40
 DOCX_IMAGE_HEAVY_TEXT = 50
 PPTX_CHARS_PER_SLIDE = 40
+PDF_MOJIBAKE_MIN_TEXT_LEN = 200
+PDF_MOJIBAKE_LATIN_EXT_RATIO = 0.08
+PDF_MOJIBAKE_CJK_MAX_RATIO = 0.01
 
 
 def _env_int(name: str, default: int) -> int:
@@ -70,6 +73,8 @@ PDF_FORMULA_RATIO = _env_float("STUDENT_OS_PDF_FORMULA_RATIO", 0.045)
 FORMULA_CHAR_RE = re.compile(
     r"[\u2200-\u22FF\u27C0-\u27EF\u2980-\u29FF\u2A00-\u2AFF∫∑∏√∞≈≠≤≥±∂∇α-ωΑ-Ω]"
 )
+MOJIBAKE_CHAR_RE = re.compile(r"[\u0080-\u024F]")
+CJK_CHAR_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]")
 
 
 def pandoc_available() -> bool:
@@ -101,6 +106,24 @@ def formula_density(text: str) -> float:
         return 0.0
     hits = len(FORMULA_CHAR_RE.findall(text))
     return hits / max(len(text), 1)
+
+
+def mojibake_metrics(text: str) -> dict[str, float | bool]:
+    stripped = "".join(ch for ch in text if not ch.isspace())
+    text_len = len(stripped)
+    if text_len == 0:
+        return {"mojibake_ratio": 0.0, "cjk_ratio": 0.0, "mojibake_suspect": False}
+    mojibake_ratio = len(MOJIBAKE_CHAR_RE.findall(stripped)) / text_len
+    cjk_ratio = len(CJK_CHAR_RE.findall(stripped)) / text_len
+    return {
+        "mojibake_ratio": round(mojibake_ratio, 4),
+        "cjk_ratio": round(cjk_ratio, 4),
+        "mojibake_suspect": (
+            text_len >= PDF_MOJIBAKE_MIN_TEXT_LEN
+            and cjk_ratio <= PDF_MOJIBAKE_CJK_MAX_RATIO
+            and mojibake_ratio >= PDF_MOJIBAKE_LATIN_EXT_RATIO
+        ),
+    }
 
 
 def local_tool_for_suffix(suffix: str) -> str | None:
@@ -149,6 +172,7 @@ def probe_pdf(path: Path) -> dict[str, Any]:
     chars_per_page = text_len / sample_n if sample_n else 0.0
     has_text_layer = chars_per_page >= PDF_SCANNED_CHARS_PER_PAGE
     density = formula_density(joined)
+    mojibake = mojibake_metrics(joined)
 
     metrics = {
         "page_count": page_count,
@@ -157,6 +181,7 @@ def probe_pdf(path: Path) -> dict[str, Any]:
         "has_text_layer": has_text_layer,
         "formula_density": round(density, 4),
         "file_size_bytes": path.stat().st_size,
+        **mojibake,
     }
 
     if page_count == 0 or not has_text_layer:
@@ -164,6 +189,19 @@ def probe_pdf(path: Path) -> dict[str, Any]:
             strategy="scanned",
             tool="mineru-api",
             reason=f"no/low text layer ({chars_per_page:.0f} chars/page over {sample_n} sampled pages)",
+            needs_ocr=True,
+            needs_api=True,
+            **metrics,
+        )
+
+    if mojibake["mojibake_suspect"]:
+        return _base_result(
+            strategy="mojibake-text-layer",
+            tool="mineru-api",
+            reason=(
+                "text layer appears mojibake "
+                f"(latin-ext/control ratio {mojibake['mojibake_ratio']:.3f}, CJK ratio {mojibake['cjk_ratio']:.3f})"
+            ),
             needs_ocr=True,
             needs_api=True,
             **metrics,
