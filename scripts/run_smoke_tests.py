@@ -1133,6 +1133,8 @@ def verify_mineru_agent_helper_guards() -> None:
             os.environ["STUDENT_OS_MINERU_AGENT_BASE_URL"] = "http://fake-target.example.com/api/v1/agent"
             os.environ["HTTP_PROXY"] = proxy.url
             os.environ["HTTPS_PROXY"] = proxy.url
+            os.environ["http_proxy"] = proxy.url
+            os.environ["https_proxy"] = proxy.url
             os.environ["NO_PROXY"] = ""
             os.environ["no_proxy"] = ""
             materials_convert.http_put_file(
