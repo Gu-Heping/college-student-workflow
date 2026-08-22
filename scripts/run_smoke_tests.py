@@ -1309,9 +1309,67 @@ def verify_mineru_agent_helper_guards() -> None:
             materials_convert.MINERU_AGENT_MAX_FILE_BYTES = original_limit
 
 
+def verify_mineru_v1_repair_rules() -> None:
+    previous_sys_path = list(sys.path)
+    sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
+    try:
+        repair_module = load_student_os_script_module("repair_markdown_import.py", "student_os_repair_smoke")
+    finally:
+        sys.path = previous_sys_path
+
+    noisy = (
+        "---\n"
+        "import_method: mineru-agent-v1\n"
+        "---\n"
+        "\n"
+        "## Imported Content\n"
+        "\n"
+        "{ \\dot { 1 } } + \\dot { 0 } = \\dot { \\lambda }\n"
+        "\n"
+        "\\mathrm { ~ } and \\mathrm { ~ . ~ } here.\n"
+        "\n"
+        "\\overset { \\cdot } { A } \\stackrel { r } {  } = \\overset {  } { B }\n"
+        "\n"
+        "{ \\texttt { \\textbf { # } : } }\n"
+        "\n"
+        "\\sharp A\n"
+        "\n"
+        "$$\\beta_2$$\n"
+        "\n"
+        "$$\\{x\\}$$\n"
+        "\n"
+        "$$\\gamma$$\n"
+        "\n"
+        "Keep real math: $\\dot{x}$ and $\\stackrel{r}{=}$.\n"
+        "\n"
+        "Keep \\binom fragment for manual review.\n"
+    )
+    repaired, summary = repair_module.repair_text(noisy)
+
+    if "{ 1 } + 0 = \\lambda" not in repaired:
+        raise AssertionError("Expected \\dot{} wrappers around digits/Greek to be removed")
+    if "\\mathrm" in repaired:
+        raise AssertionError("Expected \\mathrm{} noise wrappers to be removed")
+    if "\\overset { \\cdot } { A }" in repaired or "\\stackrel { r } {  }" in repaired:
+        raise AssertionError("Expected empty \\overset/\\stackrel wrappers to be simplified")
+    if "\\texttt" in repaired:
+        raise AssertionError("Expected garbled \\texttt placeholder to be replaced")
+    if "\\sharp A" in repaired:
+        raise AssertionError("Expected text-mode \\sharp to be replaced")
+    if "$$\\beta_2 \\{x\\} \\gamma$$" not in repaired:
+        raise AssertionError("Expected isolated single-line $$ fragments to be collapsed")
+    if "$\\dot{x}$" not in repaired or "$\\stackrel{r}{=}$" not in repaired:
+        raise AssertionError("Expected legitimate math accents to be preserved")
+    if "\\binom" not in repaired:
+        raise AssertionError("Expected \\binom fragments to remain for manual review")
+    if not any("remaining noise signatures" in line for line in summary):
+        raise AssertionError("Expected repair summary to report remaining noise signatures")
+
+
 def exercise_import_workflows(repo: Path) -> None:
     verify_material_type_constants()
     verify_mineru_agent_helper_guards()
+    verify_mineru_v1_repair_rules()
     fixture_root = repo / "references" / "imports" / "source"
     fixture_root.mkdir(parents=True, exist_ok=True)
     docx_path = fixture_root / "linear-algebra-outline.docx"

@@ -55,6 +55,7 @@
 
 ### Fixed
 
+- 修复 MinerU v1 Agent 对旧式 CJK/LaTeX PDF 的 OCR/LaTeX 噪声问题：`repair_markdown_import.py` 新增针对 `mineru-agent-v1` 的后处理，自动清除 `\dot{}` 数字/希腊命令包装、`\mathrm{~}` 空格标点噪声、空 `\overset/\stackrel` 包装、`\texttt{\textbf{#}}`/`\sharp` 中文乱码占位，以及合并孤立的 `$$...$$` 碎片；对无法自动重建的 `\binom` 碎片等保留噪声签名报告，提示人工复核（Issue #85）。
 - 修复 `rebuild_indexes.py` 与 `summarize_activity.py` 对生成索引目录 `.student-os/index` 的跨平台过滤，避免 POSIX 风格路径下 recent activity / activity summary 把生成索引当作用户活动。
 - 修复 exam-census runbook 手动执行契约（Issue #61）：目录发现传播有效 pattern、annotation 精确路径优先与歧义报错、taxonomy fallback 不丢末项、PyYAML 解析失败硬失败、fill/deep-dive 使用 manifest 路径、confidence 空值 invalid、Validation 报告含 load errors。
 - 修复 Claude exam-census `SKILL.md`：去掉 `disable-model-invocation` 与 Workflow 调用指引，改为可自然语言 / `/exam-census` 触发的完整 runbook（Issue #59）。
