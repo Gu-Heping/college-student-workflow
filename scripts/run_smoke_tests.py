@@ -1518,6 +1518,60 @@ def verify_local_pdf_risk_forwarding(tmp_root: Path) -> None:
     )
     if not any(item["code"] == "low-cjk-density" for item in materials_convert.diagnose_import_risks(chinese_metadata_wrapped)):
         raise AssertionError("CJK density should ignore generated title/source metadata and inspect imported body")
+    pymupdf_wrapped = materials_convert.wrap_mineru_markdown(
+        source_file=tmp_root / "local.pdf",
+        markdown_body="plain English text " * 160,
+        import_method="pymupdf",
+        course=None,
+        language="ch",
+    )
+    if "language: ch" not in pymupdf_wrapped:
+        raise AssertionError(f"PyMuPDF sidecars should persist the requested language:\n{pymupdf_wrapped}")
+    if not any(item["code"] == "low-cjk-density" for item in materials_convert.diagnose_import_risks(pymupdf_wrapped)):
+        raise AssertionError("PyMuPDF sidecars with requested CJK language should surface low-CJK repair risks")
+
+    class FakePage:
+        def get_text(self, _mode: str) -> str:
+            return "plain English text " * 160
+
+    class FakeDocument:
+        page_count = 1
+
+        def load_page(self, _page_index: int) -> FakePage:
+            return FakePage()
+
+        def close(self) -> None:
+            return None
+
+    fake_fitz = types.SimpleNamespace(open=lambda _path: FakeDocument())
+    original_fitz = sys.modules.get("fitz")
+    sys.modules["fitz"] = fake_fitz
+    try:
+        pymupdf_output = tmp_root / "pymupdf.pdf.md"
+        pymupdf_ctx = materials_convert.ConversionContext(
+            method="pymupdf",
+            course=None,
+            overwrite=False,
+            repair=False,
+            repair_only=False,
+            api_token=None,
+            api_model="vlm",
+            language="ch",
+            ocr=None,
+            formula=None,
+            table=None,
+            pages=None,
+            timeout=300,
+        )
+        materials_convert.convert_with_pymupdf(tmp_root / "pymupdf.pdf", pymupdf_output, pymupdf_ctx)
+    finally:
+        if original_fitz is None:
+            sys.modules.pop("fitz", None)
+        else:
+            sys.modules["fitz"] = original_fitz
+    ensure_contains(pymupdf_output, "language: ch")
+    if not any(item["code"] == "low-cjk-density" for item in materials_convert.diagnose_import_risks(pymupdf_output.read_text(encoding="utf-8"))):
+        raise AssertionError("convert_with_pymupdf should persist language for low-CJK risk diagnosis")
 
     output = tmp_root / "paper.pdf.md"
     output.parent.mkdir(parents=True, exist_ok=True)

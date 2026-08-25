@@ -1282,6 +1282,7 @@ def convert_with_pymupdf(source_file: Path, output_path: Path, ctx: ConversionCo
             markdown_body="\n".join(page_blocks).strip(),
             import_method="pymupdf",
             course=ctx.course,
+            language=ctx.language,
         ),
     )
     payload: dict[str, Any] = {
