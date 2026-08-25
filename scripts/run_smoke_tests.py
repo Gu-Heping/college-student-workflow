@@ -1480,6 +1480,19 @@ def verify_mineru_v1_repair_rules() -> None:
         raise AssertionError(f"repair_risk should be inserted into frontmatter:\n{marked}")
     if "verify_status: verified" not in body:
         raise AssertionError(f"Body metadata-looking text must not be rewritten:\n{marked}")
+    body_repair_status = (
+        "---\n"
+        "type: imported-reference\n"
+        "repair_status: raw\n"
+        "---\n"
+        "\n"
+        "## Imported Content\n"
+        "\n"
+        "- Repair status: raw\n"
+    )
+    marked_body_repair_status = repair_module.mark_auto_repaired(body_repair_status, needs_review=False)
+    if "- Repair status: raw" not in marked_body_repair_status:
+        raise AssertionError(f"Body repair-status-looking text must not be rewritten:\n{marked_body_repair_status}")
     frontmatter_free = repair_module.mark_auto_repaired("# Body\n", needs_review=True)
     if not frontmatter_free.startswith("---\n"):
         raise AssertionError(f"Frontmatter-free repairs should get minimal governance frontmatter:\n{frontmatter_free}")
