@@ -1399,7 +1399,19 @@ def verify_mineru_v1_repair_rules() -> None:
     numeric_math = "---\nimport_method: manual-test\n---\n\nThe answer is $2+2=4$.\n"
     if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(numeric_math)):
         raise AssertionError("Balanced numeric inline math dollars must not be flagged")
-    code_currency = "---\nimport_method: manual-test\n---\n\nIgnore code `$5` and fenced text:\n```\n$5\n```\n"
+    code_currency = (
+        "---\n"
+        "import_method: manual-test\n"
+        "---\n"
+        "\n"
+        "Ignore code `$5`, double-backtick ``$5`` and fenced text:\n"
+        "```\n"
+        "$5\n"
+        "```\n"
+        "~~~\n"
+        "$5\n"
+        "~~~\n"
+    )
     if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(code_currency)):
         raise AssertionError("Dollar signs inside inline/fenced code must not be flagged")
 

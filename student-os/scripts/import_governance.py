@@ -153,8 +153,8 @@ def count_malformed_binom(text: str) -> int:
 
 
 def _strip_markdown_code(text: str) -> str:
-    text = re.sub(r"(?s)```.*?```", "", text)
-    return re.sub(r"`[^`\n]*`", "", text)
+    text = re.sub(r"(?ms)^(?P<fence>`{3,}|~{3,})[^\n]*\n.*?^(?P=fence)[ \t]*$", "", text)
+    return re.sub(r"(?s)(`+).*?\1", "", text)
 
 
 def _has_later_unescaped_dollar(text: str, start: int) -> bool:
