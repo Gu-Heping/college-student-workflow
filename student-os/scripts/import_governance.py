@@ -153,7 +153,25 @@ def count_malformed_binom(text: str) -> int:
 
 
 def _strip_markdown_code(text: str) -> str:
-    text = re.sub(r"(?ms)^(?P<fence>`{3,}|~{3,})[^\n]*\n.*?^(?P=fence)[ \t]*$", "", text)
+    lines = text.splitlines(keepends=True)
+    kept: list[str] = []
+    fence_char = ""
+    fence_len = 0
+    for line in lines:
+        if fence_char:
+            close = re.match(r"^[ \t]{0,3}([`~]{3,})[ \t]*$", line.rstrip("\r\n"))
+            if close and close.group(1)[0] == fence_char and len(close.group(1)) >= fence_len:
+                fence_char = ""
+                fence_len = 0
+            continue
+        open_match = re.match(r"^[ \t]{0,3}([`~]{3,})", line)
+        if open_match:
+            fence = open_match.group(1)
+            fence_char = fence[0]
+            fence_len = len(fence)
+            continue
+        kept.append(line)
+    text = "".join(kept)
     return re.sub(r"(?s)(`+).*?\1", "", text)
 
 
@@ -170,16 +188,54 @@ def count_likely_math_dollars(text: str) -> int:
     text = _strip_markdown_code(text)
     count = 0
     punctuation = set(string.punctuation) - {"$"}
+    dollar_indexes = [
+        index
+        for index, char in enumerate(text)
+        if char == "$" and (index == 0 or text[index - 1] != "\\")
+    ]
+    paired_indexes: set[int] = set()
+    for offset, index in enumerate(dollar_indexes[:-1]):
+        if index in paired_indexes:
+            continue
+        next_index = dollar_indexes[offset + 1]
+        if "\n" in text[index + 1 : next_index]:
+            continue
+        span = text[index + 1 : next_index]
+        if re.match(r"^\d[\d,]*(?:\.\d+)?\s+[A-Za-z]", span):
+            continue
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+        if next_char and not next_char.isspace() and (next_char not in punctuation or next_char == "\\"):
+            paired_indexes.add(index)
+            paired_indexes.add(next_index)
+            count += 2
+
     for index, char in enumerate(text):
         if char != "$" or (index > 0 and text[index - 1] == "\\"):
+            continue
+        if index in paired_indexes:
             continue
         previous_char = text[index - 1] if index > 0 else ""
         next_char = text[index + 1] if index + 1 < len(text) else ""
         if next_char.isdigit() and not _has_later_unescaped_dollar(text, index + 1):
             continue
-        if next_char and not next_char.isspace() and next_char not in punctuation:
+        if next_char.isdigit():
+            continue
+        if next_char and not next_char.isspace() and (next_char not in punctuation or next_char == "\\"):
             count += 1
         elif previous_char and not previous_char.isspace():
+            count += 1
+    return count
+
+
+def count_orphan_latex_nonumber(text: str) -> int:
+    count = 0
+    for line in _strip_markdown_code(text).splitlines():
+        stripped = line.strip()
+        if not re.search(r"\\nonumber\b", stripped):
+            continue
+        without_token = re.sub(r"\\nonumber\b", "", stripped).strip()
+        without_token = without_token.strip(r"\;,. ")
+        if not without_token:
             count += 1
     return count
 
@@ -199,7 +255,6 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
     risks: list[dict[str, object]] = []
 
     checks: list[tuple[str, str, int]] = [
-        ("latex-nonumber", r"\\nonumber\b", 0),
         ("mojibake-replacement-char", "�", 0),
         ("unicode-escape", r"\\u[0-9a-fA-F]{4}", 0),
     ]
@@ -207,6 +262,10 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
         count = len(re.findall(pattern, text, flags))
         if count:
             risks.append({"code": code, "count": count})
+
+    nonumber_count = count_orphan_latex_nonumber(text)
+    if nonumber_count:
+        risks.append({"code": "latex-nonumber", "count": nonumber_count})
 
     binom_count = count_malformed_binom(text)
     if binom_count:

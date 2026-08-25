@@ -1411,9 +1411,24 @@ def verify_mineru_v1_repair_rules() -> None:
         "~~~\n"
         "$5\n"
         "~~~\n"
+        "   ~~~\n"
+        "$5\n"
+        "   ~~~~\n"
     )
     if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(code_currency)):
         raise AssertionError("Dollar signs inside inline/fenced code must not be flagged")
+    multi_currency = "---\nimport_method: manual-test\n---\n\nThe kit costs $5 or $10.\n"
+    if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(multi_currency)):
+        raise AssertionError("Multiple literal currency amounts must not be flagged as unbalanced math")
+    latex_command_math = "---\nimport_method: manual-test\n---\n\nThe rate is $\\alpha$.\n"
+    if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(latex_command_math)):
+        raise AssertionError("Inline math that starts with a LaTeX command must not be flagged")
+    valid_nonumber = "---\nimport_method: mineru-agent-v1\n---\n\n\\begin{align}\na &= b \\\\ \\nonumber\n\\end{align}\n"
+    if any(item["code"] == "latex-nonumber" for item in repair_module.diagnose_import_risks(valid_nonumber)):
+        raise AssertionError("Valid LaTeX \\nonumber commands must not be flagged")
+    orphan_nonumber = "---\nimport_method: mineru-agent-v1\n---\n\n\\nonumber\n"
+    if not any(item["code"] == "latex-nonumber" for item in repair_module.diagnose_import_risks(orphan_nonumber)):
+        raise AssertionError("Orphan \\nonumber fragments should be flagged for review")
 
     english_import = "---\nimport_method: mineru-agent-v1\n---\n\n" + ("plain English text " * 160)
     if any(item["code"] == "low-cjk-density" for item in repair_module.diagnose_import_risks(english_import)):
