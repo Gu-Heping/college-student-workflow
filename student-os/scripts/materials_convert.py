@@ -458,13 +458,38 @@ def repair_generated_markdown(output_path: Path, *, in_place: bool = False, incl
     if raw_output_path.exists():
         raw_output_path.unlink()
     output_path.replace(raw_output_path)
-    return run_repair(raw_output_path, output_path, derived_from=raw_output_path)
+    return run_repair(
+        raw_output_path,
+        output_path,
+        derived_from=raw_output_path,
+        include_verified=include_verified,
+    )
 
 
 def attach_repair_payload(target: dict[str, Any], repair_payload: dict[str, Any]) -> None:
     target["repairs"] = repair_payload["repairs"]
     if repair_payload.get("risk_items"):
         target["risk_items"] = repair_payload["risk_items"]
+
+
+def collect_repair_risk_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    collected: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(source: object, risks: object) -> None:
+        if not risks:
+            return
+        key = (str(source), json.dumps(risks, sort_keys=True, ensure_ascii=False))
+        if key in seen:
+            return
+        seen.add(key)
+        collected.append({"source": source, "risks": risks})
+
+    for item in items:
+        add(item.get("source"), item.get("risk_items", []))
+        for part in item.get("part_repairs", []) or []:
+            add(part.get("output") or item.get("source"), part.get("risk_items", []))
+    return collected
 
 
 def load_mineru_client() -> Any:
@@ -1704,11 +1729,7 @@ def main() -> int:
             "converted": converted,
             "skipped": skipped,
             "skipped_verified": [item for item in skipped if item.get("reason") == "verify-status-verified"],
-            "risk_items": [
-                {"source": item.get("source"), "risks": item.get("risk_items", [])}
-                for item in converted
-                if item.get("risk_items")
-            ],
+            "risk_items": collect_repair_risk_items(converted),
             "errors": errors,
         }
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -1746,11 +1767,7 @@ def main() -> int:
         "applied_method": "api" if api_like else "local",
         "converted": converted,
         "skipped": skipped,
-        "risk_items": [
-            {"source": item.get("source"), "risks": item.get("risk_items", [])}
-            for item in converted
-            if item.get("risk_items")
-        ],
+        "risk_items": collect_repair_risk_items(converted),
         "errors": errors,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 from pathlib import Path
 
 
@@ -105,6 +106,31 @@ def ensure_gitattributes(path: Path, dry_run: bool) -> None:
     path.write_text(suffix, encoding="utf-8", newline="\n")
 
 
+def git_status_lines(root: Path) -> set[str]:
+    if not (root / ".git").exists():
+        return set()
+    result = subprocess.run(
+        [
+            "git",
+            "-c",
+            "core.quotepath=false",
+            "-C",
+            str(root),
+            "status",
+            "--short",
+            "--untracked-files=all",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        return set()
+    return {line for line in result.stdout.splitlines() if line.strip()}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Scaffold a markdown-first student knowledge base.")
     parser.add_argument("repo", help="Target repository root")
@@ -112,6 +138,7 @@ def main() -> int:
     args = parser.parse_args()
 
     root = Path(args.repo).resolve()
+    baseline_status = git_status_lines(root) if not args.dry_run else set()
     for rel in DEFAULT_DIRS:
         ensure(root / rel, args.dry_run)
 
@@ -122,6 +149,10 @@ def main() -> int:
         Path(__file__).resolve().parents[1].joinpath("templates", "repo-profile.md").read_text(encoding="utf-8"),
         args.dry_run,
     )
+    if not args.dry_run:
+        created_status = sorted(git_status_lines(root) - baseline_status)
+        for line in created_status:
+            print(f"CHANGED {line}")
     print(f"READY {root}")
     return 0
 

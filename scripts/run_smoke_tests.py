@@ -6255,6 +6255,10 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     eol_only_note = repo / "notes" / "eol-only.md"
     eol_only_note.parent.mkdir(parents=True, exist_ok=True)
     eol_only_note.write_text("# EOL only\n\nSame content.\n", encoding="utf-8", newline="\n")
+    glob_literal_note = repo / "notes" / "[abc].md"
+    glob_literal_note.write_text("# Glob literal\n\nSame content.\n", encoding="utf-8", newline="\n")
+    glob_matching_note = repo / "notes" / "a.md"
+    glob_matching_note.write_text("# Glob matching\n\nBaseline content.\n", encoding="utf-8", newline="\n")
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True, text=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-m", "baseline"], check=True, capture_output=True, text=True)
 
@@ -6319,6 +6323,8 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     )
     nested_env_note.write_text("# Environment course note\n\nUpdated for grouping test.\n", encoding="utf-8", newline="\n")
     eol_only_note.write_text("# EOL only\r\n\r\nSame content.\r\n", encoding="utf-8", newline="")
+    glob_literal_note.write_text("# Glob literal\r\n\r\nSame content.\r\n", encoding="utf-8", newline="")
+    glob_matching_note.write_text("# Glob matching\n\nContent changed.\n", encoding="utf-8", newline="\n")
     nested_venv_course_note = repo / "courses" / "venv" / "notes" / "week1.md"
     nested_venv_course_note.parent.mkdir(parents=True, exist_ok=True)
     nested_venv_course_note.write_text("# Venv Course Note\n\nThis is coursework, not a virtualenv.\n", encoding="utf-8", newline="\n")
@@ -6393,8 +6399,14 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     }
     if "notes/eol-only.md" not in payload.get("eol_only_files", []):
         raise AssertionError(f"group_git_changes.py should classify Markdown line-ending-only churn separately: {payload}")
+    if "notes/[abc].md" not in payload.get("eol_only_files", []):
+        raise AssertionError(f"group_git_changes.py should use literal pathspecs for glob-like filenames: {payload}")
     if "notes/eol-only.md" in split_paths:
         raise AssertionError("EOL-only files should not be included in normal commit split guidance")
+    if "notes/[abc].md" in split_paths:
+        raise AssertionError("Glob-like EOL-only files should not be included in normal commit split guidance")
+    if "notes/a.md" not in split_paths:
+        raise AssertionError("Literal EOL-only detection must not hide a similarly matching content change")
     for expected_path, message in [
         ("tasks/deadlines/模电-第1次作业.md", "group_git_changes.py should not escape or drop Unicode task paths"),
         ("courses/env/notes.md", "group_git_changes.py should not treat nested env course paths as virtual environments"),
@@ -6560,6 +6572,21 @@ def verify_scaffold_gitattributes(tmp_root: Path) -> None:
     run_script("scaffold_repo.py", str(existing))
     if attrs.read_text(encoding="utf-8").count("*.md text eol=lf") != 1:
         raise AssertionError("scaffold_repo.py should not duplicate the Markdown LF rule")
+
+    dirty = tmp_root / "dirty-baseline"
+    init_git_repo(dirty)
+    preexisting = dirty / "notes" / "preexisting.md"
+    preexisting.parent.mkdir(parents=True, exist_ok=True)
+    preexisting.write_text("# Preexisting\n", encoding="utf-8", newline="\n")
+    commit_all(dirty, "baseline")
+    preexisting.write_text("# Preexisting\n\nDirty before scaffold.\n", encoding="utf-8", newline="\n")
+    output = run_script("scaffold_repo.py", str(dirty))
+    if "CHANGED  M notes/preexisting.md" in output or "preexisting.md" in "\n".join(
+        line for line in output.splitlines() if line.startswith("CHANGED ")
+    ):
+        raise AssertionError(f"scaffold_repo.py should not attribute pre-existing dirty files to scaffold changes:\n{output}")
+    if "CHANGED ?? .gitattributes" not in output:
+        raise AssertionError(f"scaffold_repo.py should report .gitattributes as a scaffold-created change:\n{output}")
 
 
 def verify_ensure_frontmatter(tmp_root: Path) -> None:

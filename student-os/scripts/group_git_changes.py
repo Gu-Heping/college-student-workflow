@@ -190,7 +190,7 @@ def git_diff_quiet(repo: Path, path: str, *, cached: bool = False, ignore_cr_at_
         command.append("--cached")
     if ignore_cr_at_eol:
         command.append("--ignore-cr-at-eol")
-    command.extend(["--", path])
+    command.extend(["--", f":(literal){path}"])
     result = subprocess.run(command, check=False, capture_output=True)
     return result.returncode == 0
 
