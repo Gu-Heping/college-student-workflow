@@ -78,6 +78,19 @@ def ensure_field(text: str, key: str, value: str) -> str:
     return text[:insert_at] + replacement + "\n" + text[insert_at:]
 
 
+def remove_field(text: str, key: str) -> str:
+    parsed = read_frontmatter(text)
+    if parsed is None:
+        return text
+    _data, start, end = parsed
+    insert_at = text.rfind("---", start, end)
+    if insert_at == -1:
+        return text
+    frontmatter = text[start:insert_at]
+    pattern = re.compile(rf"(?m)^{re.escape(key)}:[^\S\r\n]*[^\r\n]*(?:\r?\n)?")
+    return text[:start] + pattern.sub("", frontmatter, count=1) + text[insert_at:]
+
+
 def mark_auto_repaired(text: str, *, needs_review: bool) -> str:
     text = ensure_field(text, "repair_status", AUTO_REPAIRED)
     text = re.sub(
@@ -89,6 +102,8 @@ def mark_auto_repaired(text: str, *, needs_review: bool) -> str:
     text = ensure_field(text, "verify_status", UNVERIFIED)
     if needs_review:
         text = ensure_field(text, "repair_risk", NEEDS_HUMAN_REVIEW)
+    elif frontmatter_value(text, "repair_risk") == NEEDS_HUMAN_REVIEW:
+        text = remove_field(text, "repair_risk")
     return text
 
 
@@ -142,6 +157,15 @@ def _strip_markdown_code(text: str) -> str:
     return re.sub(r"`[^`\n]*`", "", text)
 
 
+def _has_later_unescaped_dollar(text: str, start: int) -> bool:
+    for index in range(start, len(text)):
+        if text[index] == "$" and (index == 0 or text[index - 1] != "\\"):
+            return True
+        if text[index] == "\n":
+            return False
+    return False
+
+
 def count_likely_math_dollars(text: str) -> int:
     text = _strip_markdown_code(text)
     count = 0
@@ -151,13 +175,24 @@ def count_likely_math_dollars(text: str) -> int:
             continue
         previous_char = text[index - 1] if index > 0 else ""
         next_char = text[index + 1] if index + 1 < len(text) else ""
-        if next_char.isdigit():
+        if next_char.isdigit() and not _has_later_unescaped_dollar(text, index + 1):
             continue
         if next_char and not next_char.isspace() and next_char not in punctuation:
             count += 1
         elif previous_char and not previous_char.isspace():
             count += 1
     return count
+
+
+def imported_content_text(text: str) -> str:
+    marker = re.search(r"(?m)^## Imported Content\s*$", text)
+    if marker:
+        return text[marker.end() :]
+    parsed = read_frontmatter(text)
+    if parsed is None:
+        return text
+    _data, _start, end = parsed
+    return text[end:]
 
 
 def diagnose_import_risks(text: str) -> list[dict[str, object]]:
@@ -186,10 +221,11 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
     if inline_dollars % 2 == 1:
         risks.append({"code": "math-dollar-unbalanced", "count": inline_dollars})
 
-    cjk_count = len(re.findall(r"[\u4e00-\u9fff]", text))
+    imported_body = imported_content_text(text)
+    cjk_count = len(re.findall(r"[\u4e00-\u9fff]", imported_body))
     if (
         expects_cjk_text(text)
-        and len(text) > 2000
+        and len(imported_body) > 2000
         and cjk_count == 0
         and re.search(r"import_method:\s*(?:mineru|pdf|pymupdf)", text)
     ):

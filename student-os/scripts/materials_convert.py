@@ -1611,7 +1611,8 @@ def repair_one_markdown(path: Path, *, overwrite: bool, include_verified: bool) 
             "reason": "not-repairable-markdown",
         }
     text = path.read_text(encoding="utf-8")
-    if is_verified(text) and not include_verified:
+    verified = is_verified(text)
+    if verified and not include_verified:
         return {
             "status": "skipped",
             "source": str(path),
@@ -1619,7 +1620,7 @@ def repair_one_markdown(path: Path, *, overwrite: bool, include_verified: bool) 
             "reason": "verify-status-verified",
         }
     summary_path = path.with_name(f"{path.stem}-repair-summary.md")
-    if summary_path.exists() and not overwrite and not include_verified:
+    if summary_path.exists() and not overwrite and not (include_verified and verified):
         return {
             "status": "skipped",
             "source": str(path),

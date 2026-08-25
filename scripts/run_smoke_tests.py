@@ -1396,6 +1396,12 @@ def verify_mineru_v1_repair_rules() -> None:
     valid_math = "---\nimport_method: manual-test\n---\n\nThe identity is $x+y=z$.\n"
     if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(valid_math)):
         raise AssertionError("Balanced inline math dollars must not be flagged")
+    numeric_math = "---\nimport_method: manual-test\n---\n\nThe answer is $2+2=4$.\n"
+    if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(numeric_math)):
+        raise AssertionError("Balanced numeric inline math dollars must not be flagged")
+    code_currency = "---\nimport_method: manual-test\n---\n\nIgnore code `$5` and fenced text:\n```\n$5\n```\n"
+    if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(code_currency)):
+        raise AssertionError("Dollar signs inside inline/fenced code must not be flagged")
 
     english_import = "---\nimport_method: mineru-agent-v1\n---\n\n" + ("plain English text " * 160)
     if any(item["code"] == "low-cjk-density" for item in repair_module.diagnose_import_risks(english_import)):
@@ -1406,6 +1412,10 @@ def verify_mineru_v1_repair_rules() -> None:
     verified_with_comment = "---\nverify_status: verified # checked against source\n---\n\nBody.\n"
     if not repair_module.is_verified(verified_with_comment):
         raise AssertionError("verify_status with a YAML inline comment should still be treated as verified")
+    stale_risk = "---\nrepair_status: auto-repaired\nverify_status: unverified\nrepair_risk: needs-human-review\n---\n\nClean body.\n"
+    cleaned = repair_module.mark_auto_repaired(stale_risk, needs_review=False)
+    if "repair_risk: needs-human-review" in cleaned:
+        raise AssertionError(f"Clean reruns should clear stale auto-generated repair risk:\n{cleaned}")
 
     missing_repair_status = (
         "---\n"
@@ -1451,6 +1461,15 @@ def verify_local_pdf_risk_forwarding(tmp_root: Path) -> None:
         raise AssertionError(f"MinerU sidecars should persist the requested language:\n{wrapped}")
     if not any(item["code"] == "low-cjk-density" for item in materials_convert.diagnose_import_risks(wrapped)):
         raise AssertionError("MinerU sidecars with requested CJK language should surface low-CJK repair risks")
+    chinese_metadata_wrapped = materials_convert.wrap_mineru_markdown(
+        source_file=tmp_root / "高数.pdf",
+        markdown_body="plain English text " * 160,
+        import_method="mineru-api:pipeline",
+        course=None,
+        language="ch",
+    )
+    if not any(item["code"] == "low-cjk-density" for item in materials_convert.diagnose_import_risks(chinese_metadata_wrapped)):
+        raise AssertionError("CJK density should ignore generated title/source metadata and inspect imported body")
 
     output = tmp_root / "paper.pdf.md"
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -2101,6 +2120,38 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_contains(verified_repair_input, "# Broken verified heading")
     ensure_contains(verified_repair_input, "verify_status: unverified")
     ensure_contains(verified_summary, "Normalized heading spacing.")
+
+    unverified_summary_input = repo / "references" / "imports" / "unverified-summary-sample.md"
+    unverified_summary_input.write_text(
+        "\n".join(
+            [
+                "---",
+                "type: imported-reference",
+                "repair_status: auto-repaired",
+                "verify_status: unverified",
+                "derived_from_import:",
+                "---",
+                "",
+                "#Broken unverified heading",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    unverified_summary = repo / "references" / "imports" / "unverified-summary-sample-repair-summary.md"
+    unverified_summary.write_text("KEEP SUMMARY\n", encoding="utf-8", newline="\n")
+    unverified_include_payload = json.loads(
+        run_script("materials_convert.py", str(unverified_summary_input), "--repair-only", "--include-verified")
+    )
+    if unverified_include_payload["converted"] or not unverified_include_payload["skipped"]:
+        raise AssertionError(
+            "--include-verified should not bypass existing repair summaries for unverified files: "
+            f"{unverified_include_payload}"
+        )
+    if unverified_summary.read_text(encoding="utf-8") != "KEEP SUMMARY\n":
+        raise AssertionError("--include-verified should not overwrite unverified files' existing summaries")
 
     verified_distinct_input = repo / "references" / "imports" / "verified-distinct-input.md"
     verified_distinct_input.write_text(
@@ -6643,6 +6694,22 @@ def verify_scaffold_gitattributes(tmp_root: Path) -> None:
         raise AssertionError(f"scaffold_repo.py should report .gitattributes as a scaffold-created change:\n{output}")
     if ".gitignore" not in changed_lines:
         raise AssertionError(f"scaffold_repo.py should report managed files it modified even when already dirty:\n{output}")
+
+    broken_git = tmp_root / "broken-git"
+    broken_git.mkdir(parents=True, exist_ok=True)
+    (broken_git / ".git").write_text("not a valid gitfile\n", encoding="utf-8", newline="\n")
+    broken = subprocess.run(
+        [sys.executable, str(STUDENT_OS_SCRIPTS / "scaffold_repo.py"), str(broken_git)],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if broken.returncode == 0:
+        raise AssertionError("scaffold_repo.py should fail when Git preflight cannot inspect an existing repo")
+    if (broken_git / ".gitattributes").exists() or (broken_git / ".student-os").exists():
+        raise AssertionError("scaffold_repo.py should not mutate a target when Git preflight fails")
 
 
 def verify_ensure_frontmatter(tmp_root: Path) -> None:

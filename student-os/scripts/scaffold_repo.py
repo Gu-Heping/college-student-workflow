@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -110,7 +111,7 @@ def ensure_gitattributes(path: Path, dry_run: bool) -> bool:
     return True
 
 
-def git_status_lines(root: Path) -> set[str]:
+def git_status_lines(root: Path, *, require_success: bool = False) -> set[str]:
     if not (root / ".git").exists():
         return set()
     result = subprocess.run(
@@ -131,6 +132,8 @@ def git_status_lines(root: Path) -> set[str]:
         errors="replace",
     )
     if result.returncode != 0:
+        if require_success:
+            raise RuntimeError(result.stderr.strip() or "git status failed")
         return set()
     return {line for line in result.stdout.splitlines() if line.strip()}
 
@@ -150,7 +153,11 @@ def main() -> int:
 
     root = Path(args.repo).resolve()
     if not args.dry_run:
-        git_status_lines(root)
+        try:
+            git_status_lines(root, require_success=True)
+        except RuntimeError as exc:
+            print(f"ERROR git-status-preflight: {exc}", file=sys.stderr)
+            return 1
     changed_files: set[str] = set()
     for rel in DEFAULT_DIRS:
         ensure(root / rel, args.dry_run)
