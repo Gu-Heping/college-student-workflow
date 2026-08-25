@@ -50,13 +50,17 @@ def is_verified(text: str) -> bool:
 
 def ensure_field(text: str, key: str, value: str) -> str:
     replacement = f"{key}: {value}"
-    pattern = re.compile(rf"(?m)^{re.escape(key)}:\s*.*$")
-    if pattern.search(text):
-        return pattern.sub(replacement, text, count=1)
     parsed = read_frontmatter(text)
     if parsed is None:
         return text
-    _data, _start, end = parsed
+    _data, start, end = parsed
+    insert_at = text.rfind("---", start, end)
+    if insert_at == -1:
+        return text
+    frontmatter = text[start:insert_at]
+    pattern = re.compile(rf"(?m)^{re.escape(key)}:[^\S\r\n]*[^\r\n]*$")
+    if pattern.search(frontmatter):
+        return text[:start] + pattern.sub(replacement, frontmatter, count=1) + text[insert_at:]
     insert_at = text.rfind("---", 0, end)
     if insert_at == -1:
         return text
@@ -64,12 +68,25 @@ def ensure_field(text: str, key: str, value: str) -> str:
 
 
 def mark_auto_repaired(text: str, *, needs_review: bool) -> str:
-    text = re.sub(r"(?m)^repair_status:\s*(?:raw|repaired)?\s*$", f"repair_status: {AUTO_REPAIRED}", text, count=1)
-    text = re.sub(r"(?m)^- Repair status:\s*(?:raw|repaired)?\s*$", f"- Repair status: {AUTO_REPAIRED}", text, count=1)
+    text = ensure_field(text, "repair_status", AUTO_REPAIRED)
+    text = re.sub(
+        r"(?m)^- Repair status:[^\S\r\n]*(?:raw|repaired)?[^\S\r\n]*$",
+        f"- Repair status: {AUTO_REPAIRED}",
+        text,
+        count=1,
+    )
     text = ensure_field(text, "verify_status", UNVERIFIED)
     if needs_review:
         text = ensure_field(text, "repair_risk", NEEDS_HUMAN_REVIEW)
     return text
+
+
+def expects_cjk_text(text: str) -> bool:
+    for key in ("language", "source_language", "document_language", "ocr_language", "import_language"):
+        value = frontmatter_value(text, key).lower()
+        if value in {"ch", "cn", "zh", "zh-cn", "zh_hans", "zh-hans", "cjk", "中文"}:
+            return True
+    return False
 
 
 def diagnose_import_risks(text: str) -> list[dict[str, object]]:
@@ -97,7 +114,12 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
         risks.append({"code": "math-dollar-unbalanced", "count": inline_dollars})
 
     cjk_count = len(re.findall(r"[\u4e00-\u9fff]", text))
-    if len(text) > 2000 and cjk_count == 0 and re.search(r"import_method:\s*(?:mineru|pdf|pymupdf)", text):
+    if (
+        expects_cjk_text(text)
+        and len(text) > 2000
+        and cjk_count == 0
+        and re.search(r"import_method:\s*(?:mineru|pdf|pymupdf)", text)
+    ):
         risks.append({"code": "low-cjk-density", "cjk": cjk_count})
 
     return risks

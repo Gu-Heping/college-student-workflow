@@ -1421,7 +1421,7 @@ def convert_with_local_plan(
     if plan.kind == "pdf":
         payload = run_script("pdf_to_markdown.py", str(source_file), "--output", str(output_path), "--mode", "mineru-style")
         apply_course_metadata(Path(payload["output"]), ctx.course)
-        return {
+        result = {
             "status": "converted",
             "source": str(source_file),
             "output": payload["output"],
@@ -1430,6 +1430,11 @@ def convert_with_local_plan(
             "kind": plan.kind,
             "import_method": plan.import_method,
         }
+        if payload.get("repairs"):
+            result["repairs"] = payload["repairs"]
+        if payload.get("risk_items"):
+            result["risk_items"] = payload["risk_items"]
+        return result
 
     if plan.kind == "docx":
         payload = run_script("docx_to_md.py", str(source_file), "--output", str(output_path))
@@ -1683,7 +1688,7 @@ def main() -> int:
                     overwrite=ctx.overwrite,
                     include_verified=args.include_verified,
                 )
-            except (subprocess.CalledProcessError, RuntimeError) as exc:
+            except (subprocess.CalledProcessError, RuntimeError, OSError, UnicodeError) as exc:
                 message = subprocess_error_message(exc)
                 errors.append({"source": str(source_file), "error": message})
                 continue

@@ -1373,11 +1373,90 @@ def verify_mineru_v1_repair_rules() -> None:
         if expected not in risk_codes:
             raise AssertionError(f"Expected repair diagnostics to report {expected}, got: {risks}")
 
+    english_import = "---\nimport_method: mineru-agent-v1\n---\n\n" + ("plain English text " * 160)
+    if any(item["code"] == "low-cjk-density" for item in repair_module.diagnose_import_risks(english_import)):
+        raise AssertionError("English imports must not be flagged as low-CJK-density without an expected CJK language marker")
+    cjk_expected_import = "---\nimport_method: mineru-agent-v1\nlanguage: ch\n---\n\n" + ("plain English text " * 160)
+    if not any(item["code"] == "low-cjk-density" for item in repair_module.diagnose_import_risks(cjk_expected_import)):
+        raise AssertionError("Expected CJK-language imports with no CJK text to be flagged")
+
+    missing_repair_status = (
+        "---\n"
+        "type: imported-reference\n"
+        "verify_status: legacy-value\n"
+        "---\n"
+        "\n"
+        "Quoted body metadata must remain intact:\n"
+        "verify_status: verified\n"
+    )
+    marked = repair_module.mark_auto_repaired(missing_repair_status, needs_review=True)
+    frontmatter = marked.split("---\n", 2)[1]
+    body = marked.split("---\n", 2)[2]
+    if "repair_status: auto-repaired" not in frontmatter:
+        raise AssertionError(f"Missing repair_status should be inserted into frontmatter:\n{marked}")
+    if "verify_status: unverified" not in frontmatter:
+        raise AssertionError(f"verify_status should be replaced inside frontmatter:\n{marked}")
+    if "repair_risk: needs-human-review" not in frontmatter:
+        raise AssertionError(f"repair_risk should be inserted into frontmatter:\n{marked}")
+    if "verify_status: verified" not in body:
+        raise AssertionError(f"Body metadata-looking text must not be rewritten:\n{marked}")
+
+
+def verify_local_pdf_risk_forwarding(tmp_root: Path) -> None:
+    previous_sys_path = list(sys.path)
+    sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
+    try:
+        materials_convert = load_student_os_script_module(
+            "materials_convert.py",
+            "student_os_materials_convert_pdf_risk_smoke",
+        )
+    finally:
+        sys.path = previous_sys_path
+
+    output = tmp_root / "paper.pdf.md"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("course:\n", encoding="utf-8", newline="\n")
+    original_run_script = materials_convert.run_script
+    try:
+        materials_convert.run_script = lambda *_args: {
+            "output": str(output),
+            "raw_output": str(tmp_root / "paper.pdf.raw.md"),
+            "repair_summary": str(tmp_root / "paper.pdf-repair-summary.md"),
+            "repairs": ["Manual review risk items:"],
+            "risk_items": [{"code": "latex-binom-fragment", "count": 1}],
+        }
+        ctx = materials_convert.ConversionContext(
+            method="local",
+            course=None,
+            overwrite=False,
+            repair=False,
+            repair_only=False,
+            api_token=None,
+            api_model="vlm",
+            language="ch",
+            ocr=None,
+            formula=None,
+            table=None,
+            pages=None,
+            timeout=300,
+        )
+        payload = materials_convert.convert_with_local_plan(
+            tmp_root / "paper.pdf",
+            output,
+            materials_convert.ConversionPlan(kind="pdf", import_method="pdf-to-md"),
+            ctx,
+        )
+    finally:
+        materials_convert.run_script = original_run_script
+    if not payload.get("risk_items"):
+        raise AssertionError(f"Local PDF conversion should forward repair risk_items: {payload}")
+
 
 def exercise_import_workflows(repo: Path) -> None:
     verify_material_type_constants()
     verify_mineru_agent_helper_guards()
     verify_mineru_v1_repair_rules()
+    verify_local_pdf_risk_forwarding(repo / "references" / "imports" / "pdf-risk-forwarding")
     fixture_root = repo / "references" / "imports" / "source"
     fixture_root.mkdir(parents=True, exist_ok=True)
     docx_path = fixture_root / "linear-algebra-outline.docx"
@@ -1980,6 +2059,52 @@ def exercise_import_workflows(repo: Path) -> None:
         raise AssertionError(f"--include-verified should process verified files: {include_verified_payload}")
     ensure_contains(verified_repair_input, "# Broken verified heading")
     ensure_contains(verified_repair_input, "verify_status: unverified")
+
+    verified_distinct_input = repo / "references" / "imports" / "verified-distinct-input.md"
+    verified_distinct_input.write_text(
+        "\n".join(
+            [
+                "---",
+                "type: imported-reference",
+                "repair_status: auto-repaired",
+                "verify_status: verified",
+                "derived_from_import:",
+                "---",
+                "",
+                "#Broken verified heading",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    verified_distinct_output = repo / "references" / "imports" / "verified-distinct-output.md"
+    verified_skip_payload = json.loads(
+        run_script(
+            "repair_markdown_import.py",
+            str(verified_distinct_input),
+            "--output",
+            str(verified_distinct_output),
+        )
+    )
+    if not verified_skip_payload.get("skipped") or verified_skip_payload.get("output") is not None:
+        raise AssertionError(f"Verified skip should not claim a generated distinct output: {verified_skip_payload}")
+    if verified_distinct_output.exists():
+        raise AssertionError("Verified skip must not create a distinct output file")
+
+    non_utf8_repair_input = repo / "references" / "imports" / "non-utf8-repair.md"
+    non_utf8_repair_input.write_bytes(b"\xff\xfe# bad encoding\n")
+    non_utf8_payload = json.loads(
+        run_path_script_failure(
+            STUDENT_OS_SCRIPTS / "materials_convert.py",
+            str(non_utf8_repair_input),
+            "--repair-only",
+            cwd=ROOT,
+        )
+    )
+    if non_utf8_payload["converted"] or not non_utf8_payload["errors"]:
+        raise AssertionError(f"Non-UTF-8 repair-only files should be reported per-file as errors: {non_utf8_payload}")
 
     # Content-aware probing / smart routing.
     no_token_env = {

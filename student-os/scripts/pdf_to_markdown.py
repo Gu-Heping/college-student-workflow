@@ -149,6 +149,7 @@ def main() -> int:
                 "output": str(final_output_path),
                 "repair_summary": repair_payload["summary_path"],
                 "repairs": repair_payload["repairs"],
+                "risk_items": repair_payload.get("risk_items", []),
             }
         )
     else:

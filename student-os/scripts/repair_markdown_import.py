@@ -267,7 +267,8 @@ def main() -> int:
     source_text = input_path.read_text(encoding="utf-8")
     if is_verified(source_text) and not args.include_verified:
         payload = {
-            "output": str(output_path),
+            "output": None,
+            "requested_output": str(output_path),
             "repairs": [],
             "risk_items": [],
             "skipped": True,
