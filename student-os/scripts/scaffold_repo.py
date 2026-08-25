@@ -41,7 +41,11 @@ temp/
 !.env.example
 """
 
+DEFAULT_GITATTRIBUTES = """*.md text eol=lf
+"""
+
 SECRET_GITIGNORE_RULES = [".env", "*.env", "!.env.example"]
+MARKDOWN_GITATTRIBUTES_RULE = "*.md text eol=lf"
 
 
 def ensure(path: Path, dry_run: bool) -> None:
@@ -81,6 +85,26 @@ def ensure_gitignore(path: Path, dry_run: bool) -> None:
     path.write_text(suffix, encoding="utf-8", newline="\n")
 
 
+def ensure_gitattributes(path: Path, dry_run: bool) -> None:
+    if dry_run:
+        print(f"WRITE {path}")
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text(DEFAULT_GITATTRIBUTES, encoding="utf-8", newline="\n")
+        return
+
+    existing = path.read_text(encoding="utf-8")
+    existing_lines = {line.strip() for line in existing.splitlines() if line.strip()}
+    if MARKDOWN_GITATTRIBUTES_RULE in existing_lines:
+        return
+    suffix = existing
+    if suffix and not suffix.endswith("\n"):
+        suffix += "\n"
+    suffix += MARKDOWN_GITATTRIBUTES_RULE + "\n"
+    path.write_text(suffix, encoding="utf-8", newline="\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Scaffold a markdown-first student knowledge base.")
     parser.add_argument("repo", help="Target repository root")
@@ -92,6 +116,7 @@ def main() -> int:
         ensure(root / rel, args.dry_run)
 
     ensure_gitignore(root / ".gitignore", args.dry_run)
+    ensure_gitattributes(root / ".gitattributes", args.dry_run)
     write_file(
         root / ".student-os" / "repo-profile.md",
         Path(__file__).resolve().parents[1].joinpath("templates", "repo-profile.md").read_text(encoding="utf-8"),

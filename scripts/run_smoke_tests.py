@@ -1343,6 +1343,8 @@ def verify_mineru_v1_repair_rules() -> None:
         "Keep real math: $\\dot{x}$ and $\\stackrel{r}{=}$.\n"
         "\n"
         "Keep \\binom fragment for manual review.\n"
+        "## 一. Promoted question heading\n"
+        "$unterminated\n"
     )
     repaired, summary = repair_module.repair_text(noisy)
 
@@ -1364,6 +1366,12 @@ def verify_mineru_v1_repair_rules() -> None:
         raise AssertionError("Expected \\binom fragments to remain for manual review")
     if not any("remaining noise signatures" in line for line in summary):
         raise AssertionError("Expected repair summary to report remaining noise signatures")
+
+    risks = repair_module.diagnose_import_risks(repaired)
+    risk_codes = {str(item["code"]) for item in risks}
+    for expected in {"latex-binom-fragment", "question-heading-promoted", "math-dollar-unbalanced"}:
+        if expected not in risk_codes:
+            raise AssertionError(f"Expected repair diagnostics to report {expected}, got: {risks}")
 
 
 def exercise_import_workflows(repo: Path) -> None:
@@ -1453,6 +1461,10 @@ def exercise_import_workflows(repo: Path) -> None:
                 "",
                 "-  Bullet with extra spacing",
                 "",
+                "## 一. OCR promoted question heading",
+                "",
+                "Keep \\binom fragment for manual review.",
+                "",
                 "## Next section ........ 4",
                 "",
             ]
@@ -1491,16 +1503,55 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_contains(pdf_generic_output, "#Broken linear algebra handout")
     ensure_exists(Path(pdf_mineru_payload["output"]))
     ensure_contains(repo / "references" / "imports" / "raw" / "linear-algebra-handout.md", "repair_status: raw")
-    ensure_contains(repo / "references" / "imports" / "repaired" / "linear-algebra-handout.md", "repair_status: repaired")
+    ensure_contains(repo / "references" / "imports" / "repaired" / "linear-algebra-handout.md", "repair_status: auto-repaired")
+    ensure_contains(repo / "references" / "imports" / "repaired" / "linear-algebra-handout.md", "verify_status: unverified")
     ensure_contains(repo / "references" / "imports" / "repaired" / "linear-algebra-handout-repair-summary.md", "# Repair Summary")
     ensure_contains(repo / "references" / "imports" / "repaired" / "linear-algebra-handout-repair-summary.md", "Removed isolated page labels.")
     ensure_contains(repo / "references" / "imports" / "repaired" / "linear-algebra-handout-repair-summary.md", "Normalized heading spacing.")
     ensure_exists(Path(repair_payload["output"]))
+    if not repair_payload.get("risk_items"):
+        raise AssertionError(f"Expected repair payload to include risk_items for promoted headings: {repair_payload}")
     ensure_contains(repair_output, "# Broken heading")
     ensure_contains(repair_output, "- Bullet with extra spacing")
+    ensure_contains(repair_output, "repair_status: auto-repaired")
+    ensure_contains(repair_output, "verify_status: unverified")
+    ensure_contains(repair_output, "repair_risk: needs-human-review")
     ensure_contains(repair_summary, "Removed isolated page labels.")
     ensure_contains(repair_summary, "Normalized heading spacing.")
     ensure_contains(repair_summary, "Trimmed heading dot leaders or page-number residue.")
+    ensure_contains(repair_summary, "Manual review risk items:")
+
+    legacy_repaired_input = repo / "references" / "imports" / "repaired" / "legacy-repaired-input.md"
+    legacy_repaired_output = repo / "references" / "imports" / "repaired" / "legacy-repaired-output.md"
+    legacy_repaired_input.write_text(
+        "\n".join(
+            [
+                "---",
+                "type: imported-reference",
+                "repair_status: repaired",
+                "derived_from_import:",
+                "---",
+                "",
+                "#Legacy heading",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    legacy_repaired_payload = json.loads(
+        run_script(
+            "repair_markdown_import.py",
+            str(legacy_repaired_input),
+            "--output",
+            str(legacy_repaired_output),
+        )
+    )
+    if legacy_repaired_payload.get("skipped"):
+        raise AssertionError(f"Legacy repaired status must not be treated as verified: {legacy_repaired_payload}")
+    ensure_contains(legacy_repaired_output, "repair_status: auto-repaired")
+    ensure_contains(legacy_repaired_output, "verify_status: unverified")
 
     unicode_derived_root = repo / "references" / "imports" / "用户资料"
     unicode_derived_root.mkdir(parents=True, exist_ok=True)
@@ -1545,13 +1596,11 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_exists(Path(unicode_repair_payload["output"]))
     ensure_contains(unicode_repair_output, "derived_from_import:")
     ensure_contains(unicode_repair_output, "raw-import.md")
-    # json.dumps escapes non-ASCII path segments; either literal or \\uXXXX form is fine.
     unicode_output_text = unicode_repair_output.read_text(encoding="utf-8")
-    if "用户资料" not in unicode_output_text and "\\u7528\\u6237" not in unicode_output_text:
-        raise AssertionError(
-            "Expected unicode path segment to appear literally or as JSON escapes in derived_from_import"
-        )
-    ensure_contains(unicode_repair_output, "repair_status: repaired")
+    if "用户资料" not in unicode_output_text or "\\u7528\\u6237" in unicode_output_text:
+        raise AssertionError("Expected unicode path segment to remain literal in derived_from_import")
+    ensure_contains(unicode_repair_output, "repair_status: auto-repaired")
+    ensure_contains(unicode_repair_output, "verify_status: unverified")
     if 'derived_from_import:\n' in unicode_output_text or 'derived_from_import: ""' in unicode_output_text:
         raise AssertionError("derived_from_import should be filled for unicode Windows paths")
 
@@ -1579,7 +1628,8 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_exists(repair_output_root / "linear-algebra-outline.docx.md")
     ensure_exists(repair_output_root / "linear-algebra-outline.docx.raw.md")
     ensure_exists(repair_output_root / "linear-algebra-outline.docx-repair-summary.md")
-    ensure_contains(repair_output_root / "linear-algebra-outline.docx.md", "repair_status: repaired")
+    ensure_contains(repair_output_root / "linear-algebra-outline.docx.md", "repair_status: auto-repaired")
+    ensure_contains(repair_output_root / "linear-algebra-outline.docx.md", "verify_status: unverified")
     ensure_contains(repair_output_root / "linear-algebra-outline.docx-repair-summary.md", "# Repair Summary")
     ensure_contains(repair_output_root / "linear-algebra-outline.docx-repair-summary.md", "Output:")
 
@@ -1639,7 +1689,8 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_exists(api_repair_root / "linear-algebra-outline.docx.md")
     ensure_exists(api_repair_root / "linear-algebra-outline.docx.raw.md")
     ensure_exists(api_repair_root / "linear-algebra-outline.docx-repair-summary.md")
-    ensure_contains(api_repair_root / "linear-algebra-outline.docx.md", "repair_status: repaired")
+    ensure_contains(api_repair_root / "linear-algebra-outline.docx.md", "repair_status: auto-repaired")
+    ensure_contains(api_repair_root / "linear-algebra-outline.docx.md", "verify_status: unverified")
 
     large_pdf_path = fixture_root / "large-textbook.pdf"
     write_multipage_pdf_fixture(large_pdf_path, 5)
@@ -1894,9 +1945,41 @@ def exercise_import_workflows(repo: Path) -> None:
     if len(repair_only_payload["converted"]) != 1:
         raise AssertionError(f"Expected one repair-only output, got: {repair_only_payload}")
     ensure_contains(repair_only_input, "# Broken heading")
-    ensure_contains(repair_only_input, "repair_status: repaired")
+    ensure_contains(repair_only_input, "repair_status: auto-repaired")
+    ensure_contains(repair_only_input, "verify_status: unverified")
     ensure_exists(repo / "references" / "imports" / "repair-only-sample-repair-summary.md")
     ensure_contains(repo / "references" / "imports" / "repair-only-sample-repair-summary.md", "Removed isolated page labels.")
+
+    verified_repair_input = repo / "references" / "imports" / "verified-repair-sample.md"
+    verified_repair_input.write_text(
+        "\n".join(
+            [
+                "---",
+                "type: imported-reference",
+                "repair_status: auto-repaired",
+                "verify_status: verified",
+                "derived_from_import:",
+                "---",
+                "",
+                "#Broken verified heading",
+                "",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    verified_payload = json.loads(run_script("materials_convert.py", str(verified_repair_input), "--repair-only"))
+    if verified_payload["converted"] or not verified_payload["skipped_verified"]:
+        raise AssertionError(f"Verified repair-only file should be skipped by default: {verified_payload}")
+    ensure_contains(verified_repair_input, "#Broken verified heading")
+    include_verified_payload = json.loads(
+        run_script("materials_convert.py", str(verified_repair_input), "--repair-only", "--include-verified")
+    )
+    if len(include_verified_payload["converted"]) != 1:
+        raise AssertionError(f"--include-verified should process verified files: {include_verified_payload}")
+    ensure_contains(verified_repair_input, "# Broken verified heading")
+    ensure_contains(verified_repair_input, "verify_status: unverified")
 
     # Content-aware probing / smart routing.
     no_token_env = {
@@ -6044,6 +6127,9 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     nested_env_note = repo / "courses" / "env" / "notes.md"
     nested_env_note.parent.mkdir(parents=True, exist_ok=True)
     nested_env_note.write_text("# Environment course note\n", encoding="utf-8", newline="\n")
+    eol_only_note = repo / "notes" / "eol-only.md"
+    eol_only_note.parent.mkdir(parents=True, exist_ok=True)
+    eol_only_note.write_text("# EOL only\n\nSame content.\n", encoding="utf-8", newline="\n")
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True, text=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-m", "baseline"], check=True, capture_output=True, text=True)
 
@@ -6107,6 +6193,7 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         text=True,
     )
     nested_env_note.write_text("# Environment course note\n\nUpdated for grouping test.\n", encoding="utf-8", newline="\n")
+    eol_only_note.write_text("# EOL only\r\n\r\nSame content.\r\n", encoding="utf-8", newline="")
     nested_venv_course_note = repo / "courses" / "venv" / "notes" / "week1.md"
     nested_venv_course_note.parent.mkdir(parents=True, exist_ok=True)
     nested_venv_course_note.write_text("# Venv Course Note\n\nThis is coursework, not a virtualenv.\n", encoding="utf-8", newline="\n")
@@ -6179,6 +6266,10 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         for split in payload["recommended_commit_split"]
         for path in split["paths"]
     }
+    if "notes/eol-only.md" not in payload.get("eol_only_files", []):
+        raise AssertionError(f"group_git_changes.py should classify Markdown line-ending-only churn separately: {payload}")
+    if "notes/eol-only.md" in split_paths:
+        raise AssertionError("EOL-only files should not be included in normal commit split guidance")
     for expected_path, message in [
         ("tasks/deadlines/模电-第1次作业.md", "group_git_changes.py should not escape or drop Unicode task paths"),
         ("courses/env/notes.md", "group_git_changes.py should not treat nested env course paths as virtual environments"),
@@ -6325,6 +6416,27 @@ def assert_no_pycache(root: Path) -> None:
         raise AssertionError(f"Validation should not leave __pycache__ artifacts behind: {pycache_paths}")
 
 
+def verify_scaffold_gitattributes(tmp_root: Path) -> None:
+    fresh = tmp_root / "fresh"
+    run_script("scaffold_repo.py", str(fresh))
+    fresh_attrs = fresh / ".gitattributes"
+    ensure_contains(fresh_attrs, "*.md text eol=lf")
+    if b"\r\n" in fresh_attrs.read_bytes():
+        raise AssertionError("scaffold_repo.py should write .gitattributes with LF newlines")
+
+    existing = tmp_root / "existing"
+    existing.mkdir(parents=True, exist_ok=True)
+    attrs = existing / ".gitattributes"
+    attrs.write_text("*.png binary", encoding="utf-8", newline="\n")
+    run_script("scaffold_repo.py", str(existing))
+    text = attrs.read_text(encoding="utf-8")
+    if "*.png binary" not in text or "*.md text eol=lf" not in text:
+        raise AssertionError(f"scaffold_repo.py should preserve existing .gitattributes and add Markdown LF rule:\n{text}")
+    run_script("scaffold_repo.py", str(existing))
+    if attrs.read_text(encoding="utf-8").count("*.md text eol=lf") != 1:
+        raise AssertionError("scaffold_repo.py should not duplicate the Markdown LF rule")
+
+
 def verify_ensure_frontmatter(tmp_root: Path) -> None:
     papers = tmp_root / "courses" / "linear-algebra" / "references" / "exams"
     papers.mkdir(parents=True, exist_ok=True)
@@ -6425,13 +6537,21 @@ def verify_ensure_frontmatter(tmp_root: Path) -> None:
         raise AssertionError("body content must be preserved after prepend")
     if 'course: "linear-algebra"' not in missing_after:
         raise AssertionError(f"course should be inferred from courses/<course>/ path:\n{missing_after}")
+    if "verify_status: unverified" not in missing_after:
+        raise AssertionError(f"ensure_frontmatter should mark imports unverified:\n{missing_after}")
 
     if existing_path.read_text(encoding="utf-8") != existing_text:
         raise AssertionError("existing frontmatter file content must remain unchanged")
 
     repaired_after = repaired_path.read_text(encoding="utf-8")
-    if "repair_status: repaired" not in repaired_after:
-        raise AssertionError(f"repair summary should set repair_status: repaired:\n{repaired_after}")
+    if "repair_status: auto-repaired" not in repaired_after:
+        raise AssertionError(f"repair summary should set repair_status: auto-repaired:\n{repaired_after}")
+    if "verify_status: unverified" not in repaired_after:
+        raise AssertionError(f"ensure_frontmatter should set verify_status: unverified:\n{repaired_after}")
+    if "\\u7ebf" in missing_after:
+        raise AssertionError(f"frontmatter should keep Chinese readable, not JSON-escaped:\n{missing_after}")
+    if b"\r\n" in missing_path.read_bytes() or b"\r\n" in repaired_path.read_bytes():
+        raise AssertionError("ensure_frontmatter should write Markdown with LF newlines")
     if "derived_from_import:" not in repaired_after or "repaired-sample.pdf.raw.md" not in repaired_after:
         raise AssertionError(f"derived_from_import should point at sibling .raw.md:\n{repaired_after}")
     if repaired_body not in repaired_after:
@@ -7881,6 +8001,7 @@ def main() -> int:
         verify_update_source_override_and_project_copy_detection(tmp_root / "update-override-demo")
         verify_self_update_workflow(tmp_root / "self-update-demo")
         verify_token_loader(tmp_root / "token-loader-demo")
+        verify_scaffold_gitattributes(tmp_root / "scaffold-gitattributes-demo")
         verify_ensure_frontmatter(tmp_root / "ensure-frontmatter-demo")
         verify_extract_release_notes(tmp_root / "extract-release-notes-demo")
 
@@ -7914,6 +8035,7 @@ def main() -> int:
     print("OK update-override-demo")
     print("OK self-update-demo")
     print("OK token-loader-demo")
+    print("OK scaffold-gitattributes-demo")
     print("OK ensure-frontmatter-demo")
     print("OK extract-release-notes-demo")
     if args.refresh_examples:

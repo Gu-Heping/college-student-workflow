@@ -32,6 +32,7 @@ from material_types import (
     TEXT_SKIP_SUFFIXES,
     XLSX_SUFFIXES,
 )
+from import_governance import is_verified
 
 
 @dataclass(frozen=True)
@@ -87,7 +88,7 @@ MINERU_MAX_FILE_BYTES = _resolve_max_file_bytes()
 
 
 def yaml_string(value: str) -> str:
-    return json.dumps(value)
+    return json.dumps(value, ensure_ascii=False)
 
 
 def parse_args() -> argparse.Namespace:
@@ -194,6 +195,11 @@ def parse_args() -> argparse.Namespace:
         "--overwrite",
         action="store_true",
         help="Replace existing markdown sidecars instead of skipping them",
+    )
+    parser.add_argument(
+        "--include-verified",
+        action="store_true",
+        help="Allow --repair-only to process files marked verify_status: verified.",
     )
     parser.set_defaults(ocr=None, formula=None, table=None)
     return parser.parse_args()
@@ -339,7 +345,13 @@ def run_script(script_name: str, *args: str) -> dict[str, Any]:
     return json.loads(stdout_text)
 
 
-def run_repair(input_path: Path, output_path: Path, *, derived_from: Path | None) -> dict[str, Any]:
+def run_repair(
+    input_path: Path,
+    output_path: Path,
+    *,
+    derived_from: Path | None,
+    include_verified: bool = False,
+) -> dict[str, Any]:
     args = [
         "repair_markdown_import.py",
         str(input_path),
@@ -350,6 +362,8 @@ def run_repair(input_path: Path, output_path: Path, *, derived_from: Path | None
     ]
     if derived_from is not None:
         args.extend(["--derived-from", str(derived_from)])
+    if include_verified:
+        args.append("--include-verified")
     payload = run_script(*args)
     payload["summary_path"] = str(output_path.with_name(f"{output_path.stem}-repair-summary.md"))
     return payload
@@ -400,6 +414,7 @@ def wrap_mineru_markdown(
         f"source_file: {yaml_string(str(source_file))}",
         f"import_method: {import_method}",
         "repair_status:",
+        "verify_status: unverified",
         f"derived_from_import: {yaml_string(derived_from_import) if derived_from_import else ''}",
         "---",
         "",
@@ -436,14 +451,20 @@ def write_index_note(
     write_markdown(output_path, markdown)
 
 
-def repair_generated_markdown(output_path: Path, *, in_place: bool = False) -> dict[str, Any]:
+def repair_generated_markdown(output_path: Path, *, in_place: bool = False, include_verified: bool = False) -> dict[str, Any]:
     if in_place:
-        return run_repair(output_path, output_path, derived_from=output_path)
+        return run_repair(output_path, output_path, derived_from=output_path, include_verified=include_verified)
     raw_output_path = output_path.with_name(f"{output_path.stem}.raw{output_path.suffix}")
     if raw_output_path.exists():
         raw_output_path.unlink()
     output_path.replace(raw_output_path)
     return run_repair(raw_output_path, output_path, derived_from=raw_output_path)
+
+
+def attach_repair_payload(target: dict[str, Any], repair_payload: dict[str, Any]) -> None:
+    target["repairs"] = repair_payload["repairs"]
+    if repair_payload.get("risk_items"):
+        target["risk_items"] = repair_payload["risk_items"]
 
 
 def load_mineru_client() -> Any:
@@ -869,6 +890,7 @@ def convert_with_mineru_chunked(
                             "raw_output": str(part_output.with_name(f"{part_output.stem}.raw{part_output.suffix}")),
                             "repair_summary": repair_payload["summary_path"],
                             "repairs": repair_payload["repairs"],
+                            "risk_items": repair_payload.get("risk_items", []),
                         }
                     )
         if ctx.merge:
@@ -925,7 +947,7 @@ def convert_with_mineru_chunked(
         repair_payload = repair_generated_markdown(output_path)
         payload["raw_output"] = str(output_path.with_name(f"{output_path.stem}.raw{output_path.suffix}"))
         payload["repair_summary"] = repair_payload["summary_path"]
-        payload["repairs"] = repair_payload["repairs"]
+        attach_repair_payload(payload, repair_payload)
     if part_repairs:
         payload["part_repairs"] = part_repairs
     return payload
@@ -1029,6 +1051,7 @@ def convert_with_mineru_agent_chunked(
                             "raw_output": str(part_output.with_name(f"{part_output.stem}.raw{part_output.suffix}")),
                             "repair_summary": repair_payload["summary_path"],
                             "repairs": repair_payload["repairs"],
+                            "risk_items": repair_payload.get("risk_items", []),
                         }
                     )
         if ctx.merge:
@@ -1078,7 +1101,7 @@ def convert_with_mineru_agent_chunked(
         repair_payload = repair_generated_markdown(output_path)
         payload["raw_output"] = str(output_path.with_name(f"{output_path.stem}.raw{output_path.suffix}"))
         payload["repair_summary"] = repair_payload["summary_path"]
-        payload["repairs"] = repair_payload["repairs"]
+        attach_repair_payload(payload, repair_payload)
     if part_repairs:
         payload["part_repairs"] = part_repairs
     return payload
@@ -1125,7 +1148,7 @@ def convert_with_mineru_agent(source_file: Path, output_path: Path, ctx: Convers
         repair_payload = repair_generated_markdown(output_path)
         payload["raw_output"] = str(output_path.with_name(f"{output_path.stem}.raw{output_path.suffix}"))
         payload["repair_summary"] = repair_payload["summary_path"]
-        payload["repairs"] = repair_payload["repairs"]
+        attach_repair_payload(payload, repair_payload)
     return payload
 
 
@@ -1165,7 +1188,7 @@ def convert_with_mineru(source_file: Path, output_path: Path, ctx: ConversionCon
         repair_payload = repair_generated_markdown(output_path)
         payload["raw_output"] = str(output_path.with_name(f"{output_path.stem}.raw{output_path.suffix}"))
         payload["repair_summary"] = repair_payload["summary_path"]
-        payload["repairs"] = repair_payload["repairs"]
+        attach_repair_payload(payload, repair_payload)
     return payload
 
 
@@ -1241,7 +1264,7 @@ def convert_with_pymupdf(source_file: Path, output_path: Path, ctx: ConversionCo
         repair_payload = repair_generated_markdown(output_path)
         payload["raw_output"] = str(output_path.with_name(f"{output_path.stem}.raw{output_path.suffix}"))
         payload["repair_summary"] = repair_payload["summary_path"]
-        payload["repairs"] = repair_payload["repairs"]
+        attach_repair_payload(payload, repair_payload)
     return payload
 
 
@@ -1289,7 +1312,7 @@ def convert_with_pandoc(source_file: Path, output_path: Path, ctx: ConversionCon
         repair_payload = repair_generated_markdown(Path(result["output"]))
         result["raw_output"] = str(Path(result["output"]).with_name(f"{Path(result['output']).stem}.raw{Path(result['output']).suffix}"))
         result["repair_summary"] = repair_payload["summary_path"]
-        result["repairs"] = repair_payload["repairs"]
+        attach_repair_payload(result, repair_payload)
     return result
 
 
@@ -1422,7 +1445,7 @@ def convert_with_local_plan(
             repair_payload = repair_generated_markdown(Path(payload["output"]))
             result["raw_output"] = str(Path(payload["output"]).with_name(f"{Path(payload['output']).stem}.raw{Path(payload['output']).suffix}"))
             result["repair_summary"] = repair_payload["summary_path"]
-            result["repairs"] = repair_payload["repairs"]
+            attach_repair_payload(result, repair_payload)
         return result
 
     if plan.kind == "pptx":
@@ -1439,7 +1462,7 @@ def convert_with_local_plan(
             repair_payload = repair_generated_markdown(Path(payload["output"]))
             result["raw_output"] = str(Path(payload["output"]).with_name(f"{Path(payload['output']).stem}.raw{Path(payload['output']).suffix}"))
             result["repair_summary"] = repair_payload["summary_path"]
-            result["repairs"] = repair_payload["repairs"]
+            attach_repair_payload(result, repair_payload)
         return result
 
     if plan.kind == "xlsx":
@@ -1456,7 +1479,7 @@ def convert_with_local_plan(
             repair_payload = repair_generated_markdown(Path(payload["output"]))
             result["raw_output"] = str(Path(payload["output"]).with_name(f"{Path(payload['output']).stem}.raw{Path(payload['output']).suffix}"))
             result["repair_summary"] = repair_payload["summary_path"]
-            result["repairs"] = repair_payload["repairs"]
+            attach_repair_payload(result, repair_payload)
         return result
 
     if plan.kind == "image-index":
@@ -1542,12 +1565,20 @@ def convert_one(
     )
 
 
-def repair_one_markdown(path: Path, *, overwrite: bool) -> dict[str, Any]:
+def repair_one_markdown(path: Path, *, overwrite: bool, include_verified: bool) -> dict[str, Any]:
     if not is_repairable_markdown(path):
         return {
             "status": "skipped",
             "source": str(path),
             "reason": "not-repairable-markdown",
+        }
+    text = path.read_text(encoding="utf-8")
+    if is_verified(text) and not include_verified:
+        return {
+            "status": "skipped",
+            "source": str(path),
+            "output": str(path),
+            "reason": "verify-status-verified",
         }
     summary_path = path.with_name(f"{path.stem}-repair-summary.md")
     if summary_path.exists() and not overwrite:
@@ -1557,7 +1588,7 @@ def repair_one_markdown(path: Path, *, overwrite: bool) -> dict[str, Any]:
             "output": str(path),
             "reason": "repair-summary-exists",
         }
-    payload = repair_generated_markdown(path, in_place=True)
+    payload = repair_generated_markdown(path, in_place=True, include_verified=include_verified)
     return {
         "status": "converted",
         "source": str(path),
@@ -1566,6 +1597,7 @@ def repair_one_markdown(path: Path, *, overwrite: bool) -> dict[str, Any]:
         "import_method": "repair-markdown-import",
         "repair_summary": payload["summary_path"],
         "repairs": payload["repairs"],
+        "risk_items": payload.get("risk_items", []),
     }
 
 
@@ -1646,7 +1678,11 @@ def main() -> int:
     if ctx.repair_only:
         for source_file in inputs:
             try:
-                payload = repair_one_markdown(source_file, overwrite=ctx.overwrite)
+                payload = repair_one_markdown(
+                    source_file,
+                    overwrite=ctx.overwrite,
+                    include_verified=args.include_verified,
+                )
             except (subprocess.CalledProcessError, RuntimeError) as exc:
                 message = subprocess_error_message(exc)
                 errors.append({"source": str(source_file), "error": message})
@@ -1662,6 +1698,12 @@ def main() -> int:
             "applied_method": "repair-only",
             "converted": converted,
             "skipped": skipped,
+            "skipped_verified": [item for item in skipped if item.get("reason") == "verify-status-verified"],
+            "risk_items": [
+                {"source": item.get("source"), "risks": item.get("risk_items", [])}
+                for item in converted
+                if item.get("risk_items")
+            ],
             "errors": errors,
         }
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -1699,6 +1741,11 @@ def main() -> int:
         "applied_method": "api" if api_like else "local",
         "converted": converted,
         "skipped": skipped,
+        "risk_items": [
+            {"source": item.get("source"), "risks": item.get("risk_items", [])}
+            for item in converted
+            if item.get("risk_items")
+        ],
         "errors": errors,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))

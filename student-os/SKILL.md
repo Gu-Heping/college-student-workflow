@@ -22,7 +22,7 @@ Run this skill as the single entry point for a university knowledge repository. 
 | Check vault / Git status / what to commit | Repo governance → `references/vault-governance.md` + `scripts/group_git_changes.py` |
 | New course / homework / notes / lab / review sheet | Academic → `references/academic-workflow.md` + `commands/study.md` / `review.md` |
 | Import PDF/DOCX/PPTX/XLSX/images/legacy Office | File-handler → `references/file-handler.md` + `commands/import-file.md` / `materials-convert.md` |
-| Repair imported markdown | File-handler repair → `scripts/repair_markdown_import.py` or `materials_convert.py --repair` |
+| Repair imported markdown | File-handler repair → `scripts/repair_markdown_import.py` or `materials_convert.py --repair`; automatic repair means `repair_status: auto-repaired`, not human verified |
 | Fill missing `.pdf.md` YAML frontmatter | File-handler → `scripts/ensure_frontmatter.py` (dry-run first, then `--apply`) |
 | Exam type census / past-paper analysis / 题型普查 | Exam-census → `references/exam-census-workflow.md` (Phases 0–5 + A–E) + `commands/exam-census.md` |
 | Record a local problem about student-os | Feedback → `references/feedback-ops.md` + `commands/feedback.md` |
@@ -183,6 +183,12 @@ Handle:
 When already-imported `.pdf.md` sidecars lack YAML frontmatter (common before exam-census):
 - run `ensure_frontmatter.py <path> --dry-run` first, then `--apply` after confirmation
 - do not overwrite existing frontmatter; always use UTF-8
+
+Import repair governance:
+- Treat `repair_status: auto-repaired` as machine cleanup only; it does not mean the source has been checked against the original PDF/material.
+- Only mark `verify_status: verified` after a human checks the relevant source content. AI-assisted edits should leave `verify_status: unverified` unless the user explicitly confirms human verification.
+- Files with `repair_risk: needs-human-review` or repair summary risk items must be reviewed before being used as trusted exam/course material.
+- `materials_convert.py --repair-only` skips `verify_status: verified` files by default; use `--include-verified` only when intentionally reprocessing verified material.
 
 When the request involves scanned PDFs, image-heavy materials, or legacy `.doc` / `.ppt` / `.xls` files:
 - check whether `MINERU_TOKEN` or `MINERU_API_TOKEN` is configured before defaulting to local conversion

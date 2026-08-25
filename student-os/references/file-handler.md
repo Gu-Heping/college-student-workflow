@@ -35,7 +35,7 @@ python scripts/materials_convert.py /path/to/materials --method auto
 
 - This script does **not** take a separate vault argument.
 - Sidecars are written beside sources by default; use `--output-root` to mirror elsewhere.
-- After conversion, continue with course/review/planning workflows; use `--repair` or `repair_markdown_import.py` when imports need cleanup.
+- After conversion, continue with course/review/planning workflows; use `--repair` or `repair_markdown_import.py` when imports need cleanup. Automatic cleanup writes `repair_status: auto-repaired` and `verify_status: unverified`; it is not a human verification signal.
 - When existing `.pdf.md` sidecars are missing YAML frontmatter, run `ensure_frontmatter.py` first (prefer `--dry-run`, then `--apply`) before exam-census or review workflows. It only prepends metadata, never overwrites existing frontmatter, and always reads/writes UTF-8.
 
 ```bash
@@ -73,8 +73,15 @@ Imported artifacts should prefer these optional fields:
 source_file:
 import_method:
 repair_status:
+verify_status:
+repair_risk:
 derived_from_import:
 ```
+
+Verification rules:
+- `repair_status: auto-repaired` means Student OS applied conservative cleanup only.
+- `verify_status: verified` may be set only after checking the source PDF/material; automated repair and AI edits should leave `verify_status: unverified`.
+- `repair_risk: needs-human-review` or summary risk items mean the sidecar should stay out of trusted study/review output until checked.
 
 ## Archiving mixed review folders (Issue #52)
 
