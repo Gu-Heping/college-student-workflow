@@ -6586,6 +6586,9 @@ def verify_scaffold_gitattributes(tmp_root: Path) -> None:
     ensure_contains(fresh_attrs, "*.md text eol=lf")
     if b"\r\n" in fresh_attrs.read_bytes():
         raise AssertionError("scaffold_repo.py should write .gitattributes with LF newlines")
+    fresh_profile = fresh / ".student-os" / "repo-profile.md"
+    if b"\r\n" in fresh_profile.read_bytes():
+        raise AssertionError("scaffold_repo.py should write repo-profile.md with LF newlines")
 
     existing = tmp_root / "existing"
     existing.mkdir(parents=True, exist_ok=True)
