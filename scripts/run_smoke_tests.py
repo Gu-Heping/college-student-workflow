@@ -6578,15 +6578,19 @@ def verify_scaffold_gitattributes(tmp_root: Path) -> None:
     preexisting = dirty / "notes" / "preexisting.md"
     preexisting.parent.mkdir(parents=True, exist_ok=True)
     preexisting.write_text("# Preexisting\n", encoding="utf-8", newline="\n")
+    dirty_gitignore = dirty / ".gitignore"
+    dirty_gitignore.write_text("custom-rule\n", encoding="utf-8", newline="\n")
     commit_all(dirty, "baseline")
     preexisting.write_text("# Preexisting\n\nDirty before scaffold.\n", encoding="utf-8", newline="\n")
+    dirty_gitignore.write_text("custom-rule\n*.tmp\n", encoding="utf-8", newline="\n")
     output = run_script("scaffold_repo.py", str(dirty))
-    if "CHANGED  M notes/preexisting.md" in output or "preexisting.md" in "\n".join(
-        line for line in output.splitlines() if line.startswith("CHANGED ")
-    ):
+    changed_lines = "\n".join(line for line in output.splitlines() if line.startswith("CHANGED "))
+    if "preexisting.md" in changed_lines:
         raise AssertionError(f"scaffold_repo.py should not attribute pre-existing dirty files to scaffold changes:\n{output}")
     if "CHANGED ?? .gitattributes" not in output:
         raise AssertionError(f"scaffold_repo.py should report .gitattributes as a scaffold-created change:\n{output}")
+    if ".gitignore" not in changed_lines:
+        raise AssertionError(f"scaffold_repo.py should report managed files it modified even when already dirty:\n{output}")
 
 
 def verify_ensure_frontmatter(tmp_root: Path) -> None:
