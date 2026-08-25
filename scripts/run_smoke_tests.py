@@ -1343,7 +1343,7 @@ def verify_mineru_v1_repair_rules() -> None:
         "Keep real math: $\\dot{x}$ and $\\stackrel{r}{=}$.\n"
         "\n"
         "Keep \\binom fragment for manual review.\n"
-        "## 一. Promoted question heading\n"
+        "##一. Promoted question heading\n"
         "$unterminated\n"
     )
     repaired, summary = repair_module.repair_text(noisy)
@@ -1368,6 +1368,7 @@ def verify_mineru_v1_repair_rules() -> None:
         raise AssertionError("Expected repair summary to report remaining noise signatures")
 
     risks = repair_module.diagnose_import_risks(repaired)
+    risks.extend(repair_module.repair_specific_risks(repaired, summary))
     risk_codes = {str(item["code"]) for item in risks}
     for expected in {
         "latex-binom-fragment",
@@ -1383,6 +1384,18 @@ def verify_mineru_v1_repair_rules() -> None:
     malformed_binom = "---\nimport_method: mineru-agent-v1\n---\n\nBroken formula: $\\binom fragment$.\n"
     if not any(item["code"] == "latex-binom-fragment" for item in repair_module.diagnose_import_risks(malformed_binom)):
         raise AssertionError("Malformed \\binom fragments should be flagged for review")
+    ordinary_heading = "---\nimport_method: mineru-agent-v1\n---\n\n## 一、选择题\n\n正文。\n"
+    if any(item["code"] == "question-heading-promoted" for item in repair_module.diagnose_import_risks(ordinary_heading)):
+        raise AssertionError("Ordinary Chinese numbered H2 headings must not be flagged without repair attribution")
+    ordinary_placeholder = "---\nimport_method: mineru-agent-v1\n---\n\n- [ ] □ 选项占位。\n"
+    if any(item["code"] == "lossy-ocr-placeholder" for item in repair_module.diagnose_import_risks(ordinary_placeholder)):
+        raise AssertionError("Existing □ characters must not be flagged unless repair introduced the placeholder")
+    currency_text = "---\nimport_method: manual-test\n---\n\nThe lab kit costs $5.\n"
+    if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(currency_text)):
+        raise AssertionError("Literal currency markers must not be flagged as unbalanced math")
+    valid_math = "---\nimport_method: manual-test\n---\n\nThe identity is $x+y=z$.\n"
+    if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(valid_math)):
+        raise AssertionError("Balanced inline math dollars must not be flagged")
 
     english_import = "---\nimport_method: mineru-agent-v1\n---\n\n" + ("plain English text " * 160)
     if any(item["code"] == "low-cjk-density" for item in repair_module.diagnose_import_risks(english_import)):
@@ -2078,6 +2091,8 @@ def exercise_import_workflows(repo: Path) -> None:
     if verified_payload["converted"] or not verified_payload["skipped_verified"]:
         raise AssertionError(f"Verified repair-only file should be skipped by default: {verified_payload}")
     ensure_contains(verified_repair_input, "#Broken verified heading")
+    verified_summary = repo / "references" / "imports" / "verified-repair-sample-repair-summary.md"
+    verified_summary.write_text("OLD SUMMARY\n", encoding="utf-8", newline="\n")
     include_verified_payload = json.loads(
         run_script("materials_convert.py", str(verified_repair_input), "--repair-only", "--include-verified")
     )
@@ -2085,6 +2100,7 @@ def exercise_import_workflows(repo: Path) -> None:
         raise AssertionError(f"--include-verified should process verified files: {include_verified_payload}")
     ensure_contains(verified_repair_input, "# Broken verified heading")
     ensure_contains(verified_repair_input, "verify_status: unverified")
+    ensure_contains(verified_summary, "Normalized heading spacing.")
 
     verified_distinct_input = repo / "references" / "imports" / "verified-distinct-input.md"
     verified_distinct_input.write_text(
@@ -6285,6 +6301,8 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     glob_literal_note.write_text("# Glob literal\n\nSame content.\n", encoding="utf-8", newline="\n")
     glob_matching_note = repo / "notes" / "a.md"
     glob_matching_note.write_text("# Glob matching\n\nBaseline content.\n", encoding="utf-8", newline="\n")
+    spaced_note = repo / "notes" / "week 1.md"
+    spaced_note.write_text("# Week 1\n\nSame content.\n", encoding="utf-8", newline="\n")
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True, text=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-m", "baseline"], check=True, capture_output=True, text=True)
 
@@ -6351,6 +6369,7 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     eol_only_note.write_text("# EOL only\r\n\r\nSame content.\r\n", encoding="utf-8", newline="")
     glob_literal_note.write_text("# Glob literal\r\n\r\nSame content.\r\n", encoding="utf-8", newline="")
     glob_matching_note.write_text("# Glob matching\n\nContent changed.\n", encoding="utf-8", newline="\n")
+    spaced_note.write_text("# Week 1\r\n\r\nSame content.\r\n", encoding="utf-8", newline="")
     nested_venv_course_note = repo / "courses" / "venv" / "notes" / "week1.md"
     nested_venv_course_note.parent.mkdir(parents=True, exist_ok=True)
     nested_venv_course_note.write_text("# Venv Course Note\n\nThis is coursework, not a virtualenv.\n", encoding="utf-8", newline="\n")
@@ -6427,10 +6446,14 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError(f"group_git_changes.py should classify Markdown line-ending-only churn separately: {payload}")
     if "notes/[abc].md" not in payload.get("eol_only_files", []):
         raise AssertionError(f"group_git_changes.py should use literal pathspecs for glob-like filenames: {payload}")
+    if "notes/week 1.md" not in payload.get("eol_only_files", []):
+        raise AssertionError(f"group_git_changes.py should classify quoted/space-containing Markdown paths as EOL-only: {payload}")
     if "notes/eol-only.md" in split_paths:
         raise AssertionError("EOL-only files should not be included in normal commit split guidance")
     if "notes/[abc].md" in split_paths:
         raise AssertionError("Glob-like EOL-only files should not be included in normal commit split guidance")
+    if "notes/week 1.md" in split_paths:
+        raise AssertionError("Space-containing EOL-only files should not be included in normal commit split guidance")
     if "notes/a.md" not in split_paths:
         raise AssertionError("Literal EOL-only detection must not hide a similarly matching content change")
     for expected_path, message in [

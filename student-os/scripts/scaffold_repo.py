@@ -149,6 +149,8 @@ def main() -> int:
     args = parser.parse_args()
 
     root = Path(args.repo).resolve()
+    if not args.dry_run:
+        git_status_lines(root)
     changed_files: set[str] = set()
     for rel in DEFAULT_DIRS:
         ensure(root / rel, args.dry_run)

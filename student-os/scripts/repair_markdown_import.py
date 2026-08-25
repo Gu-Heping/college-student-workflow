@@ -161,6 +161,10 @@ def _score_remaining_noise(text: str) -> dict[str, int]:
     }
 
 
+def _count_question_heading(text: str) -> int:
+    return len(re.findall(r"(?m)^##\s+[一二三四五六七八九十]+[\.、]", text))
+
+
 def repair_mineru_v1_noise(text: str) -> tuple[str, list[str]]:
     """Targeted cleanup for MinerU v1 Agent OCR/LaTeX noise.
 
@@ -225,7 +229,10 @@ def repair_text(text: str) -> tuple[str, list[str]]:
 
     new_text = re.sub(r"(?m)^(#+)(\S)", r"\1 \2", text)
     if new_text != text:
+        promoted_count = max(0, _count_question_heading(new_text) - _count_question_heading(text))
         summary.append("Normalized heading spacing.")
+        if promoted_count:
+            summary.append(f"Flagged {promoted_count} OCR-promoted question heading.")
         text = new_text
 
     new_text = re.sub(r"(?m)^((?:#\s+){2,})(.+)$", lambda m: "#" * m.group(1).count("#") + " " + m.group(2), text)
@@ -251,6 +258,19 @@ def repair_text(text: str) -> tuple[str, list[str]]:
     if text == original and not summary:
         summary.append("No conservative repairs were applied.")
     return text, summary
+
+
+def repair_specific_risks(_repaired_text: str, summary: list[str]) -> list[dict[str, object]]:
+    risks: list[dict[str, object]] = []
+    for line in summary:
+        match = re.match(r"Replaced\s+(\d+)\s+garbled Chinese placeholder", line)
+        if match:
+            risks.append({"code": "lossy-ocr-placeholder", "count": int(match.group(1))})
+            continue
+        match = re.match(r"Flagged\s+(\d+)\s+OCR-promoted question heading", line)
+        if match:
+            risks.append({"code": "question-heading-promoted", "count": int(match.group(1))})
+    return risks
 
 
 def main() -> int:
@@ -285,6 +305,7 @@ def main() -> int:
 
     repaired, summary = repair_text(source_text)
     risks = diagnose_import_risks(repaired)
+    risks.extend(repair_specific_risks(repaired, summary))
     summary.extend(risk_summary_lines(risks))
     repaired = mark_auto_repaired(repaired, needs_review=bool(risks))
     if args.derived_from:

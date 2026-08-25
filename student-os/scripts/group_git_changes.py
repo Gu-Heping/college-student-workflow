@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import subprocess
 from pathlib import Path
@@ -112,8 +113,20 @@ def parse_status_path(line: str) -> tuple[str, str, str]:
     payload = line[3:].strip()
     if " -> " in payload:
         source, target = payload.split(" -> ", 1)
-        return status, source.strip(), target.strip()
-    return status, payload, payload
+        return status, unquote_status_path(source.strip()), unquote_status_path(target.strip())
+    path = unquote_status_path(payload)
+    return status, path, path
+
+
+def unquote_status_path(path: str) -> str:
+    if len(path) >= 2 and path[0] == '"' and path[-1] == '"':
+        try:
+            value = ast.literal_eval(path)
+        except (SyntaxError, ValueError):
+            return path
+        if isinstance(value, str):
+            return value
+    return path
 
 
 def is_pure_delete_status(status: str) -> bool:

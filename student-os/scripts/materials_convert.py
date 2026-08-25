@@ -1619,7 +1619,7 @@ def repair_one_markdown(path: Path, *, overwrite: bool, include_verified: bool) 
             "reason": "verify-status-verified",
         }
     summary_path = path.with_name(f"{path.stem}-repair-summary.md")
-    if summary_path.exists() and not overwrite:
+    if summary_path.exists() and not overwrite and not include_verified:
         return {
             "status": "skipped",
             "source": str(path),

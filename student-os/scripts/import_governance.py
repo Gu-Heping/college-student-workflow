@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import string
 from pathlib import Path
 
 
@@ -136,15 +137,36 @@ def count_malformed_binom(text: str) -> int:
     return count
 
 
+def _strip_markdown_code(text: str) -> str:
+    text = re.sub(r"(?s)```.*?```", "", text)
+    return re.sub(r"`[^`\n]*`", "", text)
+
+
+def count_likely_math_dollars(text: str) -> int:
+    text = _strip_markdown_code(text)
+    count = 0
+    punctuation = set(string.punctuation) - {"$"}
+    for index, char in enumerate(text):
+        if char != "$" or (index > 0 and text[index - 1] == "\\"):
+            continue
+        previous_char = text[index - 1] if index > 0 else ""
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+        if next_char.isdigit():
+            continue
+        if next_char and not next_char.isspace() and next_char not in punctuation:
+            count += 1
+        elif previous_char and not previous_char.isspace():
+            count += 1
+    return count
+
+
 def diagnose_import_risks(text: str) -> list[dict[str, object]]:
     risks: list[dict[str, object]] = []
 
     checks: list[tuple[str, str, int]] = [
         ("latex-nonumber", r"\\nonumber\b", 0),
         ("mojibake-replacement-char", "�", 0),
-        ("lossy-ocr-placeholder", "□", 0),
         ("unicode-escape", r"\\u[0-9a-fA-F]{4}", 0),
-        ("question-heading-promoted", r"(?m)^##\s+[一二三四五六七八九十]+[\.、]", 0),
     ]
     for code, pattern, flags in checks:
         count = len(re.findall(pattern, text, flags))
@@ -160,7 +182,7 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
     if left_count != right_count:
         risks.append({"code": "latex-left-right-unbalanced", "left": left_count, "right": right_count})
 
-    inline_dollars = len(re.findall(r"(?<!\\)\$", text))
+    inline_dollars = count_likely_math_dollars(text)
     if inline_dollars % 2 == 1:
         risks.append({"code": "math-dollar-unbalanced", "count": inline_dollars})
 
