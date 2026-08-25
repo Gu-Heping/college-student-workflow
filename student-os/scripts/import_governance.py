@@ -184,6 +184,10 @@ def _has_later_unescaped_dollar(text: str, start: int) -> bool:
     return False
 
 
+def _looks_like_currency_before_next_dollar(span: str) -> bool:
+    return bool(re.match(r"^\d[\d,]*(?:\.\d+)?(?:[.,;:]\s*|\s+)$", span))
+
+
 def count_likely_math_dollars(text: str) -> int:
     text = _strip_markdown_code(text)
     count = 0
@@ -201,7 +205,7 @@ def count_likely_math_dollars(text: str) -> int:
         if "\n" in text[index + 1 : next_index]:
             continue
         span = text[index + 1 : next_index]
-        if re.match(r"^\d[\d,]*(?:\.\d+)?\s+[A-Za-z]", span):
+        if _looks_like_currency_before_next_dollar(span) or re.match(r"^\d[\d,]*(?:\.\d+)?\s+[A-Za-z]", span):
             continue
         next_char = text[index + 1] if index + 1 < len(text) else ""
         if next_char and not next_char.isspace() and (next_char not in punctuation or next_char == "\\"):

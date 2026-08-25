@@ -1420,6 +1420,12 @@ def verify_mineru_v1_repair_rules() -> None:
     multi_currency = "---\nimport_method: manual-test\n---\n\nThe kit costs $5 or $10.\n"
     if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(multi_currency)):
         raise AssertionError("Multiple literal currency amounts must not be flagged as unbalanced math")
+    currency_then_math = "---\nimport_method: manual-test\n---\n\nPrice is $5, and formula is $x$.\n"
+    if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(currency_then_math)):
+        raise AssertionError("Currency before inline math must not be paired with the math opener")
+    currency_then_next_line_math = "---\nimport_method: manual-test\n---\n\nPrice is $5\nThe formula is $x$.\n"
+    if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(currency_then_next_line_math)):
+        raise AssertionError("Currency before next-line inline math must not be paired with the math opener")
     latex_command_math = "---\nimport_method: manual-test\n---\n\nThe rate is $\\alpha$.\n"
     if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(latex_command_math)):
         raise AssertionError("Inline math that starts with a LaTeX command must not be flagged")
