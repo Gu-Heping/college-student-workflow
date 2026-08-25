@@ -319,9 +319,6 @@ def main() -> int:
             hold_back_files.append(change_path)
             hold_back_reasons[change_path] = hold_back_reason(repo, target_path) or "ignored local artifact"
             continue
-        if is_tracked_markdown_eol_only(repo, status, source_path, target_path):
-            eol_only_files.append(change_path)
-            continue
         if is_pure_delete_status(status) and source_path == target_path:
             group = detect_group(source_path)
             groups.setdefault(group, []).append(source_path)
@@ -330,6 +327,9 @@ def main() -> int:
         if reason:
             hold_back_files.append(change_path)
             hold_back_reasons[change_path] = reason
+            continue
+        if is_tracked_markdown_eol_only(repo, status, source_path, target_path):
+            eol_only_files.append(change_path)
             continue
         group = detect_group(target_path)
         groups.setdefault(group, []).append(target_path)

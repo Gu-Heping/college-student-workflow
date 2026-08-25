@@ -1385,10 +1385,14 @@ def verify_mineru_v1_repair_rules() -> None:
     if not any(item["code"] == "latex-binom-fragment" for item in repair_module.diagnose_import_risks(malformed_binom)):
         raise AssertionError("Malformed \\binom fragments should be flagged for review")
     ordinary_heading = "---\nimport_method: mineru-agent-v1\n---\n\n## 一、选择题\n\n正文。\n"
-    if any(item["code"] == "question-heading-promoted" for item in repair_module.diagnose_import_risks(ordinary_heading)):
+    ordinary_heading_risks = repair_module.diagnose_import_risks(ordinary_heading)
+    ordinary_heading_risks.extend(repair_module.repair_specific_risks(ordinary_heading, []))
+    if any(item["code"] == "question-heading-promoted" for item in ordinary_heading_risks):
         raise AssertionError("Ordinary Chinese numbered H2 headings must not be flagged without repair attribution")
     ordinary_placeholder = "---\nimport_method: mineru-agent-v1\n---\n\n- [ ] □ 选项占位。\n"
-    if any(item["code"] == "lossy-ocr-placeholder" for item in repair_module.diagnose_import_risks(ordinary_placeholder)):
+    ordinary_placeholder_risks = repair_module.diagnose_import_risks(ordinary_placeholder)
+    ordinary_placeholder_risks.extend(repair_module.repair_specific_risks(ordinary_placeholder, []))
+    if any(item["code"] == "lossy-ocr-placeholder" for item in ordinary_placeholder_risks):
         raise AssertionError("Existing □ characters must not be flagged unless repair introduced the placeholder")
     currency_text = "---\nimport_method: manual-test\n---\n\nThe lab kit costs $5.\n"
     if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(currency_text)):
@@ -1426,6 +1430,9 @@ def verify_mineru_v1_repair_rules() -> None:
     currency_then_next_line_math = "---\nimport_method: manual-test\n---\n\nPrice is $5\nThe formula is $x$.\n"
     if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(currency_then_next_line_math)):
         raise AssertionError("Currency before next-line inline math must not be paired with the math opener")
+    dropped_numeric_math = "---\nimport_method: manual-test\n---\n\nThe answer is $2+2=4.\n"
+    if not any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(dropped_numeric_math)):
+        raise AssertionError("Unclosed numeric inline math should be flagged")
     latex_command_math = "---\nimport_method: manual-test\n---\n\nThe rate is $\\alpha$.\n"
     if any(item["code"] == "math-dollar-unbalanced" for item in repair_module.diagnose_import_risks(latex_command_math)):
         raise AssertionError("Inline math that starts with a LaTeX command must not be flagged")
@@ -1435,6 +1442,9 @@ def verify_mineru_v1_repair_rules() -> None:
     orphan_nonumber = "---\nimport_method: mineru-agent-v1\n---\n\n\\nonumber\n"
     if not any(item["code"] == "latex-nonumber" for item in repair_module.diagnose_import_risks(orphan_nonumber)):
         raise AssertionError("Orphan \\nonumber fragments should be flagged for review")
+    code_latex = "---\nimport_method: manual-test\n---\n\n```python\nprint(r\"\\left\")\n```\n"
+    if any(item["code"] == "latex-left-right-unbalanced" for item in repair_module.diagnose_import_risks(code_latex)):
+        raise AssertionError("LaTeX markers inside fenced code must not be flagged")
 
     english_import = "---\nimport_method: mineru-agent-v1\n---\n\n" + ("plain English text " * 160)
     if any(item["code"] == "low-cjk-density" for item in repair_module.diagnose_import_risks(english_import)):
@@ -1470,6 +1480,11 @@ def verify_mineru_v1_repair_rules() -> None:
         raise AssertionError(f"repair_risk should be inserted into frontmatter:\n{marked}")
     if "verify_status: verified" not in body:
         raise AssertionError(f"Body metadata-looking text must not be rewritten:\n{marked}")
+    frontmatter_free = repair_module.mark_auto_repaired("# Body\n", needs_review=True)
+    if not frontmatter_free.startswith("---\n"):
+        raise AssertionError(f"Frontmatter-free repairs should get minimal governance frontmatter:\n{frontmatter_free}")
+    if "repair_status: auto-repaired" not in frontmatter_free or "verify_status: unverified" not in frontmatter_free:
+        raise AssertionError(f"Frontmatter-free repairs should receive repair/verify status:\n{frontmatter_free}")
 
 
 def verify_local_pdf_risk_forwarding(tmp_root: Path) -> None:
@@ -2119,6 +2134,21 @@ def exercise_import_workflows(repo: Path) -> None:
     ensure_contains(repair_only_input, "verify_status: unverified")
     ensure_exists(repo / "references" / "imports" / "repair-only-sample-repair-summary.md")
     ensure_contains(repo / "references" / "imports" / "repair-only-sample-repair-summary.md", "Removed isolated page labels.")
+
+    frontmatter_free_repair_input = repo / "references" / "imports" / "frontmatter-free-repair.md"
+    frontmatter_free_repair_input.write_text("#Broken frontmatter-free heading\n\nPage 1\n", encoding="utf-8", newline="\n")
+    frontmatter_free_payload = json.loads(
+        run_script(
+            "materials_convert.py",
+            str(frontmatter_free_repair_input),
+            "--repair-only",
+        )
+    )
+    if len(frontmatter_free_payload["converted"]) != 1:
+        raise AssertionError(f"Expected frontmatter-free repair-only input to be processed: {frontmatter_free_payload}")
+    ensure_contains(frontmatter_free_repair_input, "repair_status: auto-repaired")
+    ensure_contains(frontmatter_free_repair_input, "verify_status: unverified")
+    ensure_contains(frontmatter_free_repair_input, "derived_from_import:")
 
     verified_repair_input = repo / "references" / "imports" / "verified-repair-sample.md"
     verified_repair_input.write_text(
@@ -6387,6 +6417,8 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     glob_matching_note.write_text("# Glob matching\n\nBaseline content.\n", encoding="utf-8", newline="\n")
     spaced_note = repo / "notes" / "week 1.md"
     spaced_note.write_text("# Week 1\n\nSame content.\n", encoding="utf-8", newline="\n")
+    env_markdown_note = repo / ".env.local.md"
+    env_markdown_note.write_text("# Local env note\n\nSame content.\n", encoding="utf-8", newline="\n")
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True, text=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-m", "baseline"], check=True, capture_output=True, text=True)
 
@@ -6454,6 +6486,7 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     glob_literal_note.write_text("# Glob literal\r\n\r\nSame content.\r\n", encoding="utf-8", newline="")
     glob_matching_note.write_text("# Glob matching\n\nContent changed.\n", encoding="utf-8", newline="\n")
     spaced_note.write_text("# Week 1\r\n\r\nSame content.\r\n", encoding="utf-8", newline="")
+    env_markdown_note.write_text("# Local env note\r\n\r\nSame content.\r\n", encoding="utf-8", newline="")
     nested_venv_course_note = repo / "courses" / "venv" / "notes" / "week1.md"
     nested_venv_course_note.parent.mkdir(parents=True, exist_ok=True)
     nested_venv_course_note.write_text("# Venv Course Note\n\nThis is coursework, not a virtualenv.\n", encoding="utf-8", newline="\n")
@@ -6490,6 +6523,8 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError("group_git_changes.py should hold back .env files")
     if ".env.local" not in hold_back:
         raise AssertionError("group_git_changes.py should hold back .env.* files")
+    if ".env.local.md" not in hold_back:
+        raise AssertionError("group_git_changes.py should hold back sensitive Markdown files before EOL-only classification")
     if "env/pyvenv.cfg" not in hold_back:
         raise AssertionError("group_git_changes.py should hold back env/ virtual environment files")
     if ".venv/" not in hold_back:
@@ -6532,6 +6567,8 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError(f"group_git_changes.py should use literal pathspecs for glob-like filenames: {payload}")
     if "notes/week 1.md" not in payload.get("eol_only_files", []):
         raise AssertionError(f"group_git_changes.py should classify quoted/space-containing Markdown paths as EOL-only: {payload}")
+    if ".env.local.md" in payload.get("eol_only_files", []):
+        raise AssertionError("Sensitive Markdown files must not be hidden inside EOL-only churn")
     if "notes/eol-only.md" in split_paths:
         raise AssertionError("EOL-only files should not be included in normal commit split guidance")
     if "notes/[abc].md" in split_paths:
@@ -6705,6 +6742,16 @@ def verify_scaffold_gitattributes(tmp_root: Path) -> None:
     text = attrs.read_text(encoding="utf-8")
     if "*.png binary" not in text or "*.md text eol=lf" not in text:
         raise AssertionError(f"scaffold_repo.py should preserve existing .gitattributes and add Markdown LF rule:\n{text}")
+    if text.index("*.md text eol=lf") > text.index("*.png binary"):
+        raise AssertionError(f"scaffold_repo.py should keep the generic Markdown rule before existing overrides:\n{text}")
+    override = tmp_root / "override"
+    override.mkdir(parents=True, exist_ok=True)
+    override_attrs = override / ".gitattributes"
+    override_attrs.write_text("docs/*.md text eol=crlf\n", encoding="utf-8", newline="\n")
+    run_script("scaffold_repo.py", str(override))
+    override_text = override_attrs.read_text(encoding="utf-8")
+    if override_text.index("*.md text eol=lf") > override_text.index("docs/*.md text eol=crlf"):
+        raise AssertionError(f"Generic Markdown LF rule should not override existing per-path rules:\n{override_text}")
     run_script("scaffold_repo.py", str(existing))
     if attrs.read_text(encoding="utf-8").count("*.md text eol=lf") != 1:
         raise AssertionError("scaffold_repo.py should not duplicate the Markdown LF rule")

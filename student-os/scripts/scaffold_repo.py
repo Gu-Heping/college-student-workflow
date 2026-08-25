@@ -103,11 +103,10 @@ def ensure_gitattributes(path: Path, dry_run: bool) -> bool:
     existing_lines = {line.strip() for line in existing.splitlines() if line.strip()}
     if MARKDOWN_GITATTRIBUTES_RULE in existing_lines:
         return False
-    suffix = existing
-    if suffix and not suffix.endswith("\n"):
-        suffix += "\n"
-    suffix += MARKDOWN_GITATTRIBUTES_RULE + "\n"
-    path.write_text(suffix, encoding="utf-8", newline="\n")
+    prefix = MARKDOWN_GITATTRIBUTES_RULE + "\n"
+    if existing and not existing.startswith("\n"):
+        prefix += "\n"
+    path.write_text(prefix + existing, encoding="utf-8", newline="\n")
     return True
 
 

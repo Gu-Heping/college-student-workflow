@@ -9,6 +9,7 @@ from pathlib import Path
 from import_governance import (
     count_malformed_binom,
     diagnose_import_risks,
+    ensure_field,
     is_verified,
     mark_auto_repaired,
     risk_summary_lines,
@@ -310,10 +311,13 @@ def main() -> int:
     repaired = mark_auto_repaired(repaired, needs_review=bool(risks))
     if args.derived_from:
         derived_line = f"derived_from_import: {yaml_string(str(Path(args.derived_from).resolve()))}"
-        # Use a callable replacement so Windows paths with JSON \\uXXXX escapes are not
-        # reinterpreted as re.sub template escapes (re.error: bad escape \\u).
-        repaired = re.sub(r"(?m)^derived_from_import:\s*$", lambda _: derived_line, repaired, count=1)
-        repaired = repaired.replace('derived_from_import: ""', derived_line, 1)
+        if "derived_from_import:" not in repaired:
+            repaired = ensure_field(repaired, "derived_from_import", yaml_string(str(Path(args.derived_from).resolve())))
+        else:
+            # Use a callable replacement so Windows paths with JSON \\uXXXX escapes are not
+            # reinterpreted as re.sub template escapes (re.error: bad escape \\u).
+            repaired = re.sub(r"(?m)^derived_from_import:\s*$", lambda _: derived_line, repaired, count=1)
+            repaired = repaired.replace('derived_from_import: ""', derived_line, 1)
     output_path.write_text(repaired, encoding="utf-8", newline="\n")
 
     if args.summary_path:

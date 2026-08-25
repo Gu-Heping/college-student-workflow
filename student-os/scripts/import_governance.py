@@ -63,7 +63,10 @@ def ensure_field(text: str, key: str, value: str) -> str:
     replacement = f"{key}: {value}"
     parsed = read_frontmatter(text)
     if parsed is None:
-        return text
+        prefix = f"---\n{replacement}\n---\n"
+        if text.startswith("\ufeff"):
+            return "\ufeff" + prefix + text.lstrip("\ufeff")
+        return prefix + ("\n" if text and not text.startswith("\n") else "") + text
     _data, start, end = parsed
     insert_at = text.rfind("---", start, end)
     if insert_at == -1:
@@ -188,6 +191,11 @@ def _looks_like_currency_before_next_dollar(span: str) -> bool:
     return bool(re.match(r"^\d[\d,]*(?:\.\d+)?(?:[.,;:]\s*|\s+)$", span))
 
 
+def _looks_like_standalone_currency_after_dollar(text: str, start: int) -> bool:
+    line = text[start:].split("\n", 1)[0]
+    return bool(re.match(r"^\d[\d,]*(?:\.\d+)?(?:[.,;:]|$|\s)", line))
+
+
 def count_likely_math_dollars(text: str) -> int:
     text = _strip_markdown_code(text)
     count = 0
@@ -220,9 +228,13 @@ def count_likely_math_dollars(text: str) -> int:
             continue
         previous_char = text[index - 1] if index > 0 else ""
         next_char = text[index + 1] if index + 1 < len(text) else ""
-        if next_char.isdigit() and not _has_later_unescaped_dollar(text, index + 1):
+        if (
+            next_char.isdigit()
+            and not _has_later_unescaped_dollar(text, index + 1)
+            and _looks_like_standalone_currency_after_dollar(text, index + 1)
+        ):
             continue
-        if next_char.isdigit():
+        if next_char.isdigit() and _looks_like_standalone_currency_after_dollar(text, index + 1):
             continue
         if next_char and not next_char.isspace() and (next_char not in punctuation or next_char == "\\"):
             count += 1
@@ -257,6 +269,7 @@ def imported_content_text(text: str) -> str:
 
 def diagnose_import_risks(text: str) -> list[dict[str, object]]:
     risks: list[dict[str, object]] = []
+    diagnostic_text = _strip_markdown_code(text)
 
     checks: list[tuple[str, str, int]] = [
         ("mojibake-replacement-char", "�", 0),
@@ -267,16 +280,16 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
         if count:
             risks.append({"code": code, "count": count})
 
-    nonumber_count = count_orphan_latex_nonumber(text)
+    nonumber_count = count_orphan_latex_nonumber(diagnostic_text)
     if nonumber_count:
         risks.append({"code": "latex-nonumber", "count": nonumber_count})
 
-    binom_count = count_malformed_binom(text)
+    binom_count = count_malformed_binom(diagnostic_text)
     if binom_count:
         risks.append({"code": "latex-binom-fragment", "count": binom_count})
 
-    left_count = len(re.findall(r"\\left\b", text))
-    right_count = len(re.findall(r"\\right\b", text))
+    left_count = len(re.findall(r"\\left\b", diagnostic_text))
+    right_count = len(re.findall(r"\\right\b", diagnostic_text))
     if left_count != right_count:
         risks.append({"code": "latex-left-right-unbalanced", "left": left_count, "right": right_count})
 
