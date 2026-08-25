@@ -17,6 +17,16 @@ def yaml_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def yaml_scalar(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] in {"'", '"'}:
+        quote = value[0]
+        end = value.find(quote, 1)
+        if end != -1:
+            return value[1:end]
+    return re.split(r"\s+#", value, maxsplit=1)[0].strip().strip("\"'")
+
+
 def read_frontmatter(text: str) -> tuple[dict[str, str], int, int] | None:
     normalized = text.lstrip("\ufeff")
     offset = len(text) - len(normalized)
@@ -28,7 +38,7 @@ def read_frontmatter(text: str) -> tuple[dict[str, str], int, int] | None:
         if ":" not in line or line.lstrip() != line:
             continue
         key, value = line.split(":", 1)
-        data[key.strip()] = value.strip().strip("\"'")
+        data[key.strip()] = yaml_scalar(value)
     return data, offset, offset + match.end()
 
 
@@ -89,13 +99,50 @@ def expects_cjk_text(text: str) -> bool:
     return False
 
 
+def _brace_group_span(text: str, start: int) -> tuple[int, int] | None:
+    if start >= len(text) or text[start] != "{":
+        return None
+    depth = 0
+    for index in range(start, len(text)):
+        char = text[index]
+        if char == "{" and (index == 0 or text[index - 1] != "\\"):
+            depth += 1
+        elif char == "}" and (index == 0 or text[index - 1] != "\\"):
+            depth -= 1
+            if depth == 0:
+                return start, index + 1
+    return None
+
+
+def count_malformed_binom(text: str) -> int:
+    count = 0
+    for match in re.finditer(r"\\binom\b", text):
+        cursor = match.end()
+        ok = True
+        for _ in range(2):
+            while cursor < len(text) and text[cursor].isspace():
+                cursor += 1
+            span = _brace_group_span(text, cursor)
+            if span is None:
+                ok = False
+                break
+            body = text[span[0] + 1 : span[1] - 1].strip()
+            if not body:
+                ok = False
+                break
+            cursor = span[1]
+        if not ok:
+            count += 1
+    return count
+
+
 def diagnose_import_risks(text: str) -> list[dict[str, object]]:
     risks: list[dict[str, object]] = []
 
     checks: list[tuple[str, str, int]] = [
         ("latex-nonumber", r"\\nonumber\b", 0),
-        ("latex-binom-fragment", r"\\binom\b", 0),
         ("mojibake-replacement-char", "�", 0),
+        ("lossy-ocr-placeholder", "□", 0),
         ("unicode-escape", r"\\u[0-9a-fA-F]{4}", 0),
         ("question-heading-promoted", r"(?m)^##\s+[一二三四五六七八九十]+[\.、]", 0),
     ]
@@ -103,6 +150,10 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
         count = len(re.findall(pattern, text, flags))
         if count:
             risks.append({"code": code, "count": count})
+
+    binom_count = count_malformed_binom(text)
+    if binom_count:
+        risks.append({"code": "latex-binom-fragment", "count": binom_count})
 
     left_count = len(re.findall(r"\\left\b", text))
     right_count = len(re.findall(r"\\right\b", text))

@@ -1369,9 +1369,20 @@ def verify_mineru_v1_repair_rules() -> None:
 
     risks = repair_module.diagnose_import_risks(repaired)
     risk_codes = {str(item["code"]) for item in risks}
-    for expected in {"latex-binom-fragment", "question-heading-promoted", "math-dollar-unbalanced"}:
+    for expected in {
+        "latex-binom-fragment",
+        "lossy-ocr-placeholder",
+        "question-heading-promoted",
+        "math-dollar-unbalanced",
+    }:
         if expected not in risk_codes:
             raise AssertionError(f"Expected repair diagnostics to report {expected}, got: {risks}")
+    valid_binom = "---\nimport_method: mineru-agent-v1\n---\n\nA valid formula: $\\binom{n}{k}$.\n"
+    if any(item["code"] == "latex-binom-fragment" for item in repair_module.diagnose_import_risks(valid_binom)):
+        raise AssertionError("Valid \\binom{n}{k} formulas must not be flagged as malformed fragments")
+    malformed_binom = "---\nimport_method: mineru-agent-v1\n---\n\nBroken formula: $\\binom fragment$.\n"
+    if not any(item["code"] == "latex-binom-fragment" for item in repair_module.diagnose_import_risks(malformed_binom)):
+        raise AssertionError("Malformed \\binom fragments should be flagged for review")
 
     english_import = "---\nimport_method: mineru-agent-v1\n---\n\n" + ("plain English text " * 160)
     if any(item["code"] == "low-cjk-density" for item in repair_module.diagnose_import_risks(english_import)):
@@ -1379,6 +1390,9 @@ def verify_mineru_v1_repair_rules() -> None:
     cjk_expected_import = "---\nimport_method: mineru-agent-v1\nlanguage: ch\n---\n\n" + ("plain English text " * 160)
     if not any(item["code"] == "low-cjk-density" for item in repair_module.diagnose_import_risks(cjk_expected_import)):
         raise AssertionError("Expected CJK-language imports with no CJK text to be flagged")
+    verified_with_comment = "---\nverify_status: verified # checked against source\n---\n\nBody.\n"
+    if not repair_module.is_verified(verified_with_comment):
+        raise AssertionError("verify_status with a YAML inline comment should still be treated as verified")
 
     missing_repair_status = (
         "---\n"
@@ -1412,6 +1426,18 @@ def verify_local_pdf_risk_forwarding(tmp_root: Path) -> None:
         )
     finally:
         sys.path = previous_sys_path
+
+    wrapped = materials_convert.wrap_mineru_markdown(
+        source_file=tmp_root / "chinese-source.pdf",
+        markdown_body="plain English text " * 160,
+        import_method="mineru-api:pipeline",
+        course=None,
+        language="ch",
+    )
+    if "language: ch" not in wrapped:
+        raise AssertionError(f"MinerU sidecars should persist the requested language:\n{wrapped}")
+    if not any(item["code"] == "low-cjk-density" for item in materials_convert.diagnose_import_risks(wrapped)):
+        raise AssertionError("MinerU sidecars with requested CJK language should surface low-CJK repair risks")
 
     output = tmp_root / "paper.pdf.md"
     output.parent.mkdir(parents=True, exist_ok=True)

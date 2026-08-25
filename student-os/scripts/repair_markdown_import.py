@@ -6,7 +6,13 @@ import json
 import re
 from pathlib import Path
 
-from import_governance import diagnose_import_risks, is_verified, mark_auto_repaired, risk_summary_lines
+from import_governance import (
+    count_malformed_binom,
+    diagnose_import_risks,
+    is_verified,
+    mark_auto_repaired,
+    risk_summary_lines,
+)
 
 
 def yaml_string(value: str) -> str:
@@ -146,7 +152,7 @@ def _collapse_isolated_dollar_fragments(text: str) -> tuple[str, int]:
 def _score_remaining_noise(text: str) -> dict[str, int]:
     """Count noise patterns that we do not yet auto-fix but want to report."""
     return {
-        "binom_fragments": len(re.findall(r"\\binom\b", text)),
+        "binom_fragments": count_malformed_binom(text),
         "dot_noise": len(re.findall(r"\\dot\s*\{", text)),
         "sharp_noise": len(re.findall(r"(?<!\\)\\sharp(?!\w)", text)),
         "mathrm_noise": len(re.findall(r"\\mathrm\s*\{[~\s\\tiny]*[.,;:!?]?[~\s\\tiny]*\}", text)),

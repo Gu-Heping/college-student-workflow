@@ -32,7 +32,7 @@ from material_types import (
     TEXT_SKIP_SUFFIXES,
     XLSX_SUFFIXES,
 )
-from import_governance import is_verified
+from import_governance import diagnose_import_risks, is_verified
 
 
 @dataclass(frozen=True)
@@ -400,6 +400,7 @@ def wrap_mineru_markdown(
     markdown_body: str,
     import_method: str,
     course: str | None,
+    language: str | None = None,
     derived_from_import: str | None = None,
 ) -> str:
     note_type, tags, title, _ = output_metadata(source_file)
@@ -413,6 +414,7 @@ def wrap_mineru_markdown(
         f"tags: {tags}",
         f"source_file: {yaml_string(str(source_file))}",
         f"import_method: {import_method}",
+        f"language: {language or ''}",
         "repair_status:",
         "verify_status: unverified",
         f"derived_from_import: {yaml_string(derived_from_import) if derived_from_import else ''}",
@@ -903,6 +905,7 @@ def convert_with_mineru_chunked(
                         ),
                         import_method=f"mineru-api:{ctx.api_model}",
                         course=ctx.course,
+                        language=ctx.language,
                     ),
                 )
                 part_outputs.append(str(part_output))
@@ -927,6 +930,7 @@ def convert_with_mineru_chunked(
                     markdown_body=merged_body,
                     import_method=f"mineru-api:{ctx.api_model}",
                     course=ctx.course,
+                    language=ctx.language,
                 ),
             )
             final_output = str(output_path)
@@ -1064,6 +1068,7 @@ def convert_with_mineru_agent_chunked(
                         ),
                         import_method="mineru-agent-v1",
                         course=ctx.course,
+                        language=ctx.language,
                     ),
                 )
                 part_outputs.append(str(part_output))
@@ -1088,6 +1093,7 @@ def convert_with_mineru_agent_chunked(
                     markdown_body=merged_body,
                     import_method="mineru-agent-v1",
                     course=ctx.course,
+                    language=ctx.language,
                 ),
             )
             final_output = str(output_path)
@@ -1160,6 +1166,7 @@ def convert_with_mineru_agent(source_file: Path, output_path: Path, ctx: Convers
             markdown_body=markdown,
             import_method="mineru-agent-v1",
             course=ctx.course,
+            language=ctx.language,
         ),
     )
     payload: dict[str, Any] = {
@@ -1200,6 +1207,7 @@ def convert_with_mineru(source_file: Path, output_path: Path, ctx: ConversionCon
             markdown_body=result.markdown,
             import_method=f"mineru-api:{ctx.api_model}",
             course=ctx.course,
+            language=ctx.language,
         ),
     )
     payload = {
