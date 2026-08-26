@@ -232,11 +232,15 @@ python student-os/scripts/init_exam_census.py /path/to/vault --course <course> -
 需要 AI 协助逐题/逐段重建导入 sidecar 时，先生成治理队列和 case bundle：
 
 ```bash
+python student-os/scripts/inspect_repo.py /path/to/vault
+python student-os/scripts/group_git_changes.py /path/to/vault --json
 python student-os/scripts/repair_import_queue.py /path/to/vault --write-queue --classify-evidence --json
 python student-os/scripts/repair_import_case.py --queue /path/to/vault/.student-os/import-repair/queue.json --queue-item <id> --evidence-mode auto --write-case --json
 python student-os/scripts/repair_import_review.py --proposal <proposal.md> --json
 python student-os/scripts/repair_import_apply.py --proposal <proposal.md> --json
 ```
+
+如果 Git preflight 显示目标文件已有无关未提交修改，先暂停并向用户确认边界；不要把已有脏文件当成本次 AI 修复产物覆盖。
 
 AI 可以根据 case、raw import、repair summary、同目录试卷/答案和原 PDF 路径提出修复；文本模型默认 `text-only`，多模态模型可用 `vision-assisted` 渲染候选 PDF 页作为证据。输出仍保持 `verify_status: unverified`，直到人工对照原文确认。
 

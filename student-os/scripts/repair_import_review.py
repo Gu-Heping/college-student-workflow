@@ -10,7 +10,7 @@ from import_governance import diagnose_import_risks, frontmatter_value, mark_aut
 from repair_import_case import SCHEMA_VERSION as CASE_SCHEMA_VERSION
 from repair_import_case import PROPOSAL_SCHEMA_VERSION, case_sha256, extract_replacement, json_path, load_json, object_sha256
 from repair_import_queue import SCHEMA_VERSION as QUEUE_SCHEMA_VERSION
-from repair_import_queue import file_sha256
+from repair_import_queue import decode_yaml_path, file_sha256, has_question_stem
 
 
 SCHEMA_VERSION = "import-repair-review/v1"
@@ -59,7 +59,19 @@ def markdown_body(text: str) -> str:
 
 
 def compact_visible_text(text: str) -> str:
-    return re.sub(r"\s+", "", markdown_body(text))
+    body = re.sub(r"(?s)<!--.*?-->", "", markdown_body(text))
+    return re.sub(r"\s+", "", body)
+
+
+def validate_queue_item(queue_item: dict[str, object]) -> list[dict[str, object]]:
+    required_nonempty = ["schema_version", "path", "content_sha256", "recommended_evidence_mode"]
+    issues: list[dict[str, object]] = []
+    for key in required_nonempty:
+        if not str(queue_item.get(key) or "").strip():
+            issues.append(issue("proposal-case-queue-item-incomplete", f"Bound case queue_item is missing {key}.", detail={"field": key}))
+    if "blocked" not in queue_item:
+        issues.append(issue("proposal-case-queue-item-incomplete", "Bound case queue_item is missing blocked.", detail={"field": "blocked"}))
+    return issues
 
 
 def issue(code: str, message: str, *, severity: str = "error", detail: object | None = None) -> dict[str, object]:
@@ -165,6 +177,8 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
         queue_item = None
         if case_payload is not None:
             issues.append(issue("proposal-case-queue-item-missing", "Bound case JSON must include a complete queue_item."))
+    else:
+        issues.extend(validate_queue_item(queue_item))
     if not evidence_sha_value:
         issues.append(issue("proposal-evidence-sha256-missing", "Proposal must bind to the generated evidence hash."))
     elif case_payload is not None:
@@ -251,6 +265,14 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                     detail={"source_file": original_source},
                 )
             )
+        elif original_source and decode_yaml_path(original_source) != decode_yaml_path(replacement_source):
+            issues.append(
+                issue(
+                    "source-file-changed",
+                    "Replacement changes source_file frontmatter from the current sidecar.",
+                    detail={"before": decode_yaml_path(original_source), "after": decode_yaml_path(replacement_source)},
+                )
+            )
         target_sha = metadata.get("target-sha256", "")
         current_sha = file_sha256(resolved_target)
         if not target_sha:
@@ -263,7 +285,7 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                     detail={"expected": target_sha, "actual": current_sha},
                 )
             )
-        if queue_item:
+        if queue_item is not None:
             if queue_item.get("schema_version") != QUEUE_SCHEMA_VERSION:
                 issues.append(
                     issue(
@@ -298,7 +320,7 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                 detail={"target": json_path(resolved_target)},
             )
         )
-    if queue_item and evidence_mode == "text-only":
+    if queue_item is not None and evidence_mode == "text-only":
         blocked = str(queue_item.get("blocked") or "")
         recommended = str(queue_item.get("recommended_evidence_mode") or "")
         if blocked == "requires-vision-evidence" or recommended == "vision-assisted":
@@ -309,7 +331,7 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                     detail={"blocked": blocked, "recommended_evidence_mode": recommended},
                 )
             )
-    if queue_item and model_capability == "text-only":
+    if queue_item is not None and model_capability == "text-only":
         blocked = str(queue_item.get("blocked") or "")
         if blocked == "requires-vision-evidence":
             issues.append(
@@ -350,8 +372,7 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
 
     target_name = resolved_target.name if resolved_target else proposal_path.name
     if re.search(r"(答案|参考答案|解析)", target_name) and re.search(r"(?m)^\s*(?:解|证明|答)[:：]", replacement):
-        head = replacement[:3000]
-        if not re.search(r"(题干|已知|求证|设|证明|计算|求)", head):
+        if not has_question_stem(replacement):
             issues.append(issue("answer-missing-question-stem", "Answer proposal appears to start solving before preserving the question stem."))
 
     for environment in ("array", "matrix", "pmatrix", "bmatrix", "cases"):

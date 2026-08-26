@@ -58,11 +58,22 @@ def find_queue(start: Path) -> Path | None:
     return None
 
 
+def state_root_for_target(target: Path, cwd: Path) -> Path:
+    for parent in [target.parent, *target.parents]:
+        if (parent / ".student-os").exists():
+            return parent.resolve()
+    try:
+        target.resolve().relative_to(cwd.resolve())
+        return cwd.resolve()
+    except ValueError:
+        return target.parent.resolve()
+
+
 def resolve_queue_item(queue_item: str, *, queue_path: Path | None, cwd: Path) -> tuple[Path, dict[str, object], Path]:
     candidate = Path(queue_item).expanduser()
     if candidate.exists():
         target = candidate.resolve()
-        root = cwd.resolve()
+        root = state_root_for_target(target, cwd)
         item = build_queue_item(root, target)
         if item is None:
             item = {
@@ -82,6 +93,8 @@ def resolve_queue_item(queue_item: str, *, queue_path: Path | None, cwd: Path) -
     if queue is None:
         raise SystemExit("Queue file not found. Run repair_import_queue.py <vault> --write-queue first or pass --queue.")
     payload = load_json(queue)
+    if not isinstance(payload, dict):
+        raise SystemExit(f"Queue JSON must be an object: {type(payload).__name__}")
     if payload.get("schema_version") != QUEUE_SCHEMA_VERSION:
         raise SystemExit(f"Unsupported queue schema_version: {payload.get('schema_version')}")
     root = Path(str(payload.get("target_root") or queue.parents[2])).resolve()

@@ -15,6 +15,8 @@ SCHEMA_VERSION = "import-repair-apply/v1"
 
 def load_review(path: Path) -> dict[str, object]:
     payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise SystemExit(f"Review JSON must be an object: {type(payload).__name__}")
     if payload.get("schema_version") != REVIEW_SCHEMA_VERSION:
         raise SystemExit(f"Unsupported review schema_version: {payload.get('schema_version')}")
     return payload

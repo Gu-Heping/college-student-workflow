@@ -39,6 +39,8 @@ SEMANTIC_RISKS = {
     "non-utf8-import",
     "ocr-symbol-garbage",
 }
+SOLUTION_LEAD_RE = re.compile(r"(?m)^\s*(?:解|证明|答)[:：]")
+QUESTION_STEM_RE = re.compile(r"(题干|已知|求证|设|证明|计算|求)")
 
 
 def json_path(path: Path) -> str:
@@ -102,18 +104,26 @@ def is_import_markdown(path: Path) -> bool:
     return name.endswith(".pdf.md") or name.endswith(".raw.md") or name.endswith(".pdf.raw.md")
 
 
+def is_raw_import_markdown(path: Path) -> bool:
+    return path.name.lower().endswith(".raw.md")
+
+
+def is_repair_target_markdown(path: Path, header: str) -> bool:
+    return (is_import_markdown(path) and not is_raw_import_markdown(path)) or bool(frontmatter_value(header, "derived_from_import"))
+
+
 def iter_import_markdown(root: Path) -> list[tuple[Path, str | None]]:
     if root.is_file():
         if root.suffix.lower() != ".md":
             return []
         header = read_markdown_header(root)
-        return [(root, header)] if is_import_markdown(root) or frontmatter_value(header, "derived_from_import") else []
+        return [(root, header)] if is_repair_target_markdown(root, header) else []
     paths: list[tuple[Path, str | None]] = []
     for path in root.rglob("*.md"):
         if any(part in SKIP_DIRS for part in path.parts):
             continue
         header = read_markdown_header(path)
-        if is_import_markdown(path) or frontmatter_value(header, "derived_from_import"):
+        if is_repair_target_markdown(path, header):
             paths.append((path, header))
     return sorted(paths, key=lambda item: item[0].as_posix().lower())
 
@@ -186,7 +196,6 @@ def candidate_pages_for(text: str, snippets: list[dict[str, object]]) -> list[in
     for index, line in enumerate(text.splitlines(), start=1):
         match = re.search(r"(?:^##\s+Page|<!--\s*PART\s+\d+:\s+pages)\s+(\d+)", line, flags=re.I)
         if match:
-            pages.add(int(match.group(1)))
             page_markers.append((index, int(match.group(1))))
     for snippet in snippets:
         line = snippet.get("line")
@@ -196,6 +205,11 @@ def candidate_pages_for(text: str, snippets: list[dict[str, object]]) -> list[in
         if previous:
             pages.add(previous[-1])
     return sorted(page for page in pages if page > 0)[:6]
+
+
+def has_question_stem(text: str) -> bool:
+    head = SOLUTION_LEAD_RE.sub("", text[:3000], count=1)
+    return bool(QUESTION_STEM_RE.search(head))
 
 
 def section_id(title: str, line: int) -> str:
@@ -419,8 +433,7 @@ def extra_risks(path: Path, text: str, frontmatter: dict[str, str], *, decode_er
         risks.append({"code": "ocr-symbol-garbage", "count": symbol_garbage_count})
 
     if re.search(r"(答案|参考答案|解析)", path.name) and re.search(r"(?m)^\s*(?:解|证明|答)[:：]", text):
-        has_question_stem = bool(re.search(r"(题干|已知|求证|设|证明|计算|求)", text[:3000]))
-        if not has_question_stem:
+        if not has_question_stem(text):
             risks.append({"code": "answer-missing-question-stem", "count": 1})
     return risks
 
@@ -494,6 +507,7 @@ def build_queue_item(root: Path, path: Path, *, text: str | None = None, decode_
 
 def build_queue(root: Path, *, include_verified: bool = False) -> dict[str, object]:
     root = root.resolve()
+    state_root = root.parent if root.is_file() else root
     scanned = 0
     skipped_verified = 0
     items: list[dict[str, object]] = []
@@ -503,15 +517,18 @@ def build_queue(root: Path, *, include_verified: bool = False) -> dict[str, obje
             skipped_verified += 1
             continue
         text, decode_error = read_markdown(path)
-        item = build_queue_item(root, path, text=text, decode_error=decode_error)
+        if is_verified(text) and not include_verified:
+            skipped_verified += 1
+            continue
+        item = build_queue_item(state_root, path, text=text, decode_error=decode_error)
         if item:
             items.append(item)
 
-    queue_path = root / STATE_DIR / QUEUE_NAME
+    queue_path = state_root / STATE_DIR / QUEUE_NAME
     return {
         "schema_version": SCHEMA_VERSION,
         "ok": True,
-        "target_root": json_path(root),
+        "target_root": json_path(state_root),
         "queue_path": json_path(queue_path),
         "counts": {
             "scanned": scanned,
@@ -543,6 +560,32 @@ def main() -> int:
     args = parser.parse_args()
 
     target = Path(args.target).expanduser().resolve()
+    if not target.exists():
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "ok": False,
+            "stage": "resolve-target",
+            "error": "Target path does not exist.",
+            "target": json_path(target),
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(payload["error"])
+        return 2
+    if target.is_file() and target.suffix.lower() != ".md":
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "ok": False,
+            "stage": "resolve-target",
+            "error": "Target file must be a markdown sidecar.",
+            "target": json_path(target),
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(payload["error"])
+        return 2
     payload = build_queue(target, include_verified=args.include_verified)
     if args.write_queue:
         write_queue(payload)

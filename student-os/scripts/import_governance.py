@@ -74,7 +74,16 @@ def ensure_field(text: str, key: str, value: str) -> str:
     frontmatter = text[start:insert_at]
     pattern = re.compile(rf"(?m)^{re.escape(key)}:[^\S\r\n]*[^\r\n]*$")
     if pattern.search(frontmatter):
-        return text[:start] + pattern.sub(replacement, frontmatter, count=1) + text[insert_at:]
+        replaced = False
+
+        def replace_once(match: re.Match[str]) -> str:
+            nonlocal replaced
+            if replaced:
+                return ""
+            replaced = True
+            return replacement
+
+        return text[:start] + pattern.sub(replace_once, frontmatter) + text[insert_at:]
     insert_at = text.rfind("---", 0, end)
     if insert_at == -1:
         return text
