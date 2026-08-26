@@ -1724,6 +1724,7 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Repair case should expose a stable schema version: {case_payload}")
     case_state = json.loads(case_json.read_text(encoding="utf-8"))
     evidence_sha256 = case_state["evidence_sha256"]
+    case_digest = case_state["case_sha256"]
 
     vision_payload = json.loads(
         run_script(
@@ -1752,6 +1753,7 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         f"<!-- student-os-target: {risky_md} -->\n\n"
         f"<!-- student-os-target-sha256: {paths['source.pdf.md']['content_sha256']} -->\n"
         f"<!-- student-os-case-json: {case_json} -->\n"
+        f"<!-- student-os-case-sha256: {case_digest} -->\n"
         f"<!-- student-os-evidence-sha256: {evidence_sha256} -->\n"
         "<!-- student-os-evidence-mode: text-only -->\n"
         "<!-- student-os-model-capability: text-only -->\n"
@@ -1810,6 +1812,7 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         f"<!-- student-os-target: {risky_md} -->\n\n"
         f"<!-- student-os-target-sha256: {paths['source.pdf.md']['content_sha256']} -->\n"
         f"<!-- student-os-case-json: {case_json} -->\n"
+        f"<!-- student-os-case-sha256: {case_digest} -->\n"
         f"<!-- student-os-evidence-sha256: {evidence_sha256} -->\n"
         "<!-- student-os-evidence-mode: text-only -->\n"
         "<!-- student-os-model-capability: text-only -->\n"

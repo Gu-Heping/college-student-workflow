@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STUDENT_OS_SCRIPTS = ROOT / "student-os" / "scripts"
 sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
 from repair_import_queue import decode_yaml_path  # noqa: E402
-from repair_import_case import object_sha256  # noqa: E402
+from repair_import_case import case_sha256, object_sha256  # noqa: E402
 
 
 def run_student_script(name: str, *args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -204,6 +204,7 @@ def main() -> int:
         semantic_case_json = Path(str(semantic_case["case_json"]))
         semantic_case_state = json.loads(semantic_case_json.read_text(encoding="utf-8"))
         semantic_evidence_sha = semantic_case_state["evidence_sha256"]
+        semantic_case_digest = semantic_case_state["case_sha256"]
 
         answer_item = by_name["2014参考答案.pdf.md"]
         if answer_item["repair_class"] != "answer-paper-crosscheck":
@@ -245,6 +246,7 @@ def main() -> int:
             f"<!-- student-os-target: {paths['semantic']} -->\n\n"
             f"<!-- student-os-target-sha256: {semantic_item['content_sha256']} -->\n"
             f"<!-- student-os-case-json: {semantic_case_json} -->\n"
+            f"<!-- student-os-case-sha256: {semantic_case_digest} -->\n"
             f"<!-- student-os-evidence-sha256: {semantic_evidence_sha} -->\n"
             "<!-- student-os-evidence-mode: text-only -->\n"
             "<!-- student-os-model-capability: text-only -->\n"
@@ -278,6 +280,7 @@ def main() -> int:
             f"<!-- student-os-target: {paths['semantic']} -->\n\n"
             "<!-- student-os-target-sha256: 0000000000000000000000000000000000000000000000000000000000000000 -->\n"
             f"<!-- student-os-case-json: {semantic_case_json} -->\n"
+            f"<!-- student-os-case-sha256: {semantic_case_digest} -->\n"
             f"<!-- student-os-evidence-sha256: {semantic_evidence_sha} -->\n"
             "<!-- student-os-evidence-mode: text-only -->\n"
             "<!-- student-os-model-capability: text-only -->\n"
@@ -306,6 +309,7 @@ def main() -> int:
         )
         legacy_case_json = Path(str(legacy_case["case_json"]))
         legacy_case_state = json.loads(legacy_case_json.read_text(encoding="utf-8"))
+        legacy_case_digest = legacy_case_state["case_sha256"]
         clean = vault / ".student-os" / "import-repair" / "proposals" / "clean.md"
         write_text(
             clean,
@@ -314,6 +318,7 @@ def main() -> int:
             f"<!-- student-os-target: {paths['legacy']} -->\n\n"
             f"<!-- student-os-target-sha256: {legacy_item['content_sha256']} -->\n"
             f"<!-- student-os-case-json: {legacy_case_json} -->\n"
+            f"<!-- student-os-case-sha256: {legacy_case_digest} -->\n"
             f"<!-- student-os-evidence-sha256: {legacy_case_state['evidence_sha256']} -->\n"
             "<!-- student-os-evidence-mode: text-only -->\n"
             "<!-- student-os-model-capability: text-only -->\n"
@@ -345,6 +350,7 @@ def main() -> int:
             f"<!-- student-os-target: {paths['legacy']} -->\n\n"
             f"<!-- student-os-target-sha256: {legacy_item['content_sha256']} -->\n"
             f"<!-- student-os-case-json: {semantic_case_json} -->\n"
+            f"<!-- student-os-case-sha256: {semantic_case_digest} -->\n"
             f"<!-- student-os-evidence-sha256: {semantic_evidence_sha} -->\n"
             "<!-- student-os-evidence-mode: text-only -->\n"
             "<!-- student-os-model-capability: text-only -->\n"
@@ -359,6 +365,56 @@ def main() -> int:
         if not any(issue["code"] == "proposal-case-target-mismatch" for issue in cross_review["issues"]):  # type: ignore[index]
             raise AssertionError(f"Cross-target case should fail review: {cross_review}")
 
+        missing_queue_case = vault / ".student-os" / "import-repair" / "evidence" / "missing-queue-case.json"
+        missing_queue_payload = json.loads(legacy_case_json.read_text(encoding="utf-8"))
+        missing_queue_payload.pop("queue_item", None)
+        missing_queue_payload["case_sha256"] = case_sha256(missing_queue_payload)
+        write_text(missing_queue_case, json.dumps(missing_queue_payload, ensure_ascii=False, indent=2) + "\n")
+        missing_queue_proposal = vault / ".student-os" / "import-repair" / "proposals" / "missing-queue.md"
+        write_text(
+            missing_queue_proposal,
+            "# Missing queue proposal\n\n"
+            "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+            f"<!-- student-os-target: {paths['legacy']} -->\n\n"
+            f"<!-- student-os-target-sha256: {legacy_item['content_sha256']} -->\n"
+            f"<!-- student-os-case-json: {missing_queue_case} -->\n"
+            f"<!-- student-os-case-sha256: {missing_queue_payload['case_sha256']} -->\n"
+            f"<!-- student-os-evidence-sha256: {legacy_case_state['evidence_sha256']} -->\n"
+            "<!-- student-os-evidence-mode: text-only -->\n"
+            "<!-- student-os-model-capability: text-only -->\n"
+            "<!-- student-os-changed-sections: line-1 -->\n"
+            "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+            "<!-- student-os-replacement-start -->\n"
+            "---\nsource_file: legacy.pdf\nrepair_status: auto-repaired\nverify_status: unverified\n---\n\n"
+            "Readable body.\n"
+            "<!-- student-os-replacement-end -->\n",
+        )
+        missing_queue_review = run_json("repair_import_review.py", "--proposal", str(missing_queue_proposal), "--json", cwd=vault, expect_ok=False)
+        if not any(issue["code"] == "proposal-case-queue-item-missing" for issue in missing_queue_review["issues"]):  # type: ignore[index]
+            raise AssertionError(f"Case without queue_item should fail review: {missing_queue_review}")
+
+        erased_body = vault / ".student-os" / "import-repair" / "proposals" / "erased-body.md"
+        write_text(
+            erased_body,
+            "# Erased body proposal\n\n"
+            "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+            f"<!-- student-os-target: {paths['legacy']} -->\n\n"
+            f"<!-- student-os-target-sha256: {legacy_item['content_sha256']} -->\n"
+            f"<!-- student-os-case-json: {legacy_case_json} -->\n"
+            f"<!-- student-os-case-sha256: {legacy_case_digest} -->\n"
+            f"<!-- student-os-evidence-sha256: {legacy_case_state['evidence_sha256']} -->\n"
+            "<!-- student-os-evidence-mode: text-only -->\n"
+            "<!-- student-os-model-capability: text-only -->\n"
+            "<!-- student-os-changed-sections: line-1 -->\n"
+            "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+            "<!-- student-os-replacement-start -->\n"
+            "---\nsource_file: legacy.pdf\nrepair_status: auto-repaired\nverify_status: unverified\n---\n\n"
+            "<!-- student-os-replacement-end -->\n",
+        )
+        erased_review = run_json("repair_import_review.py", "--proposal", str(erased_body), "--json", cwd=vault, expect_ok=False)
+        if not any(issue["code"] == "replacement-body-erased" for issue in erased_review["issues"]):  # type: ignore[index]
+            raise AssertionError(f"Unnumbered content erasure should fail review: {erased_review}")
+
         invalid_case = vault / ".student-os" / "import-repair" / "evidence" / "invalid-case.json"
         invalid_case_payload = json.loads(legacy_case_json.read_text(encoding="utf-8"))
         invalid_case_payload["schema_version"] = "import-repair-case/v0"
@@ -371,6 +427,7 @@ def main() -> int:
             f"<!-- student-os-target: {paths['legacy']} -->\n\n"
             f"<!-- student-os-target-sha256: {legacy_item['content_sha256']} -->\n"
             f"<!-- student-os-case-json: {invalid_case} -->\n"
+            f"<!-- student-os-case-sha256: {legacy_case_digest} -->\n"
             f"<!-- student-os-evidence-sha256: {legacy_case_state['evidence_sha256']} -->\n"
             "<!-- student-os-evidence-mode: text-only -->\n"
             "<!-- student-os-model-capability: text-only -->\n"
@@ -402,6 +459,7 @@ def main() -> int:
             "evidence": fake_vision_evidence,
             "evidence_sha256": object_sha256(fake_vision_evidence),
         }
+        fake_vision_payload["case_sha256"] = case_sha256(fake_vision_payload)
         write_text(fake_vision_case, json.dumps(fake_vision_payload, ensure_ascii=False, indent=2) + "\n")
         fake_vision_proposal = vault / ".student-os" / "import-repair" / "proposals" / "fake-vision.md"
         write_text(
@@ -411,6 +469,7 @@ def main() -> int:
             f"<!-- student-os-target: {paths['legacy']} -->\n\n"
             f"<!-- student-os-target-sha256: {legacy_item['content_sha256']} -->\n"
             f"<!-- student-os-case-json: {fake_vision_case} -->\n"
+            f"<!-- student-os-case-sha256: {fake_vision_payload['case_sha256']} -->\n"
             f"<!-- student-os-evidence-sha256: {fake_vision_payload['evidence_sha256']} -->\n"
             "<!-- student-os-evidence-mode: vision-assisted -->\n"
             "<!-- student-os-model-capability: vision -->\n"

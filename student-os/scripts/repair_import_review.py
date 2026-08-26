@@ -6,8 +6,8 @@ import json
 import re
 from pathlib import Path
 
-from import_governance import diagnose_import_risks, frontmatter_value, mark_auto_repaired
-from repair_import_case import PROPOSAL_SCHEMA_VERSION, extract_replacement, json_path, load_json, object_sha256
+from import_governance import diagnose_import_risks, frontmatter_value, mark_auto_repaired, read_frontmatter
+from repair_import_case import PROPOSAL_SCHEMA_VERSION, case_sha256, extract_replacement, json_path, load_json, object_sha256
 from repair_import_queue import SCHEMA_VERSION as QUEUE_SCHEMA_VERSION
 from repair_import_queue import file_sha256
 
@@ -47,6 +47,18 @@ def question_numbers(text: str) -> list[str]:
 def proposal_metadata(proposal_path: Path) -> dict[str, str]:
     text = proposal_path.read_text(encoding="utf-8", errors="replace")
     return {match.group("key"): match.group("value").strip() for match in META_RE.finditer(text)}
+
+
+def markdown_body(text: str) -> str:
+    parsed = read_frontmatter(text)
+    if parsed is None:
+        return text
+    _data, _start, end = parsed
+    return text[end:]
+
+
+def compact_visible_text(text: str) -> str:
+    return re.sub(r"\s+", "", markdown_body(text))
 
 
 def issue(code: str, message: str, *, severity: str = "error", detail: object | None = None) -> dict[str, object]:
@@ -93,6 +105,7 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
         issues.append(issue("proposal-remaining-risks-missing", "Proposal must declare remaining human-review risks."))
     case_payload: dict[str, object] | None = None
     case_json_value = metadata.get("case-json", "")
+    case_sha_value = metadata.get("case-sha256", "")
     evidence_sha_value = metadata.get("evidence-sha256", "")
     if not case_json_value:
         issues.append(issue("proposal-case-json-missing", "Proposal must bind to the generated case JSON artifact."))
@@ -115,9 +128,32 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                     issues.append(issue("proposal-case-not-ok", "Proposal case JSON is not marked ok."))
             except (OSError, json.JSONDecodeError) as exc:
                 issues.append(issue("proposal-case-json-invalid", f"Proposal case JSON cannot be read: {exc}"))
+    if not case_sha_value:
+        issues.append(issue("proposal-case-sha256-missing", "Proposal must bind to the full generated case hash."))
+    elif case_payload is not None:
+        stored_case_sha = str(case_payload.get("case_sha256") or "")
+        actual_case_sha = case_sha256(case_payload)
+        if stored_case_sha != case_sha_value:
+            issues.append(
+                issue(
+                    "proposal-case-hash-mismatch",
+                    "Proposal case hash does not match the bound case JSON hash.",
+                    detail={"proposal": case_sha_value, "case": stored_case_sha},
+                )
+            )
+        if actual_case_sha != case_sha_value:
+            issues.append(
+                issue(
+                    "proposal-case-stale",
+                    "Proposal case hash does not match the current case JSON payload.",
+                    detail={"expected": case_sha_value, "actual": actual_case_sha},
+                )
+            )
     queue_item = case_payload.get("queue_item") if isinstance(case_payload, dict) else None
     if not isinstance(queue_item, dict):
         queue_item = None
+        if case_payload is not None:
+            issues.append(issue("proposal-case-queue-item-missing", "Bound case JSON must include a complete queue_item."))
     if not evidence_sha_value:
         issues.append(issue("proposal-evidence-sha256-missing", "Proposal must bind to the generated evidence hash."))
     elif case_payload is not None:
@@ -267,6 +303,16 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
             )
     old_numbers = question_numbers(original_text)
     new_numbers = question_numbers(replacement)
+    original_visible = compact_visible_text(original_text)
+    replacement_visible = compact_visible_text(replacement)
+    if not old_numbers and original_visible and len(replacement_visible) < max(1, min(80, len(original_visible) // 5)):
+        issues.append(
+            issue(
+                "replacement-body-erased",
+                "Replacement removes most unnumbered imported content from the current sidecar.",
+                detail={"before_chars": len(original_visible), "after_chars": len(replacement_visible)},
+            )
+        )
     if old_numbers and len(new_numbers) < len(old_numbers):
         issues.append(
             issue(

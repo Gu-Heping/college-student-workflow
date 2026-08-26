@@ -240,7 +240,7 @@ python student-os/scripts/repair_import_apply.py --proposal <proposal.md> --requ
 
 AI 可以根据 case、raw import、repair summary、同目录试卷/答案和原 PDF 路径提出修复；文本模型默认 `text-only`，多模态模型可用 `vision-assisted` 渲染候选 PDF 页作为证据。输出仍保持 `verify_status: unverified`，直到人工对照原文确认。
 
-Proposal 必须使用 case 中的 metadata markers（包括 `student-os-target-sha256`、`student-os-case-json`、`student-os-evidence-sha256`），并先通过 `repair_import_review.py`；`repair_import_apply.py` 始终拒绝未通过 review 的 proposal。如果没有候选页，`vision-assisted` 不会随意渲染整本 PDF；它会把证据状态报告为 unavailable/blocked，避免把猜测包装成核对。
+Proposal 必须使用 case 中的 metadata markers（包括 `student-os-target-sha256`、`student-os-case-json`、`student-os-case-sha256`、`student-os-evidence-sha256`），并先通过 `repair_import_review.py`；`repair_import_apply.py` 始终拒绝未通过 review 的 proposal。如果没有候选页，`vision-assisted` 不会随意渲染整本 PDF；它会把证据状态报告为 unavailable/blocked，避免把猜测包装成核对。
 
 导入 PDF/DOCX 等前，先安装可选依赖：
 

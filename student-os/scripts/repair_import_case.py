@@ -28,6 +28,14 @@ def object_sha256(payload: object) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def case_integrity_payload(case_payload: dict[str, object]) -> dict[str, object]:
+    return {key: value for key, value in case_payload.items() if key != "case_sha256"}
+
+
+def case_sha256(case_payload: dict[str, object]) -> str:
+    return object_sha256(case_integrity_payload(case_payload))
+
+
 def find_queue(start: Path) -> Path | None:
     start = start.resolve()
     candidates = [start, *start.parents] if start.is_dir() else [start.parent, *start.parent.parents]
@@ -207,6 +215,7 @@ def write_case_json(root: Path, item: dict[str, object], evidence_payload: dict[
         "evidence": evidence_payload,
         "evidence_sha256": object_sha256(evidence_payload),
     }
+    payload["case_sha256"] = case_sha256(payload)
     case_json.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -221,6 +230,15 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
     evidence = source_evidence(item, target)
     case_json = Path(str(evidence_payload["state_dir"])) / "case.json"
     evidence_digest = object_sha256(evidence_payload)
+    case_digest = case_sha256(
+        {
+            "schema_version": SCHEMA_VERSION,
+            "ok": True,
+            "queue_item": item,
+            "evidence": evidence_payload,
+            "evidence_sha256": evidence_digest,
+        }
+    )
     risk_lines = "\n".join(f"- `{risk}`" for risk in item.get("risk_codes", [])) or "- none"
     sections = item.get("suspect_sections") or item.get("sections") or []
     section_lines: list[str] = []
@@ -323,6 +341,7 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
             f"<!-- student-os-target: {json_path(target)} -->",
             f"<!-- student-os-target-sha256: {item.get('content_sha256') or file_sha256(target)} -->",
             f"<!-- student-os-case-json: {json_path(case_json)} -->",
+            f"<!-- student-os-case-sha256: {case_digest} -->",
             f"<!-- student-os-evidence-sha256: {evidence_digest} -->",
             f"<!-- student-os-evidence-mode: {evidence_payload.get('mode', 'text-only')} -->",
             "<!-- student-os-model-capability: text-only|vision -->",
