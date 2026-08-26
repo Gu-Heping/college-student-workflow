@@ -81,6 +81,35 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         "解：先证相似矩阵有相同特征值。\n",
     )
 
+    vision = imports / "2015-proof.pdf.md"
+    write_text(
+        vision,
+        "---\n"
+        "source_file: 2015-proof.pdf\n"
+        "import_method: mineru-agent-v1\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "三. 根据图片重建下列证明。\n"
+        "\n"
+        "证明：� � � □，故结论成立。\n",
+    )
+    (imports / "2015-proof.pdf").write_bytes(b"%PDF-1.4\n% no real pages in eval placeholder\n")
+
+    missing_pdf = imports / "2017-missing-source.pdf.md"
+    write_text(
+        missing_pdf,
+        "---\n"
+        "source_file: missing-2017.pdf\n"
+        "import_method: mineru-agent-v1\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "四. \\boxplus \\ Y Y \\ Y\n",
+    )
+
     verified = imports / "verified.pdf.md"
     write_text(
         verified,
@@ -93,7 +122,7 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         "\n"
         "Broken $x\n",
     )
-    return {"semantic": semantic, "answer": answer, "verified": verified}
+    return {"semantic": semantic, "answer": answer, "vision": vision, "missing_pdf": missing_pdf, "verified": verified}
 
 
 def main() -> int:
@@ -117,11 +146,43 @@ def main() -> int:
         if answer_item["blocked"] not in {"unrecoverable-with-current-evidence", "requires-vision-evidence"}:
             raise AssertionError(f"Missing source answer fixture should be explicitly blocked: {answer_item}")
 
+        vision_item = by_name["2015-proof.pdf.md"]
+        if vision_item["recommended_evidence_mode"] != "vision-assisted":
+            raise AssertionError(f"Image-grounded reconstruction fixture should require vision: {vision_item}")
+        if vision_item["evidence"]["candidate_pages"]:  # type: ignore[index]
+            raise AssertionError(f"Placeholder PDF should not produce fake candidate pages: {vision_item}")
+        vision_case = run_json(
+            "repair_import_case.py",
+            "--queue",
+            str(vault / ".student-os" / "import-repair" / "queue.json"),
+            "--queue-item",
+            str(vision_item["id"]),
+            "--evidence-mode",
+            "vision-assisted",
+            "--json",
+            cwd=vault,
+        )
+        vision_result = vision_case["evidence"].get("vision", {})  # type: ignore[index]
+        if vision_result.get("ok") is True:
+            raise AssertionError(f"Vision case should not render arbitrary pages without page hints: {vision_case}")
+        if vision_result.get("reason") not in {"page-hint-unavailable", "source-pdf-unavailable"}:
+            raise AssertionError(f"Vision unavailable reason should be explicit: {vision_case}")
+
+        missing_pdf_item = by_name["2017-missing-source.pdf.md"]
+        if missing_pdf_item["blocked"] != "requires-vision-evidence":
+            raise AssertionError(f"Missing PDF semantic fixture should be blocked on vision evidence: {missing_pdf_item}")
+
         proposal = vault / ".student-os" / "import-repair" / "proposals" / "bad.md"
         write_text(
             proposal,
             "# Bad proposal\n\n"
+            "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
             f"<!-- student-os-target: {paths['semantic']} -->\n\n"
+            f"<!-- student-os-target-sha256: {semantic_item['content_sha256']} -->\n"
+            "<!-- student-os-evidence-mode: text-only -->\n"
+            "<!-- student-os-model-capability: text-only -->\n"
+            "<!-- student-os-changed-sections: line-1 -->\n"
+            "<!-- student-os-remaining-risks: human-review-required -->\n\n"
             "<!-- student-os-replacement-start -->\n"
             "---\nrepair_status: auto-repaired\nverify_status: verified\n---\n\n"
             "五. Broken $x\n"
@@ -141,6 +202,26 @@ def main() -> int:
         )
         if apply_result["stage"] != "review":
             raise AssertionError(f"Apply should stop at review for bad proposal: {apply_result}")
+
+        stale = vault / ".student-os" / "import-repair" / "proposals" / "stale.md"
+        write_text(
+            stale,
+            "# Stale proposal\n\n"
+            "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+            f"<!-- student-os-target: {paths['semantic']} -->\n\n"
+            "<!-- student-os-target-sha256: 0000000000000000000000000000000000000000000000000000000000000000 -->\n"
+            "<!-- student-os-evidence-mode: text-only -->\n"
+            "<!-- student-os-model-capability: text-only -->\n"
+            "<!-- student-os-changed-sections: line-1 -->\n"
+            "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+            "<!-- student-os-replacement-start -->\n"
+            "---\nrepair_status: auto-repaired\nverify_status: unverified\n---\n\n"
+            "五. Clean $x$.\n"
+            "<!-- student-os-replacement-end -->\n",
+        )
+        stale_review = run_json("repair_import_review.py", "--proposal", str(stale), "--json", cwd=vault, expect_ok=False)
+        if not any(issue["code"] == "proposal-target-stale" for issue in stale_review["issues"]):  # type: ignore[index]
+            raise AssertionError(f"Stale proposal hash should fail review: {stale_review}")
 
     print("OK import-repair-evals")
     return 0

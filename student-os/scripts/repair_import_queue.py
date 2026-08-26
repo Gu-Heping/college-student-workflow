@@ -21,6 +21,7 @@ from import_governance import (
 
 STATE_DIR = Path(".student-os") / "import-repair"
 QUEUE_NAME = "queue.json"
+SCHEMA_VERSION = "import-repair-queue/v1"
 SKIP_DIRS = {".git", ".student-os", "node_modules", "__pycache__"}
 FORMAT_RISKS = {
     "unicode-escape",
@@ -51,6 +52,14 @@ def stable_id(root: Path, path: Path) -> str:
         rel = path.resolve().as_posix()
     digest = hashlib.sha1(rel.encode("utf-8")).hexdigest()[:10]
     return f"import-repair-{digest}"
+
+
+def file_sha256(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
 def relative_path(root: Path, path: Path) -> str:
@@ -185,6 +194,88 @@ def candidate_pages_for(text: str, snippets: list[dict[str, object]]) -> list[in
     return sorted(page for page in pages if page > 0)[:6]
 
 
+def section_id(title: str, line: int) -> str:
+    digest = hashlib.sha1(f"{line}:{title}".encode("utf-8", errors="replace")).hexdigest()[:8]
+    return f"section-{line}-{digest}"
+
+
+def split_sections(text: str) -> list[dict[str, object]]:
+    lines = text.splitlines()
+    starts: list[tuple[int, str]] = []
+    pattern = re.compile(r"^\s*(?:#{1,3}\s*)?(?:第?\s*)?(?:[一二三四五六七八九十]+|[0-9]+)[\.、．)]")
+    for index, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if re.match(r"^#{1,3}\s+\S", stripped) or pattern.match(stripped):
+            starts.append((index, stripped[:120]))
+    if not starts:
+        return []
+    sections: list[dict[str, object]] = []
+    for offset, (start_line, title) in enumerate(starts):
+        end_line = starts[offset + 1][0] - 1 if offset + 1 < len(starts) else len(lines)
+        body = "\n".join(lines[start_line - 1 : min(end_line, start_line + 11)])
+        sections.append(
+            {
+                "id": section_id(title, start_line),
+                "title": title,
+                "start_line": start_line,
+                "end_line": end_line,
+                "excerpt": body,
+            }
+        )
+    return sections[:24]
+
+
+def sections_for_snippets(sections: list[dict[str, object]], snippets: list[dict[str, object]]) -> list[dict[str, object]]:
+    selected: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for snippet in snippets:
+        line = snippet.get("line")
+        if not isinstance(line, int):
+            continue
+        for section in sections:
+            start = section.get("start_line")
+            end = section.get("end_line")
+            if isinstance(start, int) and isinstance(end, int) and start <= line <= end:
+                section_key = str(section["id"])
+                if section_key not in seen:
+                    selected.append(section)
+                    seen.add(section_key)
+                break
+    return selected
+
+
+def pdf_text_candidate_pages(source_path: Path | None, snippets: list[dict[str, object]]) -> list[int]:
+    if source_path is None or not source_path.exists() or source_path.suffix.lower() != ".pdf":
+        return []
+    probes: list[str] = []
+    for snippet in snippets:
+        excerpt_text = str(snippet.get("excerpt", ""))
+        for line in excerpt_text.splitlines():
+            normalized = re.sub(r"\s+", " ", line).strip()
+            if len(normalized) >= 12 and not re.search(r"[�□\\]", normalized):
+                probes.append(normalized[:80])
+                break
+    if not probes:
+        return []
+    try:
+        import fitz  # type: ignore[import-not-found]
+    except ImportError:
+        return []
+    pages: set[int] = set()
+    try:
+        document = fitz.open(str(source_path))
+    except Exception:
+        return []
+    try:
+        for page_index in range(document.page_count):
+            page_text = re.sub(r"\s+", " ", document.load_page(page_index).get_text("text"))
+            if any(probe in page_text for probe in probes):
+                pages.add(page_index + 1)
+    finally:
+        document.close()
+    return sorted(pages)[:6]
+
+
 def classify_evidence(
     path: Path,
     text: str,
@@ -199,7 +290,7 @@ def classify_evidence(
     source_exists = bool(source_path and source_path.exists())
     raw_exists = bool(raw_path and raw_path.exists())
     paired_exists = bool(paired and paired.exists())
-    candidate_pages = candidate_pages_for(text, snippets)
+    candidate_pages = sorted(set(candidate_pages_for(text, snippets)) | set(pdf_text_candidate_pages(source_path, snippets)))[:6]
 
     if risk_codes <= {"unicode-escape", "legacy-repaired-unverified", "frontmatter-repair-risk"}:
         repair_class = "metadata-only"
@@ -237,21 +328,26 @@ def classify_evidence(
             "declared": decode_yaml_path(frontmatter.get("source_file", "")),
             "path": json_path(source_path) if source_path else "",
             "exists": source_exists,
+            "status": "available" if source_exists else ("missing" if source_path else "undeclared"),
         },
         "raw_import": {
             "declared": decode_yaml_path(frontmatter.get("derived_from_import", "")),
             "path": json_path(raw_path) if raw_path else "",
             "exists": raw_exists,
+            "status": "available" if raw_exists else ("missing" if frontmatter.get("derived_from_import", "") else "undeclared"),
         },
         "repair_summary": {
             "path": json_path(find_repair_summary(path)) if find_repair_summary(path) else "",
             "exists": find_repair_summary(path) is not None,
+            "status": "available" if find_repair_summary(path) else "missing",
         },
         "paired_sidecar": {
             "path": json_path(paired) if paired else "",
             "exists": paired_exists,
+            "status": "available" if paired_exists else "missing",
         },
         "candidate_pages": candidate_pages,
+        "source_evidence": "available" if source_exists or raw_exists or paired_exists else "unavailable",
         "notes": [
             "Use OCR to create or refresh text evidence; do not overwrite repaired markdown directly.",
             "Use vision evidence only for local page/crop grounding, not as a substitute for human verification.",
@@ -361,10 +457,14 @@ def build_queue_item(root: Path, path: Path) -> dict[str, object] | None:
         if (snippet := first_snippet_for_risk(text, str(risk["code"]))) is not None
     ]
     evidence = classify_evidence(path, text, risks, frontmatter, snippets)
+    sections = split_sections(text)
+    suspect_sections = sections_for_snippets(sections, snippets)
     item = {
+        "schema_version": SCHEMA_VERSION,
         "id": stable_id(root, path),
         "path": json_path(path),
         "relative_path": relative_path(root, path),
+        "content_sha256": file_sha256(path),
         "source_file": decode_yaml_path(frontmatter.get("source_file", "")),
         "raw_import": json_path(raw_path) if raw_path else "",
         "repair_summary": json_path(summary_path) if summary_path else "",
@@ -375,6 +475,8 @@ def build_queue_item(root: Path, path: Path) -> dict[str, object] | None:
         "risk_codes": [str(risk["code"]) for risk in risks],
         "risks": risks,
         "snippets": snippets[:8],
+        "sections": sections,
+        "suspect_sections": suspect_sections,
         "evidence": evidence,
         "repair_class": evidence["class"],
         "recommended_evidence_mode": evidence["recommended_mode"],
@@ -401,6 +503,7 @@ def build_queue(root: Path, *, include_verified: bool = False) -> dict[str, obje
 
     queue_path = root / STATE_DIR / QUEUE_NAME
     return {
+        "schema_version": SCHEMA_VERSION,
         "ok": True,
         "target_root": json_path(root),
         "queue_path": json_path(queue_path),

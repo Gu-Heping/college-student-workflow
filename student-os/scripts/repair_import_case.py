@@ -7,9 +7,11 @@ import re
 from pathlib import Path
 
 from import_governance import ensure_field, mark_auto_repaired
-from repair_import_queue import STATE_DIR, build_queue_item, json_path, relative_path
+from repair_import_queue import STATE_DIR, build_queue_item, file_sha256, json_path, relative_path
 
 
+SCHEMA_VERSION = "import-repair-case/v1"
+PROPOSAL_SCHEMA_VERSION = "import-repair-proposal/v1"
 REPLACEMENT_START = "<!-- student-os-replacement-start -->"
 REPLACEMENT_END = "<!-- student-os-replacement-end -->"
 EVIDENCE_MODES = {"auto", "text-only", "ocr-assisted", "vision-assisted"}
@@ -108,6 +110,13 @@ def source_evidence(item: dict[str, object], target: Path) -> dict[str, object]:
 
 def render_pdf_pages(source_pdf: Path, output_dir: Path, pages: list[int]) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    if not pages:
+        return {
+            "ok": False,
+            "reason": "page-hint-unavailable",
+            "pages": [],
+            "note": "No candidate page was located; do not render arbitrary pages as evidence.",
+        }
     try:
         import fitz  # type: ignore[import-not-found]
     except ImportError:
@@ -121,8 +130,7 @@ def render_pdf_pages(source_pdf: Path, output_dir: Path, pages: list[int]) -> di
     written: list[dict[str, object]] = []
     document = fitz.open(str(source_pdf))
     try:
-        selected = pages or [1]
-        for page_number in selected[:6]:
+        for page_number in pages[:6]:
             if page_number < 1 or page_number > document.page_count:
                 continue
             page = document.load_page(page_number - 1)
@@ -144,6 +152,7 @@ def prepare_evidence(root: Path, item: dict[str, object], *, evidence_mode: str)
     item_id = str(item.get("id") or "repair-case")
     state_dir = root / STATE_DIR / "evidence" / item_id
     payload: dict[str, object] = {
+        "schema_version": SCHEMA_VERSION,
         "mode": selected_mode,
         "recommended_mode": recommended,
         "blocked": evidence.get("blocked", "") if isinstance(evidence, dict) else "",
@@ -174,7 +183,17 @@ def write_case_json(root: Path, item: dict[str, object], evidence_payload: dict[
     state_dir.mkdir(parents=True, exist_ok=True)
     case_json = state_dir / "case.json"
     case_json.write_text(
-        json.dumps({"ok": True, "queue_item": item, "evidence": evidence_payload}, ensure_ascii=False, indent=2) + "\n",
+        json.dumps(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "ok": True,
+                "queue_item": item,
+                "evidence": evidence_payload,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
         encoding="utf-8",
         newline="\n",
     )
@@ -186,6 +205,26 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
     summary_path = Path(str(item.get("repair_summary") or "")).resolve() if item.get("repair_summary") else None
     evidence = source_evidence(item, target)
     risk_lines = "\n".join(f"- `{risk}`" for risk in item.get("risk_codes", [])) or "- none"
+    sections = item.get("suspect_sections") or item.get("sections") or []
+    section_lines: list[str] = []
+    if isinstance(sections, list):
+        for section in sections[:8]:
+            if not isinstance(section, dict):
+                continue
+            section_lines.extend(
+                [
+                    f"### {section.get('id')} `{section.get('title', '')}`",
+                    "",
+                    f"- Lines: {section.get('start_line')}..{section.get('end_line')}",
+                    "",
+                    "```markdown",
+                    str(section.get("excerpt", "")),
+                    "```",
+                    "",
+                ]
+            )
+    if not section_lines:
+        section_lines = ["No section boundaries were detected.", ""]
     snippets = item.get("snippets", [])
     snippet_lines: list[str] = []
     if isinstance(snippets, list):
@@ -215,6 +254,9 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
             f"- Sidecar: `{relative_path(root, target)}`",
             f"- Repair status: `{item.get('repair_status', '')}`",
             f"- Verify status: `{item.get('verify_status', '')}`",
+            f"- Target sha256: `{item.get('content_sha256') or file_sha256(target)}`",
+            f"- Recommended evidence mode: `{item.get('recommended_evidence_mode', '')}`",
+            f"- Blocked: `{item.get('blocked', '')}`",
             "",
             "## Boundary",
             "",
@@ -235,6 +277,9 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
             "## Suspicious Snippets",
             "",
             *snippet_lines,
+            "## Suspect Sections",
+            "",
+            *section_lines,
             "## Repair Summary Excerpt",
             "",
             "```markdown",
@@ -255,9 +300,15 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
             "",
             "## Proposal Template",
             "",
-            "Explain evidence and remaining risks above the replacement block. Put the full replacement markdown inside:",
+            "Explain evidence and remaining risks above the replacement block. Keep these metadata markers accurate:",
             "",
+            f"<!-- student-os-proposal-schema: {PROPOSAL_SCHEMA_VERSION} -->",
             f"<!-- student-os-target: {json_path(target)} -->",
+            f"<!-- student-os-target-sha256: {item.get('content_sha256') or file_sha256(target)} -->",
+            f"<!-- student-os-evidence-mode: {evidence_payload.get('mode', 'text-only')} -->",
+            "<!-- student-os-model-capability: text-only|vision -->",
+            "<!-- student-os-changed-sections: section-id-or-line-range -->",
+            "<!-- student-os-remaining-risks: human-review-required -->",
             "",
             REPLACEMENT_START,
             "",
@@ -332,6 +383,7 @@ def main() -> int:
             evidence_mode=str(evidence_payload["mode"]),
         )
         payload = {
+            "schema_version": SCHEMA_VERSION,
             "ok": True,
             "applied": True,
             "target": json_path(target),
@@ -348,6 +400,7 @@ def main() -> int:
     markdown = render_case(root, item, target, evidence_payload)
     case_path = write_case(root, item, markdown) if args.write_case else None
     payload = {
+        "schema_version": SCHEMA_VERSION,
         "ok": True,
         "case_written": bool(case_path),
         "case_path": json_path(case_path) if case_path else "",

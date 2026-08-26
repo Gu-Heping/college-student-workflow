@@ -1570,6 +1570,7 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         "repair_risk: needs-human-review\n"
         "---\n"
         "\n"
+        "## Page 1\n"
         "## 一. OCR promoted heading\n"
         "Broken math $x\n"
         "Formula \\left( x + 1\n"
@@ -1626,6 +1627,8 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     paths = {Path(item["path"]).name: item for item in items}
     if queue_payload["counts"]["skipped_verified"] != 1:
         raise AssertionError(f"Verified imports should be skipped by default: {queue_payload}")
+    if queue_payload.get("schema_version") != "import-repair-queue/v1":
+        raise AssertionError(f"Queue should expose a stable schema version: {queue_payload}")
     if "verified.pdf.md" in paths:
         raise AssertionError(f"Verified import unexpectedly entered default queue: {queue_payload}")
     for expected in {"source.pdf.md", "legacy.pdf.md", "2016参考答案.pdf.md"}:
@@ -1648,6 +1651,10 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Answer sidecars without stems should use crosscheck classification: {paths['2016参考答案.pdf.md']}")
     if not paths["source.pdf.md"]["snippets"]:
         raise AssertionError(f"Queue items should include localized snippets: {paths['source.pdf.md']}")
+    if not paths["source.pdf.md"]["suspect_sections"]:
+        raise AssertionError(f"Queue items should include suspect sections: {paths['source.pdf.md']}")
+    if not paths["source.pdf.md"].get("content_sha256"):
+        raise AssertionError(f"Queue items should include a target content hash: {paths['source.pdf.md']}")
 
     include_verified_payload = json.loads(run_script("repair_import_queue.py", str(vault), "--include-verified", "--json"))
     include_paths = {Path(item["path"]).name for item in include_verified_payload["items"]}
@@ -1695,6 +1702,8 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Repair case should write machine-readable evidence state: {case_payload}")
     if case_payload["evidence"]["mode"] != "text-only":
         raise AssertionError(f"Explicit text-only evidence mode should be recorded: {case_payload['evidence']}")
+    if case_payload.get("schema_version") != "import-repair-case/v1":
+        raise AssertionError(f"Repair case should expose a stable schema version: {case_payload}")
 
     vision_payload = json.loads(
         run_script(
@@ -1719,7 +1728,13 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     bad_proposal.parent.mkdir(parents=True)
     bad_proposal.write_text(
         "# Bad Proposal\n\n"
+        "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
         f"<!-- student-os-target: {risky_md} -->\n\n"
+        f"<!-- student-os-target-sha256: {paths['source.pdf.md']['content_sha256']} -->\n"
+        "<!-- student-os-evidence-mode: text-only -->\n"
+        "<!-- student-os-model-capability: text-only -->\n"
+        "<!-- student-os-changed-sections: section-test -->\n"
+        "<!-- student-os-remaining-risks: human-review-required -->\n\n"
         "<!-- student-os-replacement-start -->\n"
         "---\n"
         "source_file: source.pdf\n"
@@ -1758,7 +1773,13 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     proposal.write_text(
         "# Proposal\n\n"
         "Evidence: source path exists, but human PDF review is still required.\n\n"
+        "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
         f"<!-- student-os-target: {risky_md} -->\n\n"
+        f"<!-- student-os-target-sha256: {paths['source.pdf.md']['content_sha256']} -->\n"
+        "<!-- student-os-evidence-mode: text-only -->\n"
+        "<!-- student-os-model-capability: text-only -->\n"
+        "<!-- student-os-changed-sections: section-test -->\n"
+        "<!-- student-os-remaining-risks: human-review-required -->\n\n"
         "<!-- student-os-replacement-start -->\n"
         "---\n"
         "source_file: source.pdf\n"
