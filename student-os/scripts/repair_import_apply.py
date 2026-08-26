@@ -8,6 +8,7 @@ from pathlib import Path
 from repair_import_case import apply_proposal, json_path
 from repair_import_review import SCHEMA_VERSION as REVIEW_SCHEMA_VERSION
 from repair_import_review import proposal_target, review_proposal
+from repair_import_review import state_root_from_case_json
 
 
 SCHEMA_VERSION = "import-repair-apply/v1"
@@ -20,6 +21,22 @@ def load_review(path: Path) -> dict[str, object]:
     if payload.get("schema_version") != REVIEW_SCHEMA_VERSION:
         raise SystemExit(f"Unsupported review schema_version: {payload.get('schema_version')}")
     return payload
+
+
+def is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def state_root_from_review(review_payload: dict[str, object]) -> Path | None:
+    metadata = review_payload.get("metadata") if isinstance(review_payload.get("metadata"), dict) else {}
+    case_json_value = metadata.get("case-json") if isinstance(metadata, dict) else None
+    if not case_json_value:
+        return None
+    return state_root_from_case_json(Path(str(case_json_value)).expanduser().resolve())
 
 
 def main() -> int:
@@ -105,7 +122,34 @@ def main() -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 1
 
+    state_root = state_root_from_review(review_payload)
     output = Path(args.output).expanduser().resolve() if args.output else None
+    destination = output or target
+    if state_root is not None and not is_relative_to(destination, state_root):
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "ok": False,
+            "stage": "output",
+            "proposal": json_path(proposal_path),
+            "target": json_path(target),
+            "output": json_path(destination),
+            "error": "Apply destination must stay inside the bound case vault.",
+            "vault": json_path(state_root),
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 1
+    if output is not None and output != target and output.exists():
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "ok": False,
+            "stage": "output",
+            "proposal": json_path(proposal_path),
+            "target": json_path(target),
+            "output": json_path(output),
+            "error": "Alternate output already exists; review and hash the actual destination before overwriting it.",
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 1
     written = apply_proposal(proposal_path, target, output, evidence_mode=declared_evidence_mode)
     payload = {
         "schema_version": SCHEMA_VERSION,

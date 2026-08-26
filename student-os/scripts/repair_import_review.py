@@ -41,6 +41,21 @@ def state_root_for(proposal_path: Path, target: Path | None) -> Path:
     return proposal_path.parent
 
 
+def state_root_from_case_json(case_json_path: Path) -> Path | None:
+    for parent in [case_json_path.parent, *case_json_path.parents]:
+        if parent.name == ".student-os":
+            return parent.parent.resolve()
+    return None
+
+
+def is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def question_numbers(text: str) -> list[str]:
     return [match.group("num") for match in QUESTION_RE.finditer(text)]
 
@@ -117,6 +132,7 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
     if not metadata.get("remaining-risks"):
         issues.append(issue("proposal-remaining-risks-missing", "Proposal must declare remaining human-review risks."))
     case_payload: dict[str, object] | None = None
+    case_state_root: Path | None = None
     case_json_value = metadata.get("case-json", "")
     case_sha_value = metadata.get("case-sha256", "")
     evidence_sha_value = metadata.get("evidence-sha256", "")
@@ -127,8 +143,10 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
         if not case_json_path.exists():
             issues.append(issue("proposal-case-json-unavailable", "Proposal case JSON artifact is not available.", detail={"case_json": case_json_value}))
         else:
+            case_json_path = case_json_path.resolve()
+            case_state_root = state_root_from_case_json(case_json_path)
             try:
-                loaded_case = load_json(case_json_path.resolve())
+                loaded_case = load_json(case_json_path)
                 if not isinstance(loaded_case, dict):
                     issues.append(
                         issue(
@@ -183,6 +201,27 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
         issues.append(issue("proposal-evidence-sha256-missing", "Proposal must bind to the generated evidence hash."))
     elif case_payload is not None:
         evidence_payload = case_payload.get("evidence")
+        if not isinstance(evidence_payload, dict):
+            issues.append(issue("proposal-evidence-payload-invalid", "Proposal case evidence payload must be an object."))
+            evidence_payload = {}
+        evidence_schema = str(evidence_payload.get("schema_version") or "")
+        evidence_payload_mode = str(evidence_payload.get("mode") or "")
+        if evidence_schema != CASE_SCHEMA_VERSION:
+            issues.append(
+                issue(
+                    "proposal-evidence-schema-invalid",
+                    "Proposal case evidence payload has an unsupported schema version.",
+                    detail={"schema_version": evidence_schema},
+                )
+            )
+        if evidence_payload_mode != evidence_mode:
+            issues.append(
+                issue(
+                    "proposal-evidence-mode-mismatch",
+                    "Proposal evidence-mode must match the bound case evidence mode.",
+                    detail={"proposal": evidence_mode, "case": evidence_payload_mode},
+                )
+            )
         case_evidence_sha = str(case_payload.get("evidence_sha256") or "")
         actual_evidence_sha = object_sha256(evidence_payload)
         if case_evidence_sha and case_evidence_sha != evidence_sha_value:
@@ -204,6 +243,8 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
     if evidence_mode == "vision-assisted" and case_payload is not None:
         evidence_payload = case_payload.get("evidence")
         vision_payload = evidence_payload.get("vision") if isinstance(evidence_payload, dict) else None
+        if model_capability != "vision":
+            issues.append(issue("vision-model-capability-required", "Vision-assisted proposals require model-capability: vision."))
         pages = vision_payload.get("pages") if isinstance(vision_payload, dict) else []
         if not (isinstance(vision_payload, dict) and vision_payload.get("ok") is True and isinstance(pages, list) and pages):
             issues.append(
@@ -225,6 +266,17 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                     "vision-evidence-page-missing",
                     "Vision-assisted proposals require rendered evidence page files that still exist on disk.",
                     detail=pages,
+                )
+            )
+    if evidence_mode == "ocr-assisted" and case_payload is not None:
+        evidence_payload = case_payload.get("evidence")
+        ocr_payload = evidence_payload.get("ocr") if isinstance(evidence_payload, dict) else None
+        if not (isinstance(ocr_payload, dict) and ocr_payload.get("ok") is True):
+            issues.append(
+                issue(
+                    "ocr-evidence-unavailable",
+                    "OCR-assisted proposals require a bound case with successful OCR evidence.",
+                    detail=ocr_payload,
                 )
             )
 
@@ -253,6 +305,15 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
         issues.append(issue(f"remaining-{code}", "Replacement still has import risk diagnostics.", severity=severity, detail=risk))
 
     original_text = ""
+    if resolved_target and case_state_root is not None:
+        if resolved_target.suffix.lower() != ".md" or not is_relative_to(resolved_target, case_state_root):
+            issues.append(
+                issue(
+                    "proposal-target-outside-vault",
+                    "Proposal target must be a markdown sidecar inside the bound case vault.",
+                    detail={"target": json_path(resolved_target), "vault": json_path(case_state_root)},
+                )
+            )
     if resolved_target and resolved_target.exists():
         original_text = resolved_target.read_text(encoding="utf-8", errors="replace")
         original_source = frontmatter_value(original_text, "source_file")
