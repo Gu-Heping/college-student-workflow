@@ -1539,6 +1539,287 @@ def verify_mineru_v1_repair_rules() -> None:
         raise AssertionError(f"Frontmatter-free repairs should receive repair/verify status:\n{frontmatter_free}")
 
 
+def verify_import_repair_ai_loop(tmp_root: Path) -> None:
+    vault = tmp_root / "vault"
+    imports = vault / "references" / "imports"
+    imports.mkdir(parents=True)
+    source_pdf = imports / "source.pdf"
+    write_multipage_pdf_fixture(source_pdf, 2)
+    raw_md = imports / "source.pdf.raw.md"
+    raw_md.write_text(
+        "---\n"
+        "source_file: source.pdf\n"
+        "repair_status: raw\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "##一. 原始题号\n"
+        "乱码 � and \\nonumber\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    risky_md = imports / "source.pdf.md"
+    risky_md.write_text(
+        "---\n"
+        "source_file: source.pdf\n"
+        "derived_from_import: source.pdf.raw.md\n"
+        "import_method: mineru-agent-v1\n"
+        "language: ch\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "repair_risk: needs-human-review\n"
+        "---\n"
+        "\n"
+        "## 一. OCR promoted heading\n"
+        "Broken math $x\n"
+        "Formula \\left( x + 1\n"
+        "Placeholder □\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (imports / "source.pdf-repair-summary.md").write_text(
+        "# Repair Summary\n\n- Manual review risk items:\n- math-dollar-unbalanced (count=1)\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    legacy_md = imports / "legacy.pdf.md"
+    legacy_md.write_text(
+        "---\n"
+        "source_file: legacy.pdf\n"
+        "repair_status: repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "Readable body.\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    verified_md = imports / "verified.pdf.md"
+    verified_md.write_text(
+        "---\n"
+        "source_file: verified.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: verified\n"
+        "repair_risk: needs-human-review\n"
+        "---\n"
+        "\n"
+        "\\binom fragment\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    answer_md = imports / "2016参考答案.pdf.md"
+    answer_md.write_text(
+        "---\n"
+        "source_file: 2016参考答案.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "解：\n"
+        "A = B。\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    queue_payload = json.loads(run_script("repair_import_queue.py", str(vault), "--classify-evidence", "--json"))
+    items = queue_payload["items"]
+    paths = {Path(item["path"]).name: item for item in items}
+    if queue_payload["counts"]["skipped_verified"] != 1:
+        raise AssertionError(f"Verified imports should be skipped by default: {queue_payload}")
+    if "verified.pdf.md" in paths:
+        raise AssertionError(f"Verified import unexpectedly entered default queue: {queue_payload}")
+    for expected in {"source.pdf.md", "legacy.pdf.md", "2016参考答案.pdf.md"}:
+        if expected not in paths:
+            raise AssertionError(f"Expected {expected} in import repair queue, got: {paths.keys()}")
+    risky_codes = set(paths["source.pdf.md"]["risk_codes"])
+    for expected in {"frontmatter-repair-risk", "question-heading-promoted", "math-dollar-unbalanced", "latex-left-right-unbalanced"}:
+        if expected not in risky_codes:
+            raise AssertionError(f"Expected {expected} in risky queue item, got: {risky_codes}")
+    risky_evidence = paths["source.pdf.md"]["evidence"]
+    if risky_evidence["source_pdf"]["exists"] is not True or risky_evidence["raw_import"]["exists"] is not True:
+        raise AssertionError(f"Evidence classification should resolve source PDF and raw import: {risky_evidence}")
+    if paths["source.pdf.md"]["repair_class"] != "format-only":
+        raise AssertionError(f"Expected format-only classification for mechanical risks: {paths['source.pdf.md']}")
+    if "legacy-repaired-unverified" not in set(paths["legacy.pdf.md"]["risk_codes"]):
+        raise AssertionError(f"Legacy repaired status should be queued as unverified: {paths['legacy.pdf.md']}")
+    if "answer-missing-question-stem" not in set(paths["2016参考答案.pdf.md"]["risk_codes"]):
+        raise AssertionError(f"Answer sidecar without a stem should be queued: {paths['2016参考答案.pdf.md']}")
+    if paths["2016参考答案.pdf.md"]["repair_class"] != "answer-paper-crosscheck":
+        raise AssertionError(f"Answer sidecars without stems should use crosscheck classification: {paths['2016参考答案.pdf.md']}")
+    if not paths["source.pdf.md"]["snippets"]:
+        raise AssertionError(f"Queue items should include localized snippets: {paths['source.pdf.md']}")
+
+    include_verified_payload = json.loads(run_script("repair_import_queue.py", str(vault), "--include-verified", "--json"))
+    include_paths = {Path(item["path"]).name for item in include_verified_payload["items"]}
+    if "verified.pdf.md" not in include_paths:
+        raise AssertionError(f"--include-verified should include verified risk items: {include_verified_payload}")
+
+    queue_written = json.loads(run_script("repair_import_queue.py", str(vault), "--write-queue", "--json"))
+    queue_path = Path(queue_written["queue_path"])
+    if not queue_path.exists():
+        raise AssertionError(f"--write-queue should write queue.json: {queue_written}")
+    queue_text = queue_path.read_text(encoding="utf-8")
+    if "\\r\n" in queue_text:
+        raise AssertionError("queue.json should be written with LF newlines")
+
+    queue_item_id = paths["source.pdf.md"]["id"]
+    case_payload = json.loads(
+        run_script(
+            "repair_import_case.py",
+            "--queue",
+            str(queue_path),
+            "--queue-item",
+            queue_item_id,
+            "--write-case",
+            "--evidence-mode",
+            "text-only",
+            "--json",
+            cwd=vault,
+        )
+    )
+    case_path = Path(case_payload["case_path"])
+    case_text = case_path.read_text(encoding="utf-8")
+    for expected in {
+        "Student OS Import Repair Case",
+        "Raw Import Excerpt",
+        "Source Evidence",
+        "student-os-replacement-start",
+        "math-dollar-unbalanced",
+    }:
+        if expected not in case_text:
+            raise AssertionError(f"Repair case should include {expected!r}:\n{case_text}")
+    if "\\r\n" in case_text:
+        raise AssertionError("repair case should be written with LF newlines")
+    case_json = Path(case_payload["case_json"])
+    if not case_json.exists():
+        raise AssertionError(f"Repair case should write machine-readable evidence state: {case_payload}")
+    if case_payload["evidence"]["mode"] != "text-only":
+        raise AssertionError(f"Explicit text-only evidence mode should be recorded: {case_payload['evidence']}")
+
+    vision_payload = json.loads(
+        run_script(
+            "repair_import_case.py",
+            "--queue",
+            str(queue_path),
+            "--queue-item",
+            queue_item_id,
+            "--evidence-mode",
+            "vision-assisted",
+            "--json",
+            cwd=vault,
+        )
+    )
+    vision = vision_payload["evidence"].get("vision", {})
+    if vision.get("ok") and not vision.get("pages"):
+        raise AssertionError(f"Vision evidence should render at least one candidate page when PyMuPDF is available: {vision_payload}")
+    if vision.get("ok"):
+        ensure_exists(Path(vision["pages"][0]["path"]))
+
+    bad_proposal = vault / ".student-os" / "import-repair" / "proposals" / "bad-source-proposal.md"
+    bad_proposal.parent.mkdir(parents=True)
+    bad_proposal.write_text(
+        "# Bad Proposal\n\n"
+        f"<!-- student-os-target: {risky_md} -->\n\n"
+        "<!-- student-os-replacement-start -->\n"
+        "---\n"
+        "source_file: source.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "Broken math $x\n"
+        "<!-- student-os-replacement-end -->\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    bad_review_output = run_script_failure(
+        "repair_import_review.py",
+        "--proposal",
+        str(bad_proposal),
+        "--json",
+        cwd=vault,
+    )
+    bad_review = json.loads(bad_review_output)
+    if bad_review["review_pass"] is not False:
+        raise AssertionError(f"Broken proposal should fail review: {bad_review}")
+    bad_apply_output = run_script_failure(
+        "repair_import_apply.py",
+        "--proposal",
+        str(bad_proposal),
+        "--require-review-pass",
+        "--json",
+        cwd=vault,
+    )
+    bad_apply = json.loads(bad_apply_output)
+    if bad_apply["stage"] != "review":
+        raise AssertionError(f"Require-review-pass should block bad proposals at review stage: {bad_apply}")
+
+    proposal = vault / ".student-os" / "import-repair" / "proposals" / "source-proposal.md"
+    proposal.write_text(
+        "# Proposal\n\n"
+        "Evidence: source path exists, but human PDF review is still required.\n\n"
+        f"<!-- student-os-target: {risky_md} -->\n\n"
+        "<!-- student-os-replacement-start -->\n"
+        "---\n"
+        "source_file: source.pdf\n"
+        "repair_status: human-verified\n"
+        "verify_status: verified\n"
+        "---\n"
+        "\n"
+        "## 一. OCR promoted heading\n"
+        "\n"
+        "# 修复后的中文内容\n"
+        "\n"
+        "Closed math $x$ and balanced formula \\left( x + 1 \\right).\n"
+        "\n"
+        "仍需人工核对原 PDF。\n"
+        "<!-- student-os-replacement-end -->\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    review_payload = json.loads(
+        run_script(
+            "repair_import_review.py",
+            "--proposal",
+            str(proposal),
+            "--write-review",
+            "--json",
+            cwd=vault,
+        )
+    )
+    if review_payload["review_pass"] is not True:
+        raise AssertionError(f"Clean proposal should pass with at most warnings: {review_payload}")
+    if not any(item["code"] == "ai-claimed-verification" for item in review_payload["issues"]):
+        raise AssertionError(f"Review should warn when AI claims verification: {review_payload}")
+    ensure_exists(Path(review_payload["review_path"]))
+
+    applied = imports / "source.applied.pdf.md"
+    apply_payload = json.loads(
+        run_script(
+            "repair_import_apply.py",
+            "--proposal",
+            str(proposal),
+            "--output",
+            str(applied),
+            "--require-review-pass",
+            "--evidence-mode",
+            "text-only",
+            "--json",
+            cwd=vault,
+        )
+    )
+    applied_text = applied.read_text(encoding="utf-8")
+    if not apply_payload["ok"] or apply_payload["verify_status"] != "unverified":
+        raise AssertionError(f"Proposal apply should report an unverified auto repair: {apply_payload}")
+    applied_frontmatter = applied_text.split("---\n", 2)[1]
+    if "repair_status: auto-repaired" not in applied_frontmatter or "verify_status: unverified" not in applied_frontmatter:
+        raise AssertionError(f"Proposal apply must not preserve AI-claimed verification:\n{applied_text}")
+    if "修复后的中文内容" not in applied_text:
+        raise AssertionError(f"Proposal apply should preserve UTF-8 Chinese text:\n{applied_text}")
+    if "\\r\n" in applied_text:
+        raise AssertionError("Applied proposal should be written with LF newlines")
+
+
 def verify_local_pdf_risk_forwarding(tmp_root: Path) -> None:
     previous_sys_path = list(sys.path)
     sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
@@ -8464,6 +8745,7 @@ def main() -> int:
         verify_token_loader(tmp_root / "token-loader-demo")
         verify_scaffold_gitattributes(tmp_root / "scaffold-gitattributes-demo")
         verify_ensure_frontmatter(tmp_root / "ensure-frontmatter-demo")
+        verify_import_repair_ai_loop(tmp_root / "import-repair-ai-loop-demo")
         verify_extract_release_notes(tmp_root / "extract-release-notes-demo")
 
         if args.refresh_examples:
@@ -8498,6 +8780,7 @@ def main() -> int:
     print("OK token-loader-demo")
     print("OK scaffold-gitattributes-demo")
     print("OK ensure-frontmatter-demo")
+    print("OK import-repair-ai-loop-demo")
     print("OK extract-release-notes-demo")
     if args.refresh_examples:
         print(f"REFRESHED {EXAMPLES_ROOT}")

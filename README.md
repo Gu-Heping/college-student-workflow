@@ -229,6 +229,17 @@ python student-os/scripts/init_exam_census.py /path/to/vault --course <course> -
 
 导入修复只表示机器清理：`repair_status: auto-repaired` 仍需要人工核对来源后才能改为 `verify_status: verified`。
 
+需要 AI 协助逐题/逐段重建导入 sidecar 时，先生成治理队列和 case bundle：
+
+```bash
+python student-os/scripts/repair_import_queue.py /path/to/vault --write-queue --classify-evidence --json
+python student-os/scripts/repair_import_case.py --queue /path/to/vault/.student-os/import-repair/queue.json --queue-item <id> --evidence-mode auto --write-case --json
+python student-os/scripts/repair_import_review.py --proposal <proposal.md> --json
+python student-os/scripts/repair_import_apply.py --proposal <proposal.md> --require-review-pass --json
+```
+
+AI 可以根据 case、raw import、repair summary、同目录试卷/答案和原 PDF 路径提出修复；文本模型默认 `text-only`，多模态模型可用 `vision-assisted` 渲染候选 PDF 页作为证据。输出仍保持 `verify_status: unverified`，直到人工对照原文确认。
+
 导入 PDF/DOCX 等前，先安装可选依赖：
 
 ```bash
@@ -340,8 +351,9 @@ docs/           # 维护记录文档
 ## 测试
 
 ```bash
-python -m py_compile scripts/bootstrap_dsh.py scripts/dsh_plugin_build.py scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py
+python -m py_compile scripts/bootstrap_dsh.py scripts/dsh_plugin_build.py scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_import_repair_evals.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py student-os/scripts/repair_import_queue.py student-os/scripts/repair_import_case.py student-os/scripts/repair_import_review.py student-os/scripts/repair_import_apply.py
 python scripts/run_smoke_tests.py
+python scripts/run_import_repair_evals.py
 ```
 
 刷新示例仓库：

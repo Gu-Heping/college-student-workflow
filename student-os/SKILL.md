@@ -190,6 +190,16 @@ Import repair governance:
 - Files with `repair_risk: needs-human-review` or repair summary risk items must be reviewed before being used as trusted exam/course material.
 - `materials_convert.py --repair-only` skips `verify_status: verified` files by default; use `--include-verified` only when intentionally reprocessing verified material.
 
+AI-assisted import repair:
+- Inspect Git in the learning vault first.
+- Build an evidence queue with `scripts/repair_import_queue.py <vault-or-folder> --write-queue --classify-evidence --json`.
+- Pick the highest-risk unverified item and generate a case with `scripts/repair_import_case.py --queue <queue.json> --queue-item <id> --evidence-mode auto --write-case --json`.
+- Use the case bundle, raw import excerpt, repair summary, and source evidence path to propose a semantic fix. Do not invent missing source content when the evidence is unavailable.
+- Use `text-only` evidence for text models; use `vision-assisted` only when the runtime can inspect rendered PDF page images. If the queue says `blocked: requires-vision-evidence`, a text-only model must stop and report that visual evidence is required.
+- Review proposals with `repair_import_review.py --proposal <proposal.md> --json`; apply only with `repair_import_apply.py --proposal <proposal.md> --require-review-pass --json`.
+- Applied AI proposals must keep `repair_status: auto-repaired`, `verify_status: unverified`, `repair_evidence_mode`, and `repair_ai_confidence: unverified`.
+- Never mark AI-assisted repair as `verified`; only the user can confirm verification after checking the original PDF/material.
+
 When the request involves scanned PDFs, image-heavy materials, or legacy `.doc` / `.ppt` / `.xls` files:
 - check whether `MINERU_TOKEN` or `MINERU_API_TOKEN` is configured before defaulting to local conversion
 - if no token is configured, tell the user that `materials_convert.py --method auto` will fall back locally and that adding a MinerU token enables higher-fidelity API parsing
