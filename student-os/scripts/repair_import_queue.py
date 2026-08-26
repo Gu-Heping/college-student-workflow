@@ -76,14 +76,15 @@ def read_markdown(path: Path) -> tuple[str, bool]:
         return path.read_text(encoding="utf-8", errors="replace"), True
 
 
+def read_markdown_header(path: Path, *, max_bytes: int = 65536) -> str:
+    return path.read_bytes()[:max_bytes].decode("utf-8", errors="replace")
+
+
 def decode_yaml_path(value: str) -> str:
     value = value.strip()
     if not value:
         return ""
-    try:
-        return str(json.loads(f'"{value}"'))
-    except json.JSONDecodeError:
-        return value
+    return re.sub(r"\\u([0-9a-fA-F]{4})", lambda match: chr(int(match.group(1), 16)), value)
 
 
 def resolve_declared_path(value: str, *, base: Path) -> Path | None:
@@ -108,7 +109,7 @@ def iter_import_markdown(root: Path) -> list[Path]:
     for path in root.rglob("*.md"):
         if any(part in SKIP_DIRS for part in path.parts):
             continue
-        text, _decode_error = read_markdown(path)
+        text = read_markdown_header(path)
         if is_import_markdown(path) or frontmatter_value(text, "derived_from_import"):
             paths.append(path)
     return sorted(paths, key=lambda item: item.as_posix().lower())
@@ -286,6 +287,7 @@ def classify_evidence(
     risk_codes = {str(risk.get("code", "")) for risk in risks}
     source_path = source_path_for(path, frontmatter)
     raw_path = raw_sibling(path, frontmatter)
+    summary_path = find_repair_summary(path)
     paired = pair_sidecar(path)
     source_exists = bool(source_path and source_path.exists())
     raw_exists = bool(raw_path and raw_path.exists())
@@ -296,7 +298,7 @@ def classify_evidence(
         repair_class = "metadata-only"
         recommended_mode = "text-only"
         blocked = ""
-    elif "answer-missing-question-stem" in risk_codes or paired_exists:
+    elif "answer-missing-question-stem" in risk_codes:
         repair_class = "answer-paper-crosscheck"
         recommended_mode = "text-only" if paired_exists or raw_exists else "vision-assisted"
         blocked = "" if paired_exists or raw_exists or source_exists else "unrecoverable-with-current-evidence"
@@ -337,9 +339,9 @@ def classify_evidence(
             "status": "available" if raw_exists else ("missing" if frontmatter.get("derived_from_import", "") else "undeclared"),
         },
         "repair_summary": {
-            "path": json_path(find_repair_summary(path)) if find_repair_summary(path) else "",
-            "exists": find_repair_summary(path) is not None,
-            "status": "available" if find_repair_summary(path) else "missing",
+            "path": json_path(summary_path) if summary_path else "",
+            "exists": summary_path is not None,
+            "status": "available" if summary_path else "missing",
         },
         "paired_sidecar": {
             "path": json_path(paired) if paired else "",
@@ -441,8 +443,9 @@ def merge_risks(risks: list[dict[str, object]]) -> list[dict[str, object]]:
     return [merged[code] for code in order]
 
 
-def build_queue_item(root: Path, path: Path) -> dict[str, object] | None:
-    text, decode_error = read_markdown(path)
+def build_queue_item(root: Path, path: Path, text: str | None = None, decode_error: bool | None = None) -> dict[str, object] | None:
+    if text is None or decode_error is None:
+        text, decode_error = read_markdown(path)
     parsed = read_frontmatter(text)
     frontmatter = parsed[0] if parsed else {}
     risks = merge_risks([*diagnose_import_risks(text), *extra_risks(path, text, frontmatter, decode_error=decode_error)])
@@ -493,11 +496,11 @@ def build_queue(root: Path, *, include_verified: bool = False) -> dict[str, obje
     items: list[dict[str, object]] = []
     for path in iter_import_markdown(root):
         scanned += 1
-        text, _decode_error = read_markdown(path)
+        text, decode_error = read_markdown(path)
         if is_verified(text) and not include_verified:
             skipped_verified += 1
             continue
-        item = build_queue_item(root, path)
+        item = build_queue_item(root, path, text=text, decode_error=decode_error)
         if item:
             items.append(item)
 

@@ -1684,8 +1684,7 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     queue_path = Path(queue_written["queue_path"])
     if not queue_path.exists():
         raise AssertionError(f"--write-queue should write queue.json: {queue_written}")
-    queue_text = queue_path.read_text(encoding="utf-8")
-    if "\\r\n" in queue_text:
+    if b"\r\n" in queue_path.read_bytes():
         raise AssertionError("queue.json should be written with LF newlines")
 
     queue_item_id = paths["source.pdf.md"]["id"]
@@ -1714,7 +1713,7 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     }:
         if expected not in case_text:
             raise AssertionError(f"Repair case should include {expected!r}:\n{case_text}")
-    if "\\r\n" in case_text:
+    if b"\r\n" in case_path.read_bytes():
         raise AssertionError("repair case should be written with LF newlines")
     case_json = Path(case_payload["case_json"])
     if not case_json.exists():
@@ -1873,7 +1872,7 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Proposal apply must not preserve AI-claimed verification:\n{applied_text}")
     if "修复后的中文内容" not in applied_text:
         raise AssertionError(f"Proposal apply should preserve UTF-8 Chinese text:\n{applied_text}")
-    if "\\r\n" in applied_text:
+    if b"\r\n" in applied.read_bytes():
         raise AssertionError("Applied proposal should be written with LF newlines")
 
 

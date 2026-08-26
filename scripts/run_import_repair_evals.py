@@ -11,6 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STUDENT_OS_SCRIPTS = ROOT / "student-os" / "scripts"
+sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
+from repair_import_queue import decode_yaml_path  # noqa: E402
 
 
 def run_student_script(name: str, *args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -110,6 +112,19 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         "四. \\boxplus \\ Y Y \\ Y\n",
     )
 
+    legacy = imports / "legacy.pdf.md"
+    write_text(
+        legacy,
+        "---\n"
+        "source_file: legacy.pdf\n"
+        "repair_status: repaired\n"
+        "verify_status: unverified\n"
+        "repair_risk: needs-human-review\n"
+        "---\n"
+        "\n"
+        "Readable body.\n",
+    )
+
     verified = imports / "verified.pdf.md"
     write_text(
         verified,
@@ -122,10 +137,22 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         "\n"
         "Broken $x\n",
     )
-    return {"semantic": semantic, "answer": answer, "vision": vision, "missing_pdf": missing_pdf, "verified": verified}
+    return {
+        "semantic": semantic,
+        "answer": answer,
+        "vision": vision,
+        "missing_pdf": missing_pdf,
+        "legacy": legacy,
+        "verified": verified,
+    }
 
 
 def main() -> int:
+    if decode_yaml_path(r"C:\new\file.pdf") != r"C:\new\file.pdf":
+        raise AssertionError("Unquoted Windows paths must not be interpreted as escape sequences")
+    if decode_yaml_path(r"references\\u671f末.pdf") != "references\\期末.pdf":
+        raise AssertionError("Legacy unicode escapes should still decode in frontmatter paths")
+
     with tempfile.TemporaryDirectory(prefix="student-os-import-repair-eval-") as tmp:
         vault = Path(tmp) / "vault"
         paths = build_fixture(vault)
@@ -240,6 +267,51 @@ def main() -> int:
         stale_review = run_json("repair_import_review.py", "--proposal", str(stale), "--json", cwd=vault, expect_ok=False)
         if not any(issue["code"] == "proposal-target-stale" for issue in stale_review["issues"]):  # type: ignore[index]
             raise AssertionError(f"Stale proposal hash should fail review: {stale_review}")
+
+        legacy_item = by_name["legacy.pdf.md"]
+        legacy_case = run_json(
+            "repair_import_case.py",
+            "--queue",
+            str(vault / ".student-os" / "import-repair" / "queue.json"),
+            "--queue-item",
+            str(legacy_item["id"]),
+            "--evidence-mode",
+            "text-only",
+            "--json",
+            cwd=vault,
+        )
+        legacy_case_json = Path(str(legacy_case["case_json"]))
+        legacy_case_state = json.loads(legacy_case_json.read_text(encoding="utf-8"))
+        clean = vault / ".student-os" / "import-repair" / "proposals" / "clean.md"
+        write_text(
+            clean,
+            "# Clean proposal\n\n"
+            "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+            f"<!-- student-os-target: {paths['legacy']} -->\n\n"
+            f"<!-- student-os-target-sha256: {legacy_item['content_sha256']} -->\n"
+            f"<!-- student-os-case-json: {legacy_case_json} -->\n"
+            f"<!-- student-os-evidence-sha256: {legacy_case_state['evidence_sha256']} -->\n"
+            "<!-- student-os-evidence-mode: text-only -->\n"
+            "<!-- student-os-model-capability: text-only -->\n"
+            "<!-- student-os-changed-sections: line-1 -->\n"
+            "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+            "<!-- student-os-replacement-start -->\n"
+            "---\nsource_file: legacy.pdf\nrepair_status: auto-repaired\nverify_status: unverified\n---\n\n"
+            "Readable body.\n"
+            "<!-- student-os-replacement-end -->\n",
+        )
+        mismatch_apply = run_json(
+            "repair_import_apply.py",
+            "--proposal",
+            str(clean),
+            "--evidence-mode",
+            "vision-assisted",
+            "--json",
+            cwd=vault,
+            expect_ok=False,
+        )
+        if mismatch_apply["stage"] != "evidence-mode":
+            raise AssertionError(f"Explicit evidence-mode mismatch should fail apply: {mismatch_apply}")
 
     print("OK import-repair-evals")
     return 0

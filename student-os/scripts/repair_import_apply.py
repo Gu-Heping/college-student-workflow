@@ -13,7 +13,10 @@ SCHEMA_VERSION = "import-repair-apply/v1"
 
 
 def load_review(path: Path) -> dict[str, object]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("schema_version") != "import-repair-review/v1":
+        raise SystemExit(f"Unsupported review schema_version: {payload.get('schema_version')}")
+    return payload
 
 
 def main() -> int:
@@ -27,7 +30,7 @@ def main() -> int:
         action="store_true",
         help="Deprecated compatibility flag; apply always refuses failed reviews.",
     )
-    parser.add_argument("--evidence-mode", default="text-only", help="Recorded repair_evidence_mode value")
+    parser.add_argument("--evidence-mode", help="Optional assertion; must match the proposal evidence-mode metadata")
     parser.add_argument("--json", action="store_true", help="Print structured apply JSON")
     args = parser.parse_args()
 
@@ -71,9 +74,36 @@ def main() -> int:
         }
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 1
+    metadata = review_payload.get("metadata") if isinstance(review_payload.get("metadata"), dict) else {}
+    declared_evidence_mode = str(metadata.get("evidence-mode") or "")
+    if not declared_evidence_mode:
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "ok": False,
+            "stage": "review",
+            "proposal": json_path(proposal_path),
+            "target": json_path(target),
+            "error": "Proposal review did not provide an evidence-mode.",
+            "review": review_payload,
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 1
+    if args.evidence_mode and args.evidence_mode != declared_evidence_mode:
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "ok": False,
+            "stage": "evidence-mode",
+            "proposal": json_path(proposal_path),
+            "target": json_path(target),
+            "error": "Explicit --evidence-mode does not match proposal metadata.",
+            "declared_evidence_mode": declared_evidence_mode,
+            "requested_evidence_mode": args.evidence_mode,
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 1
 
     output = Path(args.output).expanduser().resolve() if args.output else None
-    written = apply_proposal(proposal_path, target, output, evidence_mode=args.evidence_mode)
+    written = apply_proposal(proposal_path, target, output, evidence_mode=declared_evidence_mode)
     payload = {
         "schema_version": SCHEMA_VERSION,
         "ok": True,
@@ -84,7 +114,7 @@ def main() -> int:
         "review_pass": bool(review_payload.get("review_pass")),
         "verify_status": "unverified",
         "repair_status": "auto-repaired",
-        "repair_evidence_mode": args.evidence_mode,
+        "repair_evidence_mode": declared_evidence_mode,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0

@@ -8,7 +8,8 @@ from pathlib import Path
 
 from import_governance import diagnose_import_risks, frontmatter_value, mark_auto_repaired
 from repair_import_case import PROPOSAL_SCHEMA_VERSION, extract_replacement, json_path, load_json, object_sha256
-from repair_import_queue import build_queue_item, file_sha256
+from repair_import_queue import SCHEMA_VERSION as QUEUE_SCHEMA_VERSION
+from repair_import_queue import file_sha256
 
 
 SCHEMA_VERSION = "import-repair-review/v1"
@@ -102,6 +103,14 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
         else:
             try:
                 case_payload = load_json(case_json_path.resolve())
+                if case_payload.get("schema_version") != "import-repair-case/v1":
+                    issues.append(
+                        issue(
+                            "proposal-case-schema-invalid",
+                            "Proposal case JSON has an unsupported schema version.",
+                            detail={"schema_version": case_payload.get("schema_version")},
+                        )
+                    )
             except (OSError, json.JSONDecodeError) as exc:
                 issues.append(issue("proposal-case-json-invalid", f"Proposal case JSON cannot be read: {exc}"))
     if not evidence_sha_value:
@@ -178,7 +187,36 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                     detail={"expected": target_sha, "actual": current_sha},
                 )
             )
-        queue_item = build_queue_item(resolved_target.parent, resolved_target)
+        queue_item = case_payload.get("queue_item") if isinstance(case_payload, dict) else None
+        if isinstance(queue_item, dict):
+            if queue_item.get("schema_version") != QUEUE_SCHEMA_VERSION:
+                issues.append(
+                    issue(
+                        "proposal-queue-item-schema-invalid",
+                        "Bound case queue item has an unsupported schema version.",
+                        detail={"schema_version": queue_item.get("schema_version")},
+                    )
+                )
+            item_path = Path(str(queue_item.get("path") or "")).expanduser() if queue_item.get("path") else None
+            if item_path and item_path.resolve() != resolved_target:
+                issues.append(
+                    issue(
+                        "proposal-case-target-mismatch",
+                        "Bound case queue item does not match the proposal target.",
+                        detail={"case_target": json_path(item_path), "proposal_target": json_path(resolved_target)},
+                    )
+                )
+            item_sha = str(queue_item.get("content_sha256") or "")
+            if item_sha and item_sha != current_sha:
+                issues.append(
+                    issue(
+                        "proposal-case-target-stale",
+                        "Bound case queue item was generated for different target content.",
+                        detail={"case_sha256": item_sha, "actual": current_sha},
+                    )
+                )
+        else:
+            queue_item = None
         if queue_item and evidence_mode == "text-only":
             blocked = str(queue_item.get("blocked") or "")
             recommended = str(queue_item.get("recommended_evidence_mode") or "")
@@ -190,6 +228,14 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                         detail={"blocked": blocked, "recommended_evidence_mode": recommended},
                     )
                 )
+    elif resolved_target:
+        issues.append(
+            issue(
+                "proposal-target-missing-file",
+                "Proposal target sidecar does not exist on disk.",
+                detail={"target": json_path(resolved_target)},
+            )
+        )
         if queue_item and model_capability == "text-only":
             blocked = str(queue_item.get("blocked") or "")
             if blocked == "requires-vision-evidence":

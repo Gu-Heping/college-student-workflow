@@ -8,6 +8,7 @@ import hashlib
 from pathlib import Path
 
 from import_governance import ensure_field, mark_auto_repaired
+from repair_import_queue import SCHEMA_VERSION as QUEUE_SCHEMA_VERSION
 from repair_import_queue import STATE_DIR, build_queue_item, file_sha256, json_path, relative_path
 
 
@@ -61,6 +62,8 @@ def resolve_queue_item(queue_item: str, *, queue_path: Path | None, cwd: Path) -
     if queue is None:
         raise SystemExit("Queue file not found. Run repair_import_queue.py <vault> --write-queue first or pass --queue.")
     payload = load_json(queue)
+    if payload.get("schema_version") != QUEUE_SCHEMA_VERSION:
+        raise SystemExit(f"Unsupported queue schema_version: {payload.get('schema_version')}")
     root = Path(str(payload.get("target_root") or queue.parents[2])).resolve()
     for item in payload.get("items", []):
         if not isinstance(item, dict):
@@ -134,19 +137,29 @@ def render_pdf_pages(source_pdf: Path, output_dir: Path, pages: list[int]) -> di
         }
 
     written: list[dict[str, object]] = []
-    document = fitz.open(str(source_pdf))
+    failures: list[dict[str, object]] = []
+    try:
+        document = fitz.open(str(source_pdf))
+    except Exception as exc:
+        return {"ok": False, "reason": "pdf-open-failed", "pages": [], "error": str(exc)}
     try:
         for page_number in pages[:6]:
             if page_number < 1 or page_number > document.page_count:
+                failures.append({"page": page_number, "reason": "page-out-of-range"})
                 continue
-            page = document.load_page(page_number - 1)
-            pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
-            image_path = output_dir / f"page-{page_number}.png"
-            pixmap.save(str(image_path))
-            written.append({"page": page_number, "path": json_path(image_path)})
+            try:
+                page = document.load_page(page_number - 1)
+                pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+                image_path = output_dir / f"page-{page_number}.png"
+                pixmap.save(str(image_path))
+                written.append({"page": page_number, "path": json_path(image_path)})
+            except Exception as exc:
+                failures.append({"page": page_number, "reason": "render-failed", "error": str(exc)})
     finally:
         document.close()
-    return {"ok": True, "pages": written}
+    if not written:
+        return {"ok": False, "reason": "page-render-failed", "pages": [], "failures": failures}
+    return {"ok": True, "pages": written, "failures": failures}
 
 
 def prepare_evidence(root: Path, item: dict[str, object], *, evidence_mode: str) -> dict[str, object]:
