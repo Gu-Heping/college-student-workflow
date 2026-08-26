@@ -147,6 +147,20 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         + "\n",
     )
 
+    derived_note = imports / "derived-note.md"
+    write_text(
+        derived_note,
+        "---\n"
+        "source_file: derived.pdf\n"
+        "derived_from_import: derived.raw.md\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "repair_risk: needs-human-review\n"
+        "---\n"
+        "\n"
+        "Derived import sidecar with nonstandard filename.\n",
+    )
+
     verified = imports / "verified.pdf.md"
     write_text(
         verified,
@@ -166,6 +180,7 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         "missing_pdf": missing_pdf,
         "legacy": legacy,
         "long_body": long_body,
+        "derived_note": derived_note,
         "verified": verified,
     }
 
@@ -199,6 +214,10 @@ def main() -> int:
         by_name = {Path(str(item["path"])).name: item for item in queue["items"]}  # type: ignore[index]
         if "verified.pdf.md" in by_name or queue["counts"]["skipped_verified"] != 1:  # type: ignore[index]
             raise AssertionError(f"Verified files should be skipped by default: {queue}")
+        direct_derived_queue = run_json("repair_import_queue.py", str(paths["derived_note"]), "--json", cwd=ROOT)
+        direct_names = {Path(str(item["path"])).name for item in direct_derived_queue["items"]}  # type: ignore[index]
+        if "derived-note.md" not in direct_names:
+            raise AssertionError(f"Direct file scan should include derived_from_import markdown: {direct_derived_queue}")
 
         semantic_item = by_name["2016-answer.pdf.md"]
         if semantic_item["evidence"]["source_pdf"]["exists"] is not True:  # type: ignore[index]

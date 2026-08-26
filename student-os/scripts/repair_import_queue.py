@@ -104,7 +104,10 @@ def is_import_markdown(path: Path) -> bool:
 
 def iter_import_markdown(root: Path) -> list[tuple[Path, str | None]]:
     if root.is_file():
-        return [(root, read_markdown_header(root))] if is_import_markdown(root) else []
+        if root.suffix.lower() != ".md":
+            return []
+        header = read_markdown_header(root)
+        return [(root, header)] if is_import_markdown(root) or frontmatter_value(header, "derived_from_import") else []
     paths: list[tuple[Path, str | None]] = []
     for path in root.rglob("*.md"):
         if any(part in SKIP_DIRS for part in path.parts):
