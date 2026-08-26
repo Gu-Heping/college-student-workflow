@@ -286,7 +286,7 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
         ("unicode-escape", r"\\u[0-9a-fA-F]{4}", 0),
     ]
     for code, pattern, flags in checks:
-        count = len(re.findall(pattern, text, flags))
+        count = len(re.findall(pattern, diagnostic_text, flags))
         if count:
             risks.append({"code": code, "count": count})
 

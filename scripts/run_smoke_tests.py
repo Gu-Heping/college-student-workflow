@@ -1445,6 +1445,24 @@ def verify_mineru_v1_repair_rules() -> None:
     code_latex = "---\nimport_method: manual-test\n---\n\n```python\nprint(r\"\\left\")\n```\n"
     if any(item["code"] == "latex-left-right-unbalanced" for item in repair_module.diagnose_import_risks(code_latex)):
         raise AssertionError("LaTeX markers inside fenced code must not be flagged")
+    code_unicode = (
+        "---\n"
+        "import_method: manual-test\n"
+        "---\n"
+        "\n"
+        "Inline code `\\u4e00` and `�` plus fenced examples:\n"
+        "```python\n"
+        "print('\\u4e00')\n"
+        "print('�')\n"
+        "```\n"
+        "~~~text\n"
+        "\\u4e00 �\n"
+        "~~~\n"
+    )
+    code_unicode_risks = {str(item["code"]) for item in repair_module.diagnose_import_risks(code_unicode)}
+    for unexpected in {"unicode-escape", "mojibake-replacement-char"}:
+        if unexpected in code_unicode_risks:
+            raise AssertionError(f"Unicode-looking markers inside code must not be flagged: {code_unicode_risks}")
 
     english_import = "---\nimport_method: mineru-agent-v1\n---\n\n" + ("plain English text " * 160)
     if any(item["code"] == "low-cjk-density" for item in repair_module.diagnose_import_risks(english_import)):
