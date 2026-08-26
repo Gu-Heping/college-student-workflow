@@ -111,18 +111,33 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                             detail={"schema_version": case_payload.get("schema_version")},
                         )
                     )
+                if case_payload.get("ok") is not True:
+                    issues.append(issue("proposal-case-not-ok", "Proposal case JSON is not marked ok."))
             except (OSError, json.JSONDecodeError) as exc:
                 issues.append(issue("proposal-case-json-invalid", f"Proposal case JSON cannot be read: {exc}"))
+    queue_item = case_payload.get("queue_item") if isinstance(case_payload, dict) else None
+    if not isinstance(queue_item, dict):
+        queue_item = None
     if not evidence_sha_value:
         issues.append(issue("proposal-evidence-sha256-missing", "Proposal must bind to the generated evidence hash."))
     elif case_payload is not None:
         evidence_payload = case_payload.get("evidence")
-        if object_sha256(evidence_payload) != evidence_sha_value:
+        case_evidence_sha = str(case_payload.get("evidence_sha256") or "")
+        actual_evidence_sha = object_sha256(evidence_payload)
+        if case_evidence_sha and case_evidence_sha != evidence_sha_value:
+            issues.append(
+                issue(
+                    "proposal-evidence-hash-mismatch",
+                    "Proposal evidence hash does not match the bound case evidence hash.",
+                    detail={"proposal": evidence_sha_value, "case": case_evidence_sha},
+                )
+            )
+        if actual_evidence_sha != evidence_sha_value:
             issues.append(
                 issue(
                     "proposal-evidence-stale",
                     "Proposal evidence hash does not match the current case JSON evidence payload.",
-                    detail={"expected": evidence_sha_value, "actual": object_sha256(evidence_payload)},
+                    detail={"expected": evidence_sha_value, "actual": actual_evidence_sha},
                 )
             )
     if evidence_mode == "vision-assisted" and case_payload is not None:
@@ -135,6 +150,14 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                     "vision-evidence-unavailable",
                     "Vision-assisted proposals require a bound case with successful rendered candidate pages.",
                     detail=vision_payload,
+                )
+            )
+        elif any(not isinstance(page, dict) or not Path(str(page.get("path", ""))).exists() for page in pages):
+            issues.append(
+                issue(
+                    "vision-evidence-page-missing",
+                    "Vision-assisted proposals require rendered evidence page files that still exist on disk.",
+                    detail=pages,
                 )
             )
 
@@ -187,8 +210,7 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                     detail={"expected": target_sha, "actual": current_sha},
                 )
             )
-        queue_item = case_payload.get("queue_item") if isinstance(case_payload, dict) else None
-        if isinstance(queue_item, dict):
+        if queue_item:
             if queue_item.get("schema_version") != QUEUE_SCHEMA_VERSION:
                 issues.append(
                     issue(
@@ -215,19 +237,6 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                         detail={"case_sha256": item_sha, "actual": current_sha},
                     )
                 )
-        else:
-            queue_item = None
-        if queue_item and evidence_mode == "text-only":
-            blocked = str(queue_item.get("blocked") or "")
-            recommended = str(queue_item.get("recommended_evidence_mode") or "")
-            if blocked == "requires-vision-evidence" or recommended == "vision-assisted":
-                issues.append(
-                    issue(
-                        "text-only-cannot-resolve-vision-risk",
-                        "Text-only proposal cannot claim to resolve an item that requires vision evidence.",
-                        detail={"blocked": blocked, "recommended_evidence_mode": recommended},
-                    )
-                )
     elif resolved_target:
         issues.append(
             issue(
@@ -236,15 +245,26 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                 detail={"target": json_path(resolved_target)},
             )
         )
-        if queue_item and model_capability == "text-only":
-            blocked = str(queue_item.get("blocked") or "")
-            if blocked == "requires-vision-evidence":
-                issues.append(
-                    issue(
-                        "text-model-blocked-by-vision-risk",
-                        "Text-only model must leave requires-vision-evidence work blocked instead of rewriting content.",
-                    )
+    if queue_item and evidence_mode == "text-only":
+        blocked = str(queue_item.get("blocked") or "")
+        recommended = str(queue_item.get("recommended_evidence_mode") or "")
+        if blocked == "requires-vision-evidence" or recommended == "vision-assisted":
+            issues.append(
+                issue(
+                    "text-only-cannot-resolve-vision-risk",
+                    "Text-only proposal cannot claim to resolve an item that requires vision evidence.",
+                    detail={"blocked": blocked, "recommended_evidence_mode": recommended},
                 )
+            )
+    if queue_item and model_capability == "text-only":
+        blocked = str(queue_item.get("blocked") or "")
+        if blocked == "requires-vision-evidence":
+            issues.append(
+                issue(
+                    "text-model-blocked-by-vision-risk",
+                    "Text-only model must leave requires-vision-evidence work blocked instead of rewriting content.",
+                )
+            )
     old_numbers = question_numbers(original_text)
     new_numbers = question_numbers(replacement)
     if old_numbers and len(new_numbers) < len(old_numbers):

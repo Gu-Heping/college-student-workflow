@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STUDENT_OS_SCRIPTS = ROOT / "student-os" / "scripts"
 sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
 from repair_import_queue import decode_yaml_path  # noqa: E402
+from repair_import_case import object_sha256  # noqa: E402
 
 
 def run_student_script(name: str, *args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -37,6 +38,13 @@ def run_json(name: str, *args: str, cwd: Path, expect_ok: bool = True) -> dict[s
         return json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         raise AssertionError(f"{name} did not print JSON:\n{result.stdout}\n{result.stderr}") from exc
+
+
+def expect_failure(name: str, *args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    result = run_student_script(name, *args, cwd=cwd)
+    if result.returncode == 0:
+        raise AssertionError(f"{name} should have failed for args {args!r}")
+    return result
 
 
 def write_text(path: Path, text: str) -> None:
@@ -157,6 +165,22 @@ def main() -> int:
         vault = Path(tmp) / "vault"
         paths = build_fixture(vault)
         queue = run_json("repair_import_queue.py", str(vault), "--write-queue", "--classify-evidence", "--json", cwd=ROOT)
+        queue_path = vault / ".student-os" / "import-repair" / "queue.json"
+        bad_queue = vault / ".student-os" / "import-repair" / "bad-queue.json"
+        bad_queue_payload = dict(queue)
+        bad_queue_payload["schema_version"] = "import-repair-queue/v0"
+        write_text(bad_queue, json.dumps(bad_queue_payload, ensure_ascii=False, indent=2) + "\n")
+        bad_queue_result = expect_failure(
+            "repair_import_case.py",
+            "--queue",
+            str(bad_queue),
+            "--queue-item",
+            "anything",
+            "--json",
+            cwd=vault,
+        )
+        if "Unsupported queue schema_version" not in bad_queue_result.stderr:
+            raise AssertionError(f"Unsupported queue schema should fail clearly: {bad_queue_result.stderr}")
         by_name = {Path(str(item["path"])).name: item for item in queue["items"]}  # type: ignore[index]
         if "verified.pdf.md" in by_name or queue["counts"]["skipped_verified"] != 1:  # type: ignore[index]
             raise AssertionError(f"Verified files should be skipped by default: {queue}")
@@ -169,7 +193,7 @@ def main() -> int:
         semantic_case = run_json(
             "repair_import_case.py",
             "--queue",
-            str(vault / ".student-os" / "import-repair" / "queue.json"),
+            str(queue_path),
             "--queue-item",
             str(semantic_item["id"]),
             "--evidence-mode",
@@ -195,7 +219,7 @@ def main() -> int:
         vision_case = run_json(
             "repair_import_case.py",
             "--queue",
-            str(vault / ".student-os" / "import-repair" / "queue.json"),
+            str(queue_path),
             "--queue-item",
             str(vision_item["id"]),
             "--evidence-mode",
@@ -272,7 +296,7 @@ def main() -> int:
         legacy_case = run_json(
             "repair_import_case.py",
             "--queue",
-            str(vault / ".student-os" / "import-repair" / "queue.json"),
+            str(queue_path),
             "--queue-item",
             str(legacy_item["id"]),
             "--evidence-mode",
@@ -312,6 +336,94 @@ def main() -> int:
         )
         if mismatch_apply["stage"] != "evidence-mode":
             raise AssertionError(f"Explicit evidence-mode mismatch should fail apply: {mismatch_apply}")
+
+        cross_target = vault / ".student-os" / "import-repair" / "proposals" / "cross-target.md"
+        write_text(
+            cross_target,
+            "# Cross-target proposal\n\n"
+            "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+            f"<!-- student-os-target: {paths['legacy']} -->\n\n"
+            f"<!-- student-os-target-sha256: {legacy_item['content_sha256']} -->\n"
+            f"<!-- student-os-case-json: {semantic_case_json} -->\n"
+            f"<!-- student-os-evidence-sha256: {semantic_evidence_sha} -->\n"
+            "<!-- student-os-evidence-mode: text-only -->\n"
+            "<!-- student-os-model-capability: text-only -->\n"
+            "<!-- student-os-changed-sections: line-1 -->\n"
+            "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+            "<!-- student-os-replacement-start -->\n"
+            "---\nsource_file: legacy.pdf\nrepair_status: auto-repaired\nverify_status: unverified\n---\n\n"
+            "Readable body.\n"
+            "<!-- student-os-replacement-end -->\n",
+        )
+        cross_review = run_json("repair_import_review.py", "--proposal", str(cross_target), "--json", cwd=vault, expect_ok=False)
+        if not any(issue["code"] == "proposal-case-target-mismatch" for issue in cross_review["issues"]):  # type: ignore[index]
+            raise AssertionError(f"Cross-target case should fail review: {cross_review}")
+
+        invalid_case = vault / ".student-os" / "import-repair" / "evidence" / "invalid-case.json"
+        invalid_case_payload = json.loads(legacy_case_json.read_text(encoding="utf-8"))
+        invalid_case_payload["schema_version"] = "import-repair-case/v0"
+        write_text(invalid_case, json.dumps(invalid_case_payload, ensure_ascii=False, indent=2) + "\n")
+        invalid_case_proposal = vault / ".student-os" / "import-repair" / "proposals" / "invalid-case.md"
+        write_text(
+            invalid_case_proposal,
+            "# Invalid case proposal\n\n"
+            "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+            f"<!-- student-os-target: {paths['legacy']} -->\n\n"
+            f"<!-- student-os-target-sha256: {legacy_item['content_sha256']} -->\n"
+            f"<!-- student-os-case-json: {invalid_case} -->\n"
+            f"<!-- student-os-evidence-sha256: {legacy_case_state['evidence_sha256']} -->\n"
+            "<!-- student-os-evidence-mode: text-only -->\n"
+            "<!-- student-os-model-capability: text-only -->\n"
+            "<!-- student-os-changed-sections: line-1 -->\n"
+            "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+            "<!-- student-os-replacement-start -->\n"
+            "---\nsource_file: legacy.pdf\nrepair_status: auto-repaired\nverify_status: unverified\n---\n\n"
+            "Readable body.\n"
+            "<!-- student-os-replacement-end -->\n",
+        )
+        invalid_case_review = run_json("repair_import_review.py", "--proposal", str(invalid_case_proposal), "--json", cwd=vault, expect_ok=False)
+        if not any(issue["code"] == "proposal-case-schema-invalid" for issue in invalid_case_review["issues"]):  # type: ignore[index]
+            raise AssertionError(f"Invalid case schema should fail review: {invalid_case_review}")
+
+        fake_vision_case = vault / ".student-os" / "import-repair" / "evidence" / "fake-vision" / "case.json"
+        fake_vision_evidence = {
+            "schema_version": "import-repair-case/v1",
+            "mode": "vision-assisted",
+            "recommended_mode": "vision-assisted",
+            "blocked": "",
+            "pages": [],
+            "state_dir": str(fake_vision_case.parent),
+            "vision": {"ok": True, "pages": [{"page": 1, "path": str(fake_vision_case.parent / "missing-page.png")}], "failures": []},
+        }
+        fake_vision_payload = {
+            "schema_version": "import-repair-case/v1",
+            "ok": True,
+            "queue_item": legacy_item,
+            "evidence": fake_vision_evidence,
+            "evidence_sha256": object_sha256(fake_vision_evidence),
+        }
+        write_text(fake_vision_case, json.dumps(fake_vision_payload, ensure_ascii=False, indent=2) + "\n")
+        fake_vision_proposal = vault / ".student-os" / "import-repair" / "proposals" / "fake-vision.md"
+        write_text(
+            fake_vision_proposal,
+            "# Fake vision proposal\n\n"
+            "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+            f"<!-- student-os-target: {paths['legacy']} -->\n\n"
+            f"<!-- student-os-target-sha256: {legacy_item['content_sha256']} -->\n"
+            f"<!-- student-os-case-json: {fake_vision_case} -->\n"
+            f"<!-- student-os-evidence-sha256: {fake_vision_payload['evidence_sha256']} -->\n"
+            "<!-- student-os-evidence-mode: vision-assisted -->\n"
+            "<!-- student-os-model-capability: vision -->\n"
+            "<!-- student-os-changed-sections: line-1 -->\n"
+            "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+            "<!-- student-os-replacement-start -->\n"
+            "---\nsource_file: legacy.pdf\nrepair_status: auto-repaired\nverify_status: unverified\n---\n\n"
+            "Readable body.\n"
+            "<!-- student-os-replacement-end -->\n",
+        )
+        fake_vision_review = run_json("repair_import_review.py", "--proposal", str(fake_vision_proposal), "--json", cwd=vault, expect_ok=False)
+        if not any(issue["code"] == "vision-evidence-page-missing" for issue in fake_vision_review["issues"]):  # type: ignore[index]
+            raise AssertionError(f"Missing rendered vision pages should fail review: {fake_vision_review}")
 
     print("OK import-repair-evals")
     return 0
