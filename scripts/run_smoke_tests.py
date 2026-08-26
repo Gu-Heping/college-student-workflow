@@ -136,6 +136,25 @@ def run_script_failure(name: str, *args: str, cwd: Path = ROOT) -> str:
     return (result.stderr or result.stdout).strip()
 
 
+def run_script_failure_json(name: str, *args: str, cwd: Path = ROOT) -> dict[str, object]:
+    script_path = STUDENT_OS_SCRIPTS / name
+    result = subprocess.run(
+        [sys.executable, "-B", str(script_path), *args],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=cwd,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if result.returncode == 0:
+        raise AssertionError(f"Expected {name} to fail for args {args!r}")
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"{name} failed without JSON stdout:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}") from exc
+
+
 def run_root_script_failure(name: str, *args: str, cwd: Path = ROOT, env: dict[str, str] | None = None) -> str:
     script_path = ROOT_SCRIPTS / name
     result = subprocess.run(
@@ -1704,6 +1723,8 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Explicit text-only evidence mode should be recorded: {case_payload['evidence']}")
     if case_payload.get("schema_version") != "import-repair-case/v1":
         raise AssertionError(f"Repair case should expose a stable schema version: {case_payload}")
+    case_state = json.loads(case_json.read_text(encoding="utf-8"))
+    evidence_sha256 = case_state["evidence_sha256"]
 
     vision_payload = json.loads(
         run_script(
@@ -1731,6 +1752,8 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
         f"<!-- student-os-target: {risky_md} -->\n\n"
         f"<!-- student-os-target-sha256: {paths['source.pdf.md']['content_sha256']} -->\n"
+        f"<!-- student-os-case-json: {case_json} -->\n"
+        f"<!-- student-os-evidence-sha256: {evidence_sha256} -->\n"
         "<!-- student-os-evidence-mode: text-only -->\n"
         "<!-- student-os-model-capability: text-only -->\n"
         "<!-- student-os-changed-sections: section-test -->\n"
@@ -1747,17 +1770,16 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         encoding="utf-8",
         newline="\n",
     )
-    bad_review_output = run_script_failure(
+    bad_review = run_script_failure_json(
         "repair_import_review.py",
         "--proposal",
         str(bad_proposal),
         "--json",
         cwd=vault,
     )
-    bad_review = json.loads(bad_review_output)
     if bad_review["review_pass"] is not False:
         raise AssertionError(f"Broken proposal should fail review: {bad_review}")
-    bad_apply_output = run_script_failure(
+    bad_apply = run_script_failure_json(
         "repair_import_apply.py",
         "--proposal",
         str(bad_proposal),
@@ -1765,9 +1787,21 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         "--json",
         cwd=vault,
     )
-    bad_apply = json.loads(bad_apply_output)
     if bad_apply["stage"] != "review":
         raise AssertionError(f"Require-review-pass should block bad proposals at review stage: {bad_apply}")
+    case_apply = run_script_failure_json(
+        "repair_import_case.py",
+        "--queue",
+        str(queue_path),
+        "--queue-item",
+        queue_item_id,
+        "--apply-proposal",
+        str(bad_proposal),
+        "--json",
+        cwd=vault,
+    )
+    if case_apply["stage"] != "apply":
+        raise AssertionError(f"repair_import_case.py must not apply proposals directly: {case_apply}")
 
     proposal = vault / ".student-os" / "import-repair" / "proposals" / "source-proposal.md"
     proposal.write_text(
@@ -1776,6 +1810,8 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
         f"<!-- student-os-target: {risky_md} -->\n\n"
         f"<!-- student-os-target-sha256: {paths['source.pdf.md']['content_sha256']} -->\n"
+        f"<!-- student-os-case-json: {case_json} -->\n"
+        f"<!-- student-os-evidence-sha256: {evidence_sha256} -->\n"
         "<!-- student-os-evidence-mode: text-only -->\n"
         "<!-- student-os-model-capability: text-only -->\n"
         "<!-- student-os-changed-sections: section-test -->\n"

@@ -25,6 +25,8 @@ Every proposal should include these markers before the replacement block:
 <!-- student-os-proposal-schema: import-repair-proposal/v1 -->
 <!-- student-os-target: /absolute/path/to/sidecar.pdf.md -->
 <!-- student-os-target-sha256: <hash copied from the case> -->
+<!-- student-os-case-json: /absolute/path/to/case.json -->
+<!-- student-os-evidence-sha256: <hash copied from the case JSON> -->
 <!-- student-os-evidence-mode: text-only|ocr-assisted|vision-assisted -->
 <!-- student-os-model-capability: text-only|vision -->
 <!-- student-os-changed-sections: <section id or line range> -->

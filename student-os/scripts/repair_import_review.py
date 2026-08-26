@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 from import_governance import diagnose_import_risks, frontmatter_value, mark_auto_repaired
-from repair_import_case import PROPOSAL_SCHEMA_VERSION, extract_replacement, json_path
+from repair_import_case import PROPOSAL_SCHEMA_VERSION, extract_replacement, json_path, load_json, object_sha256
 from repair_import_queue import build_queue_item, file_sha256
 
 
@@ -90,6 +90,44 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
         issues.append(issue("proposal-changed-sections-missing", "Proposal must declare changed sections or line ranges."))
     if not metadata.get("remaining-risks"):
         issues.append(issue("proposal-remaining-risks-missing", "Proposal must declare remaining human-review risks."))
+    case_payload: dict[str, object] | None = None
+    case_json_value = metadata.get("case-json", "")
+    evidence_sha_value = metadata.get("evidence-sha256", "")
+    if not case_json_value:
+        issues.append(issue("proposal-case-json-missing", "Proposal must bind to the generated case JSON artifact."))
+    else:
+        case_json_path = Path(case_json_value).expanduser()
+        if not case_json_path.exists():
+            issues.append(issue("proposal-case-json-unavailable", "Proposal case JSON artifact is not available.", detail={"case_json": case_json_value}))
+        else:
+            try:
+                case_payload = load_json(case_json_path.resolve())
+            except (OSError, json.JSONDecodeError) as exc:
+                issues.append(issue("proposal-case-json-invalid", f"Proposal case JSON cannot be read: {exc}"))
+    if not evidence_sha_value:
+        issues.append(issue("proposal-evidence-sha256-missing", "Proposal must bind to the generated evidence hash."))
+    elif case_payload is not None:
+        evidence_payload = case_payload.get("evidence")
+        if object_sha256(evidence_payload) != evidence_sha_value:
+            issues.append(
+                issue(
+                    "proposal-evidence-stale",
+                    "Proposal evidence hash does not match the current case JSON evidence payload.",
+                    detail={"expected": evidence_sha_value, "actual": object_sha256(evidence_payload)},
+                )
+            )
+    if evidence_mode == "vision-assisted" and case_payload is not None:
+        evidence_payload = case_payload.get("evidence")
+        vision_payload = evidence_payload.get("vision") if isinstance(evidence_payload, dict) else None
+        pages = vision_payload.get("pages") if isinstance(vision_payload, dict) else []
+        if not (isinstance(vision_payload, dict) and vision_payload.get("ok") is True and isinstance(pages, list) and pages):
+            issues.append(
+                issue(
+                    "vision-evidence-unavailable",
+                    "Vision-assisted proposals require a bound case with successful rendered candidate pages.",
+                    detail=vision_payload,
+                )
+            )
 
     if re.search(r"(?m)^verify_status:\s*verified\b", replacement):
         issues.append(

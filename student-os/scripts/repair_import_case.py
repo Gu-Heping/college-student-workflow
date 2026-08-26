@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import hashlib
 from pathlib import Path
 
 from import_governance import ensure_field, mark_auto_repaired
@@ -19,6 +20,11 @@ EVIDENCE_MODES = {"auto", "text-only", "ocr-assisted", "vision-assisted"}
 
 def load_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def object_sha256(payload: object) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def find_queue(start: Path) -> Path | None:
@@ -150,7 +156,7 @@ def prepare_evidence(root: Path, item: dict[str, object], *, evidence_mode: str)
     if selected_mode not in EVIDENCE_MODES:
         raise SystemExit(f"Unknown evidence mode: {selected_mode}")
     item_id = str(item.get("id") or "repair-case")
-    state_dir = root / STATE_DIR / "evidence" / item_id
+    state_dir = root / STATE_DIR / "evidence" / item_id / selected_mode
     payload: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
         "mode": selected_mode,
@@ -178,22 +184,18 @@ def prepare_evidence(root: Path, item: dict[str, object], *, evidence_mode: str)
 
 
 def write_case_json(root: Path, item: dict[str, object], evidence_payload: dict[str, object]) -> Path:
-    item_id = str(item.get("id") or "repair-case")
-    state_dir = root / STATE_DIR / "evidence" / item_id
+    state_dir = Path(str(evidence_payload["state_dir"]))
     state_dir.mkdir(parents=True, exist_ok=True)
     case_json = state_dir / "case.json"
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "ok": True,
+        "queue_item": item,
+        "evidence": evidence_payload,
+        "evidence_sha256": object_sha256(evidence_payload),
+    }
     case_json.write_text(
-        json.dumps(
-            {
-                "schema_version": SCHEMA_VERSION,
-                "ok": True,
-                "queue_item": item,
-                "evidence": evidence_payload,
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-        + "\n",
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
         newline="\n",
     )
@@ -204,6 +206,8 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
     raw_path = Path(str(item.get("raw_import") or "")).resolve() if item.get("raw_import") else None
     summary_path = Path(str(item.get("repair_summary") or "")).resolve() if item.get("repair_summary") else None
     evidence = source_evidence(item, target)
+    case_json = Path(str(evidence_payload["state_dir"])) / "case.json"
+    evidence_digest = object_sha256(evidence_payload)
     risk_lines = "\n".join(f"- `{risk}`" for risk in item.get("risk_codes", [])) or "- none"
     sections = item.get("suspect_sections") or item.get("sections") or []
     section_lines: list[str] = []
@@ -305,6 +309,8 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
             f"<!-- student-os-proposal-schema: {PROPOSAL_SCHEMA_VERSION} -->",
             f"<!-- student-os-target: {json_path(target)} -->",
             f"<!-- student-os-target-sha256: {item.get('content_sha256') or file_sha256(target)} -->",
+            f"<!-- student-os-case-json: {json_path(case_json)} -->",
+            f"<!-- student-os-evidence-sha256: {evidence_digest} -->",
             f"<!-- student-os-evidence-mode: {evidence_payload.get('mode', 'text-only')} -->",
             "<!-- student-os-model-capability: text-only|vision -->",
             "<!-- student-os-changed-sections: section-id-or-line-range -->",
@@ -374,26 +380,15 @@ def main() -> int:
     root, item, target = resolve_queue_item(args.queue_item, queue_path=queue_path, cwd=Path.cwd())
 
     if args.apply_proposal:
-        output = Path(args.output).expanduser() if args.output else None
-        evidence_payload = prepare_evidence(root, item, evidence_mode=args.evidence_mode)
-        written = apply_proposal(
-            Path(args.apply_proposal).expanduser().resolve(),
-            target,
-            output,
-            evidence_mode=str(evidence_payload["mode"]),
-        )
         payload = {
             "schema_version": SCHEMA_VERSION,
-            "ok": True,
-            "applied": True,
+            "ok": False,
+            "stage": "apply",
+            "error": "repair_import_case.py no longer applies proposals directly; use repair_import_apply.py so review gates are mandatory.",
             "target": json_path(target),
-            "output": json_path(written),
-            "verify_status": "unverified",
-            "repair_status": "auto-repaired",
-            "repair_evidence_mode": evidence_payload["mode"],
         }
         print(json.dumps(payload, ensure_ascii=False, indent=2))
-        return 0
+        return 2
 
     evidence_payload = prepare_evidence(root, item, evidence_mode=args.evidence_mode)
     case_json = write_case_json(root, item, evidence_payload)

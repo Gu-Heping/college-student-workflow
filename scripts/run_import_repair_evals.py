@@ -139,6 +139,20 @@ def main() -> int:
             raise AssertionError(f"Semantic fixture should resolve source PDF evidence: {semantic_item}")
         if semantic_item["repair_class"] not in {"format-only", "semantic-text-repair"}:
             raise AssertionError(f"Unexpected semantic repair class: {semantic_item}")
+        semantic_case = run_json(
+            "repair_import_case.py",
+            "--queue",
+            str(vault / ".student-os" / "import-repair" / "queue.json"),
+            "--queue-item",
+            str(semantic_item["id"]),
+            "--evidence-mode",
+            "text-only",
+            "--json",
+            cwd=vault,
+        )
+        semantic_case_json = Path(str(semantic_case["case_json"]))
+        semantic_case_state = json.loads(semantic_case_json.read_text(encoding="utf-8"))
+        semantic_evidence_sha = semantic_case_state["evidence_sha256"]
 
         answer_item = by_name["2014参考答案.pdf.md"]
         if answer_item["repair_class"] != "answer-paper-crosscheck":
@@ -179,6 +193,8 @@ def main() -> int:
             "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
             f"<!-- student-os-target: {paths['semantic']} -->\n\n"
             f"<!-- student-os-target-sha256: {semantic_item['content_sha256']} -->\n"
+            f"<!-- student-os-case-json: {semantic_case_json} -->\n"
+            f"<!-- student-os-evidence-sha256: {semantic_evidence_sha} -->\n"
             "<!-- student-os-evidence-mode: text-only -->\n"
             "<!-- student-os-model-capability: text-only -->\n"
             "<!-- student-os-changed-sections: line-1 -->\n"
@@ -210,6 +226,8 @@ def main() -> int:
             "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
             f"<!-- student-os-target: {paths['semantic']} -->\n\n"
             "<!-- student-os-target-sha256: 0000000000000000000000000000000000000000000000000000000000000000 -->\n"
+            f"<!-- student-os-case-json: {semantic_case_json} -->\n"
+            f"<!-- student-os-evidence-sha256: {semantic_evidence_sha} -->\n"
             "<!-- student-os-evidence-mode: text-only -->\n"
             "<!-- student-os-model-capability: text-only -->\n"
             "<!-- student-os-changed-sections: line-1 -->\n"

@@ -22,7 +22,11 @@ def main() -> int:
     parser.add_argument("--target", help="Target sidecar path; defaults to student-os-target marker in proposal")
     parser.add_argument("--output", help="Optional output path; defaults to target")
     parser.add_argument("--review", help="Existing review JSON path")
-    parser.add_argument("--require-review-pass", action="store_true", help="Refuse to apply unless review_pass is true")
+    parser.add_argument(
+        "--require-review-pass",
+        action="store_true",
+        help="Deprecated compatibility flag; apply always refuses failed reviews.",
+    )
     parser.add_argument("--evidence-mode", default="text-only", help="Recorded repair_evidence_mode value")
     parser.add_argument("--json", action="store_true", help="Print structured apply JSON")
     args = parser.parse_args()
@@ -55,7 +59,7 @@ def main() -> int:
         return 1
     if recorded_review:
         review_payload["recorded_review"] = recorded_review
-    if args.require_review_pass and not review_payload.get("review_pass"):
+    if not review_payload.get("review_pass"):
         payload = {
             "schema_version": SCHEMA_VERSION,
             "ok": False,
