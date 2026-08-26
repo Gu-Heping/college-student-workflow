@@ -99,16 +99,19 @@ def mark_auto_repaired(text: str, *, needs_review: bool) -> str:
     parsed = read_frontmatter(text)
     if parsed is not None:
         _data, _start, end = parsed
-        next_section = re.search(r"(?m)^##\s+", text[end:])
-        managed_end = end + next_section.start() if next_section else len(text)
-        managed_prefix = text[end:managed_end]
-        managed_prefix = re.sub(
-            r"(?m)^- Repair status:[^\S\r\n]*(?:raw|repaired)?[^\S\r\n]*$",
-            f"- Repair status: {AUTO_REPAIRED}",
-            managed_prefix,
-            count=1,
-        )
-        text = text[:end] + managed_prefix + text[managed_end:]
+        source_match = re.search(r"(?m)^## Source\s*$", text[end:])
+        if source_match:
+            source_start = end + source_match.start()
+            next_section = re.search(r"(?m)^##\s+", text[source_start + 1 :])
+            source_end = source_start + 1 + next_section.start() if next_section else len(text)
+            source_section = text[source_start:source_end]
+            source_section = re.sub(
+                r"(?m)^- Repair status:[^\S\r\n]*(?:raw|repaired)?[^\S\r\n]*$",
+                f"- Repair status: {AUTO_REPAIRED}",
+                source_section,
+                count=1,
+            )
+            text = text[:source_start] + source_section + text[source_end:]
     text = ensure_field(text, "verify_status", UNVERIFIED)
     if needs_review:
         text = ensure_field(text, "repair_risk", NEEDS_HUMAN_REVIEW)
