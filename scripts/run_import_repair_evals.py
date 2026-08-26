@@ -133,6 +133,20 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         "Readable body.\n",
     )
 
+    long_body = imports / "long-body.pdf.md"
+    write_text(
+        long_body,
+        "---\n"
+        "source_file: long-body.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "repair_risk: needs-human-review\n"
+        "---\n"
+        "\n"
+        + "Long imported paragraph without question markers. " * 30
+        + "\n",
+    )
+
     verified = imports / "verified.pdf.md"
     write_text(
         verified,
@@ -151,6 +165,7 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         "vision": vision,
         "missing_pdf": missing_pdf,
         "legacy": legacy,
+        "long_body": long_body,
         "verified": verified,
     }
 
@@ -415,6 +430,68 @@ def main() -> int:
         if not any(issue["code"] == "replacement-body-erased" for issue in erased_review["issues"]):  # type: ignore[index]
             raise AssertionError(f"Unnumbered content erasure should fail review: {erased_review}")
 
+        long_item = by_name["long-body.pdf.md"]
+        long_case = run_json(
+            "repair_import_case.py",
+            "--queue",
+            str(queue_path),
+            "--queue-item",
+            str(long_item["id"]),
+            "--evidence-mode",
+            "text-only",
+            "--json",
+            cwd=vault,
+        )
+        long_case_json = Path(str(long_case["case_json"]))
+        long_case_state = json.loads(long_case_json.read_text(encoding="utf-8"))
+        long_body_erased = vault / ".student-os" / "import-repair" / "proposals" / "long-body-erased.md"
+        write_text(
+            long_body_erased,
+            "# Long body erased proposal\n\n"
+            "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+            f"<!-- student-os-target: {paths['long_body']} -->\n\n"
+            f"<!-- student-os-target-sha256: {long_item['content_sha256']} -->\n"
+            f"<!-- student-os-case-json: {long_case_json} -->\n"
+            f"<!-- student-os-case-sha256: {long_case_state['case_sha256']} -->\n"
+            f"<!-- student-os-evidence-sha256: {long_case_state['evidence_sha256']} -->\n"
+            "<!-- student-os-evidence-mode: text-only -->\n"
+            "<!-- student-os-model-capability: text-only -->\n"
+            "<!-- student-os-changed-sections: line-1 -->\n"
+            "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+            "<!-- student-os-replacement-start -->\n"
+            "---\nsource_file: long-body.pdf\nrepair_status: auto-repaired\nverify_status: unverified\n---\n\n"
+            "Short retained fragment.\n"
+            "<!-- student-os-replacement-end -->\n",
+        )
+        long_erased_review = run_json("repair_import_review.py", "--proposal", str(long_body_erased), "--json", cwd=vault, expect_ok=False)
+        if not any(issue["code"] == "replacement-body-erased" for issue in long_erased_review["issues"]):  # type: ignore[index]
+            raise AssertionError(f"Long unnumbered content erasure should fail review: {long_erased_review}")
+
+        invalid_top_case = vault / ".student-os" / "import-repair" / "evidence" / "invalid-top-case.json"
+        write_text(invalid_top_case, json.dumps([legacy_case_state], ensure_ascii=False, indent=2) + "\n")
+        invalid_top_proposal = vault / ".student-os" / "import-repair" / "proposals" / "invalid-top-case.md"
+        write_text(
+            invalid_top_proposal,
+            "# Invalid top-level case proposal\n\n"
+            "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+            f"<!-- student-os-target: {paths['legacy']} -->\n\n"
+            f"<!-- student-os-target-sha256: {legacy_item['content_sha256']} -->\n"
+            f"<!-- student-os-case-json: {invalid_top_case} -->\n"
+            "<!-- student-os-case-sha256: not-a-case-object -->\n"
+            f"<!-- student-os-evidence-sha256: {legacy_case_state['evidence_sha256']} -->\n"
+            "<!-- student-os-evidence-mode: text-only -->\n"
+            "<!-- student-os-model-capability: text-only -->\n"
+            "<!-- student-os-changed-sections: line-1 -->\n"
+            "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+            "<!-- student-os-replacement-start -->\n"
+            "---\nsource_file: legacy.pdf\nrepair_status: auto-repaired\nverify_status: unverified\n---\n\n"
+            "Readable body.\n"
+            "<!-- student-os-replacement-end -->\n",
+        )
+        invalid_top_review = run_json("repair_import_review.py", "--proposal", str(invalid_top_proposal), "--json", cwd=vault, expect_ok=False)
+        if not any(issue["code"] == "proposal-case-json-top-level-invalid" for issue in invalid_top_review["issues"]):  # type: ignore[index]
+            raise AssertionError(f"Non-object case JSON should fail review: {invalid_top_review}")
+
         invalid_case = vault / ".student-os" / "import-repair" / "evidence" / "invalid-case.json"
         invalid_case_payload = json.loads(legacy_case_json.read_text(encoding="utf-8"))
         invalid_case_payload["schema_version"] = "import-repair-case/v0"
@@ -450,7 +527,7 @@ def main() -> int:
             "blocked": "",
             "pages": [],
             "state_dir": str(fake_vision_case.parent),
-            "vision": {"ok": True, "pages": [{"page": 1, "path": str(fake_vision_case.parent / "missing-page.png")}], "failures": []},
+            "vision": {"ok": True, "pages": [{"page": 1}], "failures": []},
         }
         fake_vision_payload = {
             "schema_version": "import-repair-case/v1",
@@ -482,7 +559,7 @@ def main() -> int:
         )
         fake_vision_review = run_json("repair_import_review.py", "--proposal", str(fake_vision_proposal), "--json", cwd=vault, expect_ok=False)
         if not any(issue["code"] == "vision-evidence-page-missing" for issue in fake_vision_review["issues"]):  # type: ignore[index]
-            raise AssertionError(f"Missing rendered vision pages should fail review: {fake_vision_review}")
+            raise AssertionError(f"Missing rendered vision page paths should fail review: {fake_vision_review}")
 
     print("OK import-repair-evals")
     return 0

@@ -36,6 +36,18 @@ def case_sha256(case_payload: dict[str, object]) -> str:
     return object_sha256(case_integrity_payload(case_payload))
 
 
+def build_case_payload(item: dict[str, object], evidence_payload: dict[str, object]) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema_version": SCHEMA_VERSION,
+        "ok": True,
+        "queue_item": item,
+        "evidence": evidence_payload,
+        "evidence_sha256": object_sha256(evidence_payload),
+    }
+    payload["case_sha256"] = case_sha256(payload)
+    return payload
+
+
 def find_queue(start: Path) -> Path | None:
     start = start.resolve()
     candidates = [start, *start.parents] if start.is_dir() else [start.parent, *start.parent.parents]
@@ -208,14 +220,7 @@ def write_case_json(root: Path, item: dict[str, object], evidence_payload: dict[
     state_dir = Path(str(evidence_payload["state_dir"]))
     state_dir.mkdir(parents=True, exist_ok=True)
     case_json = state_dir / "case.json"
-    payload = {
-        "schema_version": SCHEMA_VERSION,
-        "ok": True,
-        "queue_item": item,
-        "evidence": evidence_payload,
-        "evidence_sha256": object_sha256(evidence_payload),
-    }
-    payload["case_sha256"] = case_sha256(payload)
+    payload = build_case_payload(item, evidence_payload)
     case_json.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -229,16 +234,9 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
     summary_path = Path(str(item.get("repair_summary") or "")).resolve() if item.get("repair_summary") else None
     evidence = source_evidence(item, target)
     case_json = Path(str(evidence_payload["state_dir"])) / "case.json"
-    evidence_digest = object_sha256(evidence_payload)
-    case_digest = case_sha256(
-        {
-            "schema_version": SCHEMA_VERSION,
-            "ok": True,
-            "queue_item": item,
-            "evidence": evidence_payload,
-            "evidence_sha256": evidence_digest,
-        }
-    )
+    case_payload = build_case_payload(item, evidence_payload)
+    evidence_digest = str(case_payload["evidence_sha256"])
+    case_digest = str(case_payload["case_sha256"])
     risk_lines = "\n".join(f"- `{risk}`" for risk in item.get("risk_codes", [])) or "- none"
     sections = item.get("suspect_sections") or item.get("sections") or []
     section_lines: list[str] = []

@@ -235,7 +235,7 @@ python student-os/scripts/init_exam_census.py /path/to/vault --course <course> -
 python student-os/scripts/repair_import_queue.py /path/to/vault --write-queue --classify-evidence --json
 python student-os/scripts/repair_import_case.py --queue /path/to/vault/.student-os/import-repair/queue.json --queue-item <id> --evidence-mode auto --write-case --json
 python student-os/scripts/repair_import_review.py --proposal <proposal.md> --json
-python student-os/scripts/repair_import_apply.py --proposal <proposal.md> --require-review-pass --json
+python student-os/scripts/repair_import_apply.py --proposal <proposal.md> --json
 ```
 
 AI 可以根据 case、raw import、repair summary、同目录试卷/答案和原 PDF 路径提出修复；文本模型默认 `text-only`，多模态模型可用 `vision-assisted` 渲染候选 PDF 页作为证据。输出仍保持 `verify_status: unverified`，直到人工对照原文确认。

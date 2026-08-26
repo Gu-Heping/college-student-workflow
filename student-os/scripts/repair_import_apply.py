@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from repair_import_case import apply_proposal, json_path
+from repair_import_review import SCHEMA_VERSION as REVIEW_SCHEMA_VERSION
 from repair_import_review import proposal_target, review_proposal
 
 
@@ -14,7 +15,7 @@ SCHEMA_VERSION = "import-repair-apply/v1"
 
 def load_review(path: Path) -> dict[str, object]:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if payload.get("schema_version") != "import-repair-review/v1":
+    if payload.get("schema_version") != REVIEW_SCHEMA_VERSION:
         raise SystemExit(f"Unsupported review schema_version: {payload.get('schema_version')}")
     return payload
 

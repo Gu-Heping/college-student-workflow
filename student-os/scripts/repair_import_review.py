@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from import_governance import diagnose_import_risks, frontmatter_value, mark_auto_repaired, read_frontmatter
+from repair_import_case import SCHEMA_VERSION as CASE_SCHEMA_VERSION
 from repair_import_case import PROPOSAL_SCHEMA_VERSION, case_sha256, extract_replacement, json_path, load_json, object_sha256
 from repair_import_queue import SCHEMA_VERSION as QUEUE_SCHEMA_VERSION
 from repair_import_queue import file_sha256
@@ -115,8 +116,18 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
             issues.append(issue("proposal-case-json-unavailable", "Proposal case JSON artifact is not available.", detail={"case_json": case_json_value}))
         else:
             try:
-                case_payload = load_json(case_json_path.resolve())
-                if case_payload.get("schema_version") != "import-repair-case/v1":
+                loaded_case = load_json(case_json_path.resolve())
+                if not isinstance(loaded_case, dict):
+                    issues.append(
+                        issue(
+                            "proposal-case-json-top-level-invalid",
+                            "Proposal case JSON must be an object.",
+                            detail={"type": type(loaded_case).__name__},
+                        )
+                    )
+                else:
+                    case_payload = loaded_case
+                if case_payload is not None and case_payload.get("schema_version") != CASE_SCHEMA_VERSION:
                     issues.append(
                         issue(
                             "proposal-case-schema-invalid",
@@ -124,7 +135,7 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                             detail={"schema_version": case_payload.get("schema_version")},
                         )
                     )
-                if case_payload.get("ok") is not True:
+                if case_payload is not None and case_payload.get("ok") is not True:
                     issues.append(issue("proposal-case-not-ok", "Proposal case JSON is not marked ok."))
             except (OSError, json.JSONDecodeError) as exc:
                 issues.append(issue("proposal-case-json-invalid", f"Proposal case JSON cannot be read: {exc}"))
@@ -188,7 +199,13 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                     detail=vision_payload,
                 )
             )
-        elif any(not isinstance(page, dict) or not Path(str(page.get("path", ""))).exists() for page in pages):
+        elif any(
+            not isinstance(page, dict)
+            or not isinstance(page.get("path"), str)
+            or not str(page.get("path")).strip()
+            or not Path(str(page.get("path"))).is_file()
+            for page in pages
+        ):
             issues.append(
                 issue(
                     "vision-evidence-page-missing",
@@ -305,7 +322,7 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
     new_numbers = question_numbers(replacement)
     original_visible = compact_visible_text(original_text)
     replacement_visible = compact_visible_text(replacement)
-    if not old_numbers and original_visible and len(replacement_visible) < max(1, min(80, len(original_visible) // 5)):
+    if not old_numbers and original_visible and len(replacement_visible) < max(1, len(original_visible) // 5):
         issues.append(
             issue(
                 "replacement-body-erased",

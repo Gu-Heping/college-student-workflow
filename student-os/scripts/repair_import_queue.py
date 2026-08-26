@@ -443,7 +443,7 @@ def merge_risks(risks: list[dict[str, object]]) -> list[dict[str, object]]:
     return [merged[code] for code in order]
 
 
-def build_queue_item(root: Path, path: Path, text: str | None = None, decode_error: bool | None = None) -> dict[str, object] | None:
+def build_queue_item(root: Path, path: Path, *, text: str | None = None, decode_error: bool | None = None) -> dict[str, object] | None:
     if text is None or decode_error is None:
         text, decode_error = read_markdown(path)
     parsed = read_frontmatter(text)
