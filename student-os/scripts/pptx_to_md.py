@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 def yaml_string(value: str) -> str:
-    return json.dumps(value)
+    return json.dumps(value, ensure_ascii=False)
 
 
 def load_presentation():
@@ -43,6 +43,7 @@ def main() -> int:
         f"source_file: {yaml_string(str(pptx_path))}",
         "import_method: pptx-to-md",
         "repair_status:",
+        "verify_status: unverified",
         "derived_from_import:",
         "---",
         "",
@@ -72,7 +73,7 @@ def main() -> int:
         else:
             lines.extend(["[No extractable text found on this slide.]", ""])
 
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    output_path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     print(json.dumps({"output": str(output_path)}, ensure_ascii=False, indent=2))
     return 0
 

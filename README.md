@@ -227,6 +227,8 @@ python student-os/scripts/ensure_frontmatter.py /path/to/papers --apply
 python student-os/scripts/init_exam_census.py /path/to/vault --course <course> --exam-scope 期中
 ```
 
+导入修复只表示机器清理：`repair_status: auto-repaired` 仍需要人工核对来源后才能改为 `verify_status: verified`。
+
 导入 PDF/DOCX 等前，先安装可选依赖：
 
 ```bash

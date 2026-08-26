@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import subprocess
 from pathlib import Path
@@ -112,8 +113,20 @@ def parse_status_path(line: str) -> tuple[str, str, str]:
     payload = line[3:].strip()
     if " -> " in payload:
         source, target = payload.split(" -> ", 1)
-        return status, source.strip(), target.strip()
-    return status, payload, payload
+        return status, unquote_status_path(source.strip()), unquote_status_path(target.strip())
+    path = unquote_status_path(payload)
+    return status, path, path
+
+
+def unquote_status_path(path: str) -> str:
+    if len(path) >= 2 and path[0] == '"' and path[-1] == '"':
+        try:
+            value = ast.literal_eval(path)
+        except (SyntaxError, ValueError):
+            return path
+        if isinstance(value, str):
+            return value
+    return path
 
 
 def is_pure_delete_status(status: str) -> bool:
@@ -182,6 +195,34 @@ def staged_blob_size(repo: Path, path: str) -> int | None:
         return int(result.stdout.strip())
     except ValueError:
         return None
+
+
+def git_diff_quiet(repo: Path, path: str, *, cached: bool = False, ignore_cr_at_eol: bool = False) -> bool:
+    command = ["git", "-C", str(repo), "diff", "--quiet"]
+    if cached:
+        command.append("--cached")
+    if ignore_cr_at_eol:
+        command.append("--ignore-cr-at-eol")
+    command.extend(["--", f":(literal){path}"])
+    result = subprocess.run(command, check=False, capture_output=True)
+    return result.returncode == 0
+
+
+def is_tracked_markdown_eol_only(repo: Path, status: str, source_path: str, target_path: str) -> bool:
+    if status == "??" or is_pure_delete_status(status):
+        return False
+    if source_path != target_path:
+        return False
+    if not target_path.lower().endswith(".md"):
+        return False
+    has_regular_diff = not git_diff_quiet(repo, target_path) or not git_diff_quiet(repo, target_path, cached=True)
+    if not has_regular_diff:
+        return True
+    has_content_diff = (
+        not git_diff_quiet(repo, target_path, ignore_cr_at_eol=True)
+        or not git_diff_quiet(repo, target_path, cached=True, ignore_cr_at_eol=True)
+    )
+    return not has_content_diff
 
 
 def hold_back_reason(repo: Path, path: str) -> str:
@@ -268,6 +309,7 @@ def main() -> int:
     repo = Path(args.repo).resolve()
     lines, is_git_repo, git_status_error = read_git_status(repo)
     groups: dict[str, list[str]] = {}
+    eol_only_files: list[str] = []
     hold_back_files: list[str] = []
     hold_back_reasons: dict[str, str] = {}
     for line in lines:
@@ -286,6 +328,9 @@ def main() -> int:
             hold_back_files.append(change_path)
             hold_back_reasons[change_path] = reason
             continue
+        if is_tracked_markdown_eol_only(repo, status, source_path, target_path):
+            eol_only_files.append(change_path)
+            continue
         group = detect_group(target_path)
         groups.setdefault(group, []).append(target_path)
 
@@ -293,6 +338,7 @@ def main() -> int:
         "is_git_repo": is_git_repo,
         "git_status_error": git_status_error,
         "artifact_grouping": groups,
+        "eol_only_files": eol_only_files,
         "recommended_commit_split": [
             {
                 "group": group,

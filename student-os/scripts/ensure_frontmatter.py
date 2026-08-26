@@ -7,6 +7,8 @@ import re
 import sys
 from pathlib import Path
 
+from import_governance import repair_status_for_summary_exists
+
 
 COURSE_MARKERS = {"notes", "homework", "reviews", "labs", "references"}
 IMPORT_METHOD_RE = re.compile(r"(?im)^(?:-\s*)?Import method:\s*(\S+)\s*$")
@@ -137,7 +139,7 @@ def build_frontmatter(
     note_type, tags = note_type_and_tags(path)
     source_file = infer_source_file(path)
     import_method = infer_import_method(body, path)
-    repair_status = "repaired" if find_repair_summary(path) is not None else ""
+    repair_status = repair_status_for_summary_exists(find_repair_summary(path))
     derived = ""
     raw_sibling = find_raw_sibling(path)
     if raw_sibling is not None:
@@ -154,6 +156,7 @@ def build_frontmatter(
         f"source_file: {yaml_string(source_file)}",
         f"import_method: {import_method}",
         f"repair_status: {repair_status}",
+        "verify_status: unverified",
         f"derived_from_import: {yaml_string(derived) if derived else ''}",
         "---",
         "",
@@ -220,7 +223,8 @@ def process_file(
         else:
             result["action"] = "would_update"
         result["source_file"] = infer_source_file(path)
-        result["repair_status"] = "repaired" if find_repair_summary(path) is not None else ""
+        result["repair_status"] = repair_status_for_summary_exists(find_repair_summary(path))
+        result["verify_status"] = "unverified"
         return result
     except UnicodeDecodeError as exc:
         result["action"] = "error"

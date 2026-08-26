@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 def yaml_string(value: str) -> str:
-    return json.dumps(value)
+    return json.dumps(value, ensure_ascii=False)
 
 
 def render_frontmatter(source_file: str, import_method: str, repair_status: str, derived_from_import: str) -> str:
@@ -25,6 +25,7 @@ def render_frontmatter(source_file: str, import_method: str, repair_status: str,
             f"source_file: {yaml_string(source_file)}",
             f"import_method: {import_method}",
             f"repair_status: {repair_status}",
+            "verify_status: unverified",
             f"derived_from_import: {yaml_string(derived_from_import)}",
             "---",
             "",
@@ -140,7 +141,7 @@ def main() -> int:
             raw_output_path = final_output_path.with_name(f"{final_output_path.stem}.raw{final_output_path.suffix}")
         raw_output_path.parent.mkdir(parents=True, exist_ok=True)
         final_output_path.parent.mkdir(parents=True, exist_ok=True)
-        raw_output_path.write_text("\n".join(body_lines), encoding="utf-8")
+        raw_output_path.write_text("\n".join(body_lines), encoding="utf-8", newline="\n")
         repair_payload = run_repair(raw_output_path, final_output_path)
         result.update(
             {
@@ -148,10 +149,11 @@ def main() -> int:
                 "output": str(final_output_path),
                 "repair_summary": repair_payload["summary_path"],
                 "repairs": repair_payload["repairs"],
+                "risk_items": repair_payload.get("risk_items", []),
             }
         )
     else:
-        final_output_path.write_text("\n".join(body_lines), encoding="utf-8")
+        final_output_path.write_text("\n".join(body_lines), encoding="utf-8", newline="\n")
         result["output"] = str(final_output_path)
 
     print(json.dumps(result, ensure_ascii=False, indent=2))

@@ -6,9 +6,18 @@ import json
 import re
 from pathlib import Path
 
+from import_governance import (
+    count_malformed_binom,
+    diagnose_import_risks,
+    ensure_field,
+    is_verified,
+    mark_auto_repaired,
+    risk_summary_lines,
+)
+
 
 def yaml_string(value: str) -> str:
-    return json.dumps(value)
+    return json.dumps(value, ensure_ascii=False)
 
 
 # MinerU v1 Agent tends to emit these LaTeX/OCR artefacts on legacy CJK PDFs.
@@ -144,13 +153,17 @@ def _collapse_isolated_dollar_fragments(text: str) -> tuple[str, int]:
 def _score_remaining_noise(text: str) -> dict[str, int]:
     """Count noise patterns that we do not yet auto-fix but want to report."""
     return {
-        "binom_fragments": len(re.findall(r"\\binom\b", text)),
+        "binom_fragments": count_malformed_binom(text),
         "dot_noise": len(re.findall(r"\\dot\s*\{", text)),
         "sharp_noise": len(re.findall(r"(?<!\\)\\sharp(?!\w)", text)),
         "mathrm_noise": len(re.findall(r"\\mathrm\s*\{[~\s\\tiny]*[.,;:!?]?[~\s\\tiny]*\}", text)),
         "overset_stackrel_noise": len(re.findall(r"\\(?:overset|stackrel)\s*\{\s*\\?\w*\s*\}\s*\{", text)),
         "isolated_dollars": len(re.findall(r"(?m)^\$\$\s*\\?\w+\s*\$$", text)),
     }
+
+
+def _count_question_heading(text: str) -> int:
+    return len(re.findall(r"(?m)^##\s+[一二三四五六七八九十]+[\.、]", text))
 
 
 def repair_mineru_v1_noise(text: str) -> tuple[str, list[str]]:
@@ -217,7 +230,10 @@ def repair_text(text: str) -> tuple[str, list[str]]:
 
     new_text = re.sub(r"(?m)^(#+)(\S)", r"\1 \2", text)
     if new_text != text:
+        promoted_count = max(0, _count_question_heading(new_text) - _count_question_heading(text))
         summary.append("Normalized heading spacing.")
+        if promoted_count:
+            summary.append(f"Flagged {promoted_count} OCR-promoted question heading.")
         text = new_text
 
     new_text = re.sub(r"(?m)^((?:#\s+){2,})(.+)$", lambda m: "#" * m.group(1).count("#") + " " + m.group(2), text)
@@ -245,30 +261,64 @@ def repair_text(text: str) -> tuple[str, list[str]]:
     return text, summary
 
 
+def repair_specific_risks(_repaired_text: str, summary: list[str]) -> list[dict[str, object]]:
+    risks: list[dict[str, object]] = []
+    for line in summary:
+        match = re.match(r"Replaced\s+(\d+)\s+garbled Chinese placeholder", line)
+        if match:
+            risks.append({"code": "lossy-ocr-placeholder", "count": int(match.group(1))})
+            continue
+        match = re.match(r"Flagged\s+(\d+)\s+OCR-promoted question heading", line)
+        if match:
+            risks.append({"code": "question-heading-promoted", "count": int(match.group(1))})
+    return risks
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Conservatively repair imported markdown from PDF conversion.")
     parser.add_argument("input_md", help="Input markdown path")
     parser.add_argument("--output", required=True, help="Output markdown path")
     parser.add_argument("--summary-path", help="Optional path for a markdown repair summary")
     parser.add_argument("--derived-from", help="Optional raw import path to write into derived_from_import")
+    parser.add_argument(
+        "--include-verified",
+        action="store_true",
+        help="Allow repairing files already marked verify_status: verified.",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input_md).resolve()
     output_path = Path(args.output).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    repaired, summary = repair_text(input_path.read_text(encoding="utf-8"))
-    repaired = repaired.replace("repair_status: raw", "repair_status: repaired", 1)
-    repaired = repaired.replace("- Repair status: raw", "- Repair status: repaired", 1)
-    repaired = re.sub(r"(?m)^repair_status:\s*$", "repair_status: repaired", repaired, count=1)
-    repaired = re.sub(r"(?m)^- Repair status:\s*$", "- Repair status: repaired", repaired, count=1)
+    source_text = input_path.read_text(encoding="utf-8")
+    if is_verified(source_text) and not args.include_verified:
+        payload = {
+            "output": None,
+            "requested_output": str(output_path),
+            "repairs": [],
+            "risk_items": [],
+            "skipped": True,
+            "reason": "verify-status-verified",
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    repaired, summary = repair_text(source_text)
+    risks = diagnose_import_risks(repaired)
+    risks.extend(repair_specific_risks(repaired, summary))
+    summary.extend(risk_summary_lines(risks))
+    repaired = mark_auto_repaired(repaired, needs_review=bool(risks))
     if args.derived_from:
         derived_line = f"derived_from_import: {yaml_string(str(Path(args.derived_from).resolve()))}"
-        # Use a callable replacement so Windows paths with JSON \\uXXXX escapes are not
-        # reinterpreted as re.sub template escapes (re.error: bad escape \\u).
-        repaired = re.sub(r"(?m)^derived_from_import:\s*$", lambda _: derived_line, repaired, count=1)
-        repaired = repaired.replace('derived_from_import: ""', derived_line, 1)
-    output_path.write_text(repaired, encoding="utf-8")
+        if "derived_from_import:" not in repaired:
+            repaired = ensure_field(repaired, "derived_from_import", yaml_string(str(Path(args.derived_from).resolve())))
+        else:
+            # Use a callable replacement so Windows paths with JSON \\uXXXX escapes are not
+            # reinterpreted as re.sub template escapes (re.error: bad escape \\u).
+            repaired = re.sub(r"(?m)^derived_from_import:\s*$", lambda _: derived_line, repaired, count=1)
+            repaired = repaired.replace('derived_from_import: ""', derived_line, 1)
+    output_path.write_text(repaired, encoding="utf-8", newline="\n")
 
     if args.summary_path:
         summary_path = Path(args.summary_path).resolve()
@@ -283,9 +333,9 @@ def main() -> int:
             "",
         ]
         summary_lines.extend(f"- {item}" for item in summary)
-        summary_path.write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
+        summary_path.write_text("\n".join(summary_lines) + "\n", encoding="utf-8", newline="\n")
 
-    print(json.dumps({"output": str(output_path), "repairs": summary}, ensure_ascii=False, indent=2))
+    print(json.dumps({"output": str(output_path), "repairs": summary, "risk_items": risks}, ensure_ascii=False, indent=2))
     return 0
 
 
