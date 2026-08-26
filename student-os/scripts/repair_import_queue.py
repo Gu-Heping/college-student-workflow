@@ -102,17 +102,17 @@ def is_import_markdown(path: Path) -> bool:
     return name.endswith(".pdf.md") or name.endswith(".raw.md") or name.endswith(".pdf.raw.md")
 
 
-def iter_import_markdown(root: Path) -> list[Path]:
+def iter_import_markdown(root: Path) -> list[tuple[Path, str | None]]:
     if root.is_file():
-        return [root] if is_import_markdown(root) else []
-    paths: list[Path] = []
+        return [(root, read_markdown_header(root))] if is_import_markdown(root) else []
+    paths: list[tuple[Path, str | None]] = []
     for path in root.rglob("*.md"):
         if any(part in SKIP_DIRS for part in path.parts):
             continue
-        text = read_markdown_header(path)
-        if is_import_markdown(path) or frontmatter_value(text, "derived_from_import"):
-            paths.append(path)
-    return sorted(paths, key=lambda item: item.as_posix().lower())
+        header = read_markdown_header(path)
+        if is_import_markdown(path) or frontmatter_value(header, "derived_from_import"):
+            paths.append((path, header))
+    return sorted(paths, key=lambda item: item[0].as_posix().lower())
 
 
 def find_repair_summary(path: Path) -> Path | None:
@@ -494,12 +494,12 @@ def build_queue(root: Path, *, include_verified: bool = False) -> dict[str, obje
     scanned = 0
     skipped_verified = 0
     items: list[dict[str, object]] = []
-    for path in iter_import_markdown(root):
+    for path, header in iter_import_markdown(root):
         scanned += 1
-        text, decode_error = read_markdown(path)
-        if is_verified(text) and not include_verified:
+        if header is not None and is_verified(header) and not include_verified:
             skipped_verified += 1
             continue
+        text, decode_error = read_markdown(path)
         item = build_queue_item(root, path, text=text, decode_error=decode_error)
         if item:
             items.append(item)
