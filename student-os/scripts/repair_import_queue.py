@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import hashlib
 import json
 import os
@@ -33,6 +34,7 @@ FORMAT_RISKS = {
     "latex-left-right-unbalanced",
     "math-dollar-unbalanced",
 }
+HEURISTIC_RISKS = {"math-dollar-unbalanced", "math-dollar-heuristic-suspect"}
 SEMANTIC_RISKS = {
     "mojibake-replacement-char",
     "low-cjk-density",
@@ -63,6 +65,14 @@ def file_sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
+def configure_stdout() -> None:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+        sys.stderr.reconfigure(encoding="utf-8", newline="\n")
+    except AttributeError:
+        pass
 
 
 def relative_path(root: Path, path: Path) -> str:
@@ -411,6 +421,8 @@ def risk_line_patterns(code: str) -> list[re.Pattern[str]]:
         "latex-binom-fragment": [r"\\binom\b"],
         "latex-left-right-unbalanced": [r"\\(?:left|right)\b"],
         "math-dollar-unbalanced": [r"\$"],
+        "math-dollar-heuristic-suspect": [r"\$"],
+        "math-dollar-odd-line": [r"\$"],
         "lossy-ocr-placeholder": [r"□"],
         "question-heading-promoted": [r"^##\s+[一二三四五六七八九十]+[\.、]"],
         "answer-missing-question-stem": [r"^\s*(?:解|证明|答)[:：]"],
@@ -516,14 +528,116 @@ def merge_risks(risks: list[dict[str, object]]) -> list[dict[str, object]]:
     return [merged[code] for code in order]
 
 
+def risk_metadata(code: str) -> dict[str, object]:
+    metadata: dict[str, dict[str, object]] = {
+        "unicode-escape": {
+            "severity": "info",
+            "confidence": "high",
+            "actionability": "safe-autofix",
+            "safe_fix_kind": "decode-yaml-unicode-escapes",
+            "description": "YAML unicode escapes are usually semantically valid but hard to read.",
+        },
+        "legacy-repaired-unverified": {
+            "severity": "warning",
+            "confidence": "high",
+            "actionability": "metadata-governance",
+            "safe_fix_kind": "mark-auto-repaired-unverified",
+            "description": "Legacy repaired means machine repaired, not human verified.",
+        },
+        "frontmatter-repair-risk": {
+            "severity": "warning",
+            "confidence": "high",
+            "actionability": "human-review-required",
+            "safe_fix_kind": "preserve-risk-marker",
+            "description": "The sidecar already declares a human-review risk.",
+        },
+        "question-heading-promoted": {
+            "severity": "warning",
+            "confidence": "medium",
+            "actionability": "local-format-repair",
+            "safe_fix_kind": "demote-promoted-question-heading",
+            "description": "A question heading may have been promoted to document structure.",
+        },
+        "control-character": {
+            "severity": "warning",
+            "confidence": "high",
+            "actionability": "localized-text-repair",
+            "safe_fix_kind": "replace-control-character-with-source-grounded-token",
+            "description": "A control character is present in imported markdown.",
+        },
+        "latex-left-right-unbalanced": {
+            "severity": "error",
+            "confidence": "high",
+            "actionability": "localized-render-repair",
+            "safe_fix_kind": "balance-left-right-or-use-middle-delimiter",
+            "description": "A LaTeX left/right delimiter mismatch is render-blocking.",
+        },
+        "math-dollar-unbalanced": {
+            "severity": "warning",
+            "confidence": "low",
+            "actionability": "inspect-local-snippets-only",
+            "safe_fix_kind": "do-not-debug-detector",
+            "description": "Heuristic dollar count is odd; inspect localized snippets instead of reading tool source.",
+        },
+        "math-dollar-heuristic-suspect": {
+            "severity": "warning",
+            "confidence": "low",
+            "actionability": "inspect-local-snippets-only",
+            "safe_fix_kind": "normalize-obvious-inline-math-delimiters",
+            "description": "Inline math may be valid but confuses the heuristic counter.",
+        },
+        "math-dollar-odd-line": {
+            "severity": "error",
+            "confidence": "medium",
+            "actionability": "localized-render-repair",
+            "safe_fix_kind": "repair-one-line-inline-math-boundary",
+            "description": "A line has an odd number of unescaped dollar delimiters.",
+        },
+        "answer-missing-question-stem": {
+            "severity": "warning",
+            "confidence": "medium",
+            "actionability": "paired-paper-crosscheck",
+            "safe_fix_kind": "requires-source-or-paired-sidecar",
+            "description": "An answer sidecar appears to start with a solution but no problem stem.",
+        },
+    }
+    return metadata.get(
+        code,
+        {
+            "severity": "warning",
+            "confidence": "medium",
+            "actionability": "inspect-local-snippets-only",
+            "safe_fix_kind": "no-automatic-fix",
+            "description": "Inspect the localized evidence before changing markdown.",
+        },
+    )
+
+
+def enrich_risks(risks: list[dict[str, object]]) -> list[dict[str, object]]:
+    enriched: list[dict[str, object]] = []
+    for risk in risks:
+        code = str(risk.get("code", "")).strip()
+        if not code:
+            continue
+        enriched_risk = {**risk_metadata(code), **risk}
+        enriched.append(enriched_risk)
+    return enriched
+
+
 def build_queue_item(root: Path, path: Path, *, text: str | None = None, decode_error: bool | None = None) -> dict[str, object] | None:
     if text is None or decode_error is None:
         text, decode_error = read_markdown(path)
     parsed = read_frontmatter(text)
     frontmatter = parsed[0] if parsed else {}
-    risks = merge_risks([*diagnose_import_risks(text), *extra_risks(path, text, frontmatter, decode_error=decode_error)])
+    risks = merge_risks(
+        [
+            *diagnose_import_risks(text),
+            *extra_risks(path, text, frontmatter, decode_error=decode_error),
+        ]
+    )
     if not risks:
         return None
+    risks = enrich_risks(risks)
 
     summary_path = find_repair_summary(path)
     raw_path = raw_sibling(path, frontmatter, boundary_root=root)
@@ -560,6 +674,101 @@ def build_queue_item(root: Path, path: Path, *, text: str | None = None, decode_
         "suggested_next_step": "Generate an AI repair case, edit with source evidence, then keep verify_status: unverified until human source review.",
     }
     return item
+
+
+def risk_score(item: dict[str, object]) -> int:
+    score = 0
+    for risk in item.get("risks", []):
+        if not isinstance(risk, dict):
+            continue
+        severity = risk.get("severity")
+        actionability = risk.get("actionability")
+        code = risk.get("code")
+        if severity == "error":
+            score += 100
+        elif severity == "warning":
+            score += 30
+        else:
+            score += 5
+        if actionability in {"localized-render-repair", "localized-text-repair"}:
+            score += 20
+        if code == "unicode-escape":
+            score -= 20
+        if code in HEURISTIC_RISKS:
+            score -= 10
+    return score
+
+
+def compact_item(item: dict[str, object], *, queue_path: str) -> dict[str, object]:
+    risks = [risk for risk in item.get("risks", []) if isinstance(risk, dict)]
+    highest = "info"
+    if any(risk.get("severity") == "error" for risk in risks):
+        highest = "error"
+    elif any(risk.get("severity") == "warning" for risk in risks):
+        highest = "warning"
+    item_id = str(item.get("id", ""))
+    return {
+        "id": item_id,
+        "path": item.get("path", ""),
+        "relative_path": item.get("relative_path", ""),
+        "repair_class": item.get("repair_class", ""),
+        "recommended_evidence_mode": item.get("recommended_evidence_mode", ""),
+        "blocked": item.get("blocked", ""),
+        "highest_severity": highest,
+        "risk_codes": item.get("risk_codes", []),
+        "risks": [
+            {
+                "code": risk.get("code", ""),
+                "severity": risk.get("severity", "warning"),
+                "confidence": risk.get("confidence", "medium"),
+                "actionability": risk.get("actionability", "inspect-local-snippets-only"),
+                "safe_fix_kind": risk.get("safe_fix_kind", "no-automatic-fix"),
+                "line": risk.get("line", ""),
+                "count": risk.get("count", ""),
+                "left": risk.get("left", ""),
+                "right": risk.get("right", ""),
+            }
+            for risk in risks
+        ],
+        "localized_snippet_count": len(item.get("snippets", [])) if isinstance(item.get("snippets"), list) else 0,
+        "suspect_section_count": len(item.get("suspect_sections", [])) if isinstance(item.get("suspect_sections"), list) else 0,
+        "recommended_action": "Generate exactly one case for this item, then write a proposal before applying.",
+        "case_argv": [
+            "python",
+            "student-os/scripts/repair_import_case.py",
+            "--queue",
+            queue_path,
+            "--queue-item",
+            item_id,
+            "--evidence-mode",
+            "auto",
+            "--write-case",
+            "--json",
+        ],
+    }
+
+
+def compact_queue_payload(payload: dict[str, object], *, limit: int) -> dict[str, object]:
+    items = [item for item in payload.get("items", []) if isinstance(item, dict)]
+    ranked = sorted(items, key=risk_score, reverse=True)
+    queue_path = str(payload.get("queue_path", ""))
+    return {
+        "schema_version": payload.get("schema_version"),
+        "ok": payload.get("ok"),
+        "target_root": payload.get("target_root"),
+        "queue_path": queue_path,
+        "counts": payload.get("counts", {}),
+        "compact": True,
+        "items_returned": min(limit, len(ranked)),
+        "items_total": len(ranked),
+        "items": [compact_item(item, queue_path=queue_path) for item in ranked[:limit]],
+        "agent_rules": [
+            "Process one queue item at a time.",
+            "Do not generate multiple cases in parallel.",
+            "Do not write .fixed files or vault-local debug scripts.",
+            "Do not inspect Student OS source code to interpret diagnostics unless a script crashes.",
+        ],
+    }
 
 
 def build_queue(root: Path, *, include_verified: bool = False) -> dict[str, object]:
@@ -604,6 +813,7 @@ def write_queue(payload: dict[str, object]) -> Path:
 
 
 def main() -> int:
+    configure_stdout()
     parser = argparse.ArgumentParser(description="Build an AI-assisted import repair queue for markdown sidecars.")
     parser.add_argument("target", help="Learning vault or imported markdown folder/file to scan")
     parser.add_argument("--include-verified", action="store_true", help="Include files marked verify_status: verified")
@@ -613,6 +823,12 @@ def main() -> int:
         help="Compatibility flag; queue items always include evidence classification.",
     )
     parser.add_argument("--write-queue", action="store_true", help="Write .student-os/import-repair/queue.json")
+    parser.add_argument(
+        "--compact-json",
+        action="store_true",
+        help="With --json, print a compact agent-facing summary while still writing the full queue when --write-queue is used.",
+    )
+    parser.add_argument("--limit", type=int, default=20, help="Maximum items returned by --compact-json")
     parser.add_argument("--json", action="store_true", help="Print the queue as JSON")
     args = parser.parse_args()
 
@@ -647,6 +863,9 @@ def main() -> int:
     if args.write_queue:
         write_queue(payload)
     if args.json or not args.write_queue:
+        if args.compact_json:
+            limit = max(1, args.limit)
+            payload = compact_queue_payload(payload, limit=limit)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         print(payload["queue_path"])

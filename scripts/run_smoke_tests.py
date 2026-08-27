@@ -1567,6 +1567,7 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     raw_md = imports / "source.pdf.raw.md"
     raw_md.write_text(
         "---\n"
+        "course: \"\\u7ebf\\u6027\\u4ee3\\u6570\"\n"
         "source_file: source.pdf\n"
         "repair_status: raw\n"
         "verify_status: unverified\n"
@@ -1580,6 +1581,7 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     risky_md = imports / "source.pdf.md"
     risky_md.write_text(
         "---\n"
+        "course: \"\\u7ebf\\u6027\\u4ee3\\u6570\"\n"
         "source_file: source.pdf\n"
         "derived_from_import: source.pdf.raw.md\n"
         "import_method: mineru-agent-v1\n"
@@ -1680,6 +1682,23 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     if "verified.pdf.md" not in include_paths:
         raise AssertionError(f"--include-verified should include verified risk items: {include_verified_payload}")
 
+    compact_queue = json.loads(
+        run_script("repair_import_queue.py", str(vault), "--write-queue", "--compact-json", "--limit", "3", "--json")
+    )
+    if compact_queue.get("compact") is not True or compact_queue.get("items_returned") != 3:
+        raise AssertionError(f"Expected compact queue output with three items: {compact_queue}")
+    for compact_item in compact_queue["items"]:
+        for noisy_field in {"frontmatter", "snippets", "sections", "suspect_sections"}:
+            if noisy_field in compact_item:
+                raise AssertionError(f"Compact queue item should not include {noisy_field}: {compact_item}")
+        if not compact_item.get("case_argv") or not compact_item.get("risks"):
+            raise AssertionError(f"Compact queue item should expose next action and risk metadata: {compact_item}")
+    compact_risks = {risk["code"]: risk for item in compact_queue["items"] for risk in item["risks"]}
+    if compact_risks.get("unicode-escape", {}).get("safe_fix_kind") != "decode-yaml-unicode-escapes":
+        raise AssertionError(f"unicode-escape should be marked as readability-only safe fix: {compact_queue}")
+    if not any("Do not write .fixed" in rule for rule in compact_queue.get("agent_rules", [])):
+        raise AssertionError(f"Compact queue should include anti-scratch-file agent rules: {compact_queue}")
+
     queue_written = json.loads(run_script("repair_import_queue.py", str(vault), "--write-queue", "--json"))
     queue_path = Path(queue_written["queue_path"])
     if not queue_path.exists():
@@ -1722,6 +1741,28 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Explicit text-only evidence mode should be recorded: {case_payload['evidence']}")
     if case_payload.get("schema_version") != "import-repair-case/v1":
         raise AssertionError(f"Repair case should expose a stable schema version: {case_payload}")
+    if "markdown" in case_payload or case_payload.get("markdown_omitted") is not True:
+        raise AssertionError(f"--write-case --json should omit full markdown by default: {case_payload.keys()}")
+    for expected in {"target_sha256", "case_sha256", "evidence_sha256", "evidence_mode"}:
+        if not case_payload.get("proposal_metadata", {}).get(expected):
+            raise AssertionError(f"Compact case JSON should include proposal metadata {expected}: {case_payload}")
+    verbose_case_payload = json.loads(
+        run_script(
+            "repair_import_case.py",
+            "--queue",
+            str(queue_path),
+            "--queue-item",
+            queue_item_id,
+            "--write-case",
+            "--evidence-mode",
+            "text-only",
+            "--include-markdown",
+            "--json",
+            cwd=vault,
+        )
+    )
+    if "Student OS Import Repair Case" not in verbose_case_payload.get("markdown", ""):
+        raise AssertionError(f"--include-markdown should opt into full case markdown: {verbose_case_payload}")
     case_state = json.loads(case_json.read_text(encoding="utf-8"))
     evidence_sha256 = case_state["evidence_sha256"]
     case_digest = case_state["case_sha256"]
@@ -1780,6 +1821,8 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     )
     if bad_review["review_pass"] is not False:
         raise AssertionError(f"Broken proposal should fail review: {bad_review}")
+    if not any(issue.get("code") == "remaining-math-dollar-odd-line" for issue in bad_review.get("issues", [])):
+        raise AssertionError(f"Broken inline math should fail on localized odd-line risk: {bad_review}")
     bad_apply = run_script_failure_json(
         "repair_import_apply.py",
         "--proposal",
@@ -1803,6 +1846,43 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     )
     if case_apply["stage"] != "apply":
         raise AssertionError(f"repair_import_case.py must not apply proposals directly: {case_apply}")
+
+    fixed_derived_proposal = vault / ".student-os" / "import-repair" / "proposals" / "fixed-derived-proposal.md"
+    fixed_derived_proposal.write_text(
+        "# Proposal\n\n"
+        "Draft copied from source.pdf.md.fixed and a vault-local debug_ script.\n\n"
+        "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+        f"<!-- student-os-target: {risky_md} -->\n\n"
+        f"<!-- student-os-target-sha256: {paths['source.pdf.md']['content_sha256']} -->\n"
+        f"<!-- student-os-case-json: {case_json} -->\n"
+        f"<!-- student-os-case-sha256: {case_digest} -->\n"
+        f"<!-- student-os-evidence-sha256: {evidence_sha256} -->\n"
+        "<!-- student-os-evidence-mode: text-only -->\n"
+        "<!-- student-os-model-capability: text-only -->\n"
+        "<!-- student-os-changed-sections: section-test -->\n"
+        "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+        "<!-- student-os-replacement-start -->\n"
+        "---\n"
+        "source_file: source.pdf\n"
+        "derived_from_import: source.pdf.raw.md\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "Broken math $x$.\n"
+        "<!-- student-os-replacement-end -->\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    fixed_review = run_script_failure_json(
+        "repair_import_review.py",
+        "--proposal",
+        str(fixed_derived_proposal),
+        "--json",
+        cwd=vault,
+    )
+    if not any(issue.get("code") == "proposal-derived-from-scratch-fix" for issue in fixed_review.get("issues", [])):
+        raise AssertionError(f"Review should reject .fixed/scratch-derived proposals: {fixed_review}")
 
     proposal = vault / ".student-os" / "import-repair" / "proposals" / "source-proposal.md"
     proposal.write_text(
@@ -7075,6 +7155,16 @@ def verify_git_grouping(repo: Path, today: date) -> None:
         raise AssertionError("Expected an environment-file reason for mixed delete env states")
     if reasons.get("tasks/deadlines/manual-study-block.sync-conflict-20260704.md") != "sync-conflict file":
         raise AssertionError("Expected a sync-conflict reason for the conflict copy")
+
+    compact_grouping = json.loads(run_script("group_git_changes.py", str(repo), "--compact-json", "--limit", "2"))
+    if "artifact_grouping" in compact_grouping or "hold_back_files" in compact_grouping:
+        raise AssertionError(f"Compact git grouping should omit noisy full path lists: {compact_grouping}")
+    if compact_grouping["counts"]["hold_back_files"] < len(hold_back):
+        raise AssertionError(f"Compact git grouping should preserve hold-back counts: {compact_grouping}")
+    if not compact_grouping.get("hold_back_reason_counts", {}).get("binary media asset"):
+        raise AssertionError(f"Compact git grouping should summarize binary media assets: {compact_grouping}")
+    if len(compact_grouping.get("hold_back_sample", [])) > 2:
+        raise AssertionError(f"Compact git grouping should honor --limit for samples: {compact_grouping}")
 
     group_git_changes = load_group_git_changes_module()
     if not group_git_changes.is_virtualenv_path(repo, "courses/Project/env/pyvenv.cfg"):

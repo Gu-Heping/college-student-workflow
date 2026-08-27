@@ -6,6 +6,7 @@ import json
 import re
 import hashlib
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -24,6 +25,14 @@ SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 def load_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def configure_stdout() -> None:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+        sys.stderr.reconfigure(encoding="utf-8", newline="\n")
+    except AttributeError:
+        pass
 
 
 def object_sha256(payload: object) -> str:
@@ -478,6 +487,7 @@ def apply_proposal(proposal_path: Path, target: Path, output: Path | None, *, ev
 
 
 def main() -> int:
+    configure_stdout()
     parser = argparse.ArgumentParser(description="Build or apply a Student OS AI import repair case.")
     parser.add_argument("--queue-item", required=True, help="Queue item id, queue relative path, or sidecar path")
     parser.add_argument("--queue", help="Explicit queue.json path")
@@ -492,6 +502,11 @@ def main() -> int:
     parser.add_argument("--output", help="Output path for --apply-proposal")
     parser.add_argument("--apply-proposal", help="Apply a proposal replacement block to the sidecar or --output")
     parser.add_argument("--ocr-evidence", help="Existing OCR text/markdown artifact to bind for ocr-assisted evidence")
+    parser.add_argument(
+        "--include-markdown",
+        action="store_true",
+        help="Include full case markdown in JSON output. By default --write-case --json returns compact metadata only.",
+    )
     parser.add_argument("--json", action="store_true", help="Print structured result")
     args = parser.parse_args()
 
@@ -526,9 +541,29 @@ def main() -> int:
         "case_path": json_path(case_path) if case_path else "",
         "case_json": json_path(case_json),
         "evidence": evidence_payload,
-        "queue_item": item,
-        "markdown": markdown,
+        "queue_item": {
+            "id": item.get("id", ""),
+            "path": item.get("path", ""),
+            "relative_path": item.get("relative_path", ""),
+            "content_sha256": item.get("content_sha256", ""),
+            "risk_codes": item.get("risk_codes", []),
+            "repair_class": item.get("repair_class", ""),
+            "recommended_evidence_mode": item.get("recommended_evidence_mode", ""),
+            "blocked": item.get("blocked", ""),
+        },
+        "proposal_metadata": {
+            "schema_version": PROPOSAL_SCHEMA_VERSION,
+            "target": json_path(target),
+            "target_sha256": item.get("content_sha256") or file_sha256(target),
+            "case_json": json_path(case_json),
+            "case_sha256": case_sha256(build_case_payload(item, evidence_payload)),
+            "evidence_sha256": object_sha256(evidence_payload),
+            "evidence_mode": evidence_payload.get("mode", "text-only"),
+        },
+        "markdown_omitted": bool(case_path and not args.include_markdown),
     }
+    if args.include_markdown or not case_path:
+        payload["markdown"] = markdown
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     elif case_path:

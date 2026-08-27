@@ -192,9 +192,14 @@ Import repair governance:
 
 AI-assisted import repair:
 - Inspect Git in the learning vault first.
-- Build an evidence queue with `scripts/repair_import_queue.py <vault-or-folder> --write-queue --classify-evidence --json`.
-- Pick the highest-risk unverified item and generate a case with `scripts/repair_import_case.py --queue <queue.json> --queue-item <id> --evidence-mode auto --write-case --json`.
+- For preflight grouping, prefer `scripts/group_git_changes.py <vault> --compact-json`.
+- Build an evidence queue with `scripts/repair_import_queue.py <vault-or-folder> --write-queue --classify-evidence --compact-json --json`.
+- Pick exactly one highest-risk unverified item and generate exactly one case with `scripts/repair_import_case.py --queue <queue.json> --queue-item <id> --evidence-mode auto --write-case --json`.
 - Read `references/import-repair-examples.md` before drafting the first proposal in a repair session.
+- Do not generate multiple cases in parallel. Do not batch apply repairs.
+- Do not write `.fixed` files, debug scripts, trace scripts, or temporary repair scripts inside the vault; use the Student OS case/review/apply tools and one-off read-only commands.
+- Do not inspect Student OS script source to interpret diagnostics unless a script crashes or the user explicitly asks to debug Student OS itself.
+- Treat `math-dollar-unbalanced` as a low-confidence heuristic. Prefer localized `math-dollar-odd-line` and render-blocking `latex-left-right-unbalanced` evidence when choosing what to repair.
 - Use the case bundle, raw import excerpt, repair summary, and source evidence path to propose a semantic fix. Do not invent missing source content when the evidence is unavailable.
 - Use `text-only` evidence for text models; use `vision-assisted` only when the runtime can inspect rendered PDF page images. If the queue says `blocked: requires-vision-evidence`, a text-only model must stop and report that visual evidence is required.
 - For `ocr-assisted`, create a vault-local `.md` or `.txt` OCR evidence artifact first, then bind it with `repair_import_case.py --evidence-mode ocr-assisted --ocr-evidence <path>`; do not treat OCR text as human verification.

@@ -233,8 +233,8 @@ python student-os/scripts/init_exam_census.py /path/to/vault --course <course> -
 
 ```bash
 python student-os/scripts/inspect_repo.py /path/to/vault
-python student-os/scripts/group_git_changes.py /path/to/vault --json
-python student-os/scripts/repair_import_queue.py /path/to/vault --write-queue --classify-evidence --json
+python student-os/scripts/group_git_changes.py /path/to/vault --compact-json
+python student-os/scripts/repair_import_queue.py /path/to/vault --write-queue --classify-evidence --compact-json --json
 python student-os/scripts/repair_import_case.py --queue /path/to/vault/.student-os/import-repair/queue.json --queue-item <id> --evidence-mode auto --write-case --json
 python student-os/scripts/repair_import_review.py --proposal <proposal.md> --json
 python student-os/scripts/repair_import_apply.py --proposal <proposal.md> --json
@@ -243,6 +243,8 @@ python student-os/scripts/repair_import_apply.py --proposal <proposal.md> --json
 如果 Git preflight 显示目标文件已有无关未提交修改，先暂停并向用户确认边界；不要把已有脏文件当成本次 AI 修复产物覆盖。
 
 AI 可以根据 case、raw import、repair summary、同目录试卷/答案和原 PDF 路径提出修复；文本模型默认 `text-only`，多模态模型可用 `vision-assisted` 渲染候选 PDF 页作为证据。输出仍保持 `verify_status: unverified`，直到人工对照原文确认。
+
+Agent 默认一次只处理一个 queue item，不并行生成多个 case，不在 vault 中写 `.fixed`、debug、trace 或临时修复脚本。`unicode-escape` 是可读性问题；`math-dollar-unbalanced` 是低置信启发式，优先处理 `math-dollar-odd-line` 和 `latex-left-right-unbalanced` 等局部可执行风险。
 
 `ocr-assisted` 需要先通过导入/OCR 工具生成 vault 内的 `.md` 或 `.txt` 文本证据，再用 `repair_import_case.py --evidence-mode ocr-assisted --ocr-evidence <path>` 绑定；它不会直接覆盖已修复 sidecar。
 

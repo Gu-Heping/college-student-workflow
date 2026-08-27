@@ -17,6 +17,7 @@ SCHEMA_VERSION = "import-repair-review/v1"
 TARGET_RE = re.compile(r"<!--\s*student-os-target:\s*(?P<path>.*?)\s*-->")
 META_RE = re.compile(r"<!--\s*student-os-(?P<key>[a-z0-9-]+):\s*(?P<value>.*?)\s*-->")
 QUESTION_RE = re.compile(r"(?m)^\s*(?:#{1,3}\s*)?(?P<num>[一二三四五六七八九十]+|[0-9]+)[\.、．)]")
+BLOCKING_RISK_CODES = {"math-dollar-odd-line", "latex-left-right-unbalanced"}
 
 
 def proposal_target(proposal_path: Path, explicit_target: str | None) -> Path | None:
@@ -135,6 +136,14 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
         issues.append(issue("proposal-changed-sections-missing", "Proposal must declare changed sections or line ranges."))
     if not metadata.get("remaining-risks"):
         issues.append(issue("proposal-remaining-risks-missing", "Proposal must declare remaining human-review risks."))
+    proposal_text = proposal_path.read_text(encoding="utf-8", errors="replace")
+    if re.search(r"(?i)(?:^|[\\/])[^\\/ \n\r]+\.fixed\b|\.dsh[\\/]tmp[\\/].*fix_|debug_|trace_", proposal_text):
+        issues.append(
+            issue(
+                "proposal-derived-from-scratch-fix",
+                "Proposal appears to be derived from a .fixed file or vault-local scratch script; generate a proposal from the case instead.",
+            )
+        )
     case_payload: dict[str, object] | None = None
     case_state_root: Path | None = None
     case_json_value = metadata.get("case-json", "")
@@ -331,7 +340,7 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
     risk_items = diagnose_import_risks(governed)
     for risk in risk_items:
         code = str(risk.get("code", ""))
-        severity = "error" if code in {"math-dollar-unbalanced", "latex-left-right-unbalanced"} else "warning"
+        severity = "error" if code in BLOCKING_RISK_CODES else "warning"
         issues.append(issue(f"remaining-{code}", "Replacement still has import risk diagnostics.", severity=severity, detail=risk))
 
     original_text = ""

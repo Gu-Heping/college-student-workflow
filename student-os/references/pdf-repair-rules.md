@@ -29,12 +29,18 @@ Use this reference after a PDF has been converted into markdown and needs cleanu
 Use this loop when the user asks for flexible cleanup or semantic reconstruction from imported sidecars:
 
 1. Inspect Git in the learning vault before changing files.
-2. Build the evidence queue: `python student-os/scripts/repair_import_queue.py <vault-or-folder> --write-queue --classify-evidence --json`.
-3. Generate a case for one unverified queue item: `python student-os/scripts/repair_import_case.py --queue <queue.json> --queue-item <id> --evidence-mode auto --write-case --json`.
+2. Build the evidence queue with compact agent output: `python student-os/scripts/repair_import_queue.py <vault-or-folder> --write-queue --classify-evidence --compact-json --json`.
+3. Generate a case for exactly one unverified queue item: `python student-os/scripts/repair_import_case.py --queue <queue.json> --queue-item <id> --evidence-mode auto --write-case --json`.
 4. Compare the current sidecar, raw import excerpt, repair summary, paired paper/answer sidecar, and original source path. If the source evidence is unavailable, say so and keep the result unverified.
 5. Write a proposal that explains the evidence, the intended full replacement, and remaining human-review risks.
 6. Run `repair_import_review.py --proposal <proposal.md> --json`; fix the proposal when review reports blocking structural or Markdown/KaTeX issues.
 7. Apply with `repair_import_apply.py --proposal <proposal.md> --require-review-pass --json`.
+
+Operational guardrails:
+- Do not generate cases in parallel.
+- Do not write `.fixed` files or vault-local debug/trace/repair scripts.
+- Do not read Student OS script source to interpret risk labels unless the script itself fails.
+- Treat `unicode-escape` as readability-only and `math-dollar-unbalanced` as a low-confidence heuristic; prioritize localized `math-dollar-odd-line` and render-blocking `latex-left-right-unbalanced` items.
 
 Evidence modes:
 - `text-only`: use current sidecar, raw import, repair summary, and paired paper/answer text. This is the default for non-vision models.

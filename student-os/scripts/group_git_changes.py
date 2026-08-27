@@ -5,6 +5,7 @@ import argparse
 import ast
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -301,9 +302,26 @@ def read_git_status(repo: Path) -> tuple[list[str], bool, str]:
     return lines, True, ""
 
 
+def configure_stdout() -> None:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+        sys.stderr.reconfigure(encoding="utf-8", newline="\n")
+    except AttributeError:
+        pass
+
+
 def main() -> int:
+    configure_stdout()
     parser = argparse.ArgumentParser(description="Group git changes for student-os repositories.")
     parser.add_argument("repo", help="Target repository root")
+    parser.add_argument(
+        "--compact-json",
+        "--preflight",
+        dest="compact_json",
+        action="store_true",
+        help="Print a compact preflight summary without large hold-back path lists.",
+    )
+    parser.add_argument("--limit", type=int, default=20, help="Maximum paths per list in --compact-json output")
     args = parser.parse_args()
 
     repo = Path(args.repo).resolve()
@@ -350,6 +368,38 @@ def main() -> int:
         "hold_back_files": hold_back_files,
         "hold_back_reasons": hold_back_reasons,
     }
+    if args.compact_json:
+        limit = max(1, args.limit)
+        compact_payload = {
+            "is_git_repo": is_git_repo,
+            "git_status_error": git_status_error,
+            "counts": {
+                "changed_groups": {group: len(paths) for group, paths in groups.items()},
+                "eol_only_files": len(eol_only_files),
+                "hold_back_files": len(hold_back_files),
+            },
+            "recommended_commit_split": [
+                {
+                    "group": item["group"],
+                    "suggested_commit_prefix": item["suggested_commit_prefix"],
+                    "path_count": len(item["paths"]),
+                    "sample_paths": item["paths"][:limit],
+                }
+                for item in payload["recommended_commit_split"]
+            ],
+            "eol_only_sample": eol_only_files[:limit],
+            "hold_back_reason_counts": {
+                reason: list(hold_back_reasons.values()).count(reason)
+                for reason in sorted(set(hold_back_reasons.values()))
+            },
+            "hold_back_sample": hold_back_files[:limit],
+            "agent_rules": [
+                "Use this output for preflight decisions.",
+                "Do not read spill files just to inspect hold-back binary assets.",
+                "Inspect target paths directly before modifying them.",
+            ],
+        }
+        payload = compact_payload
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 

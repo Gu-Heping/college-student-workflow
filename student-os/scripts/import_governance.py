@@ -262,6 +262,17 @@ def count_likely_math_dollars(text: str) -> int:
     return count
 
 
+def odd_inline_math_dollar_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    for line_number, line in enumerate(_strip_markdown_code(text).splitlines(), start=1):
+        dollars = len(re.findall(r"(?<!\\)\$", line))
+        if dollars % 2 == 1:
+            items.append({"line": line_number, "count": dollars})
+            if len(items) >= max_items:
+                break
+    return items
+
+
 def count_orphan_latex_nonumber(text: str) -> int:
     count = 0
     for line in _strip_markdown_code(text).splitlines():
@@ -315,6 +326,9 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
     inline_dollars = count_likely_math_dollars(text)
     if inline_dollars % 2 == 1:
         risks.append({"code": "math-dollar-unbalanced", "count": inline_dollars})
+    odd_dollar_lines = odd_inline_math_dollar_lines(text)
+    if odd_dollar_lines:
+        risks.append({"code": "math-dollar-odd-line", "count": len(odd_dollar_lines), "lines": odd_dollar_lines})
 
     imported_body = imported_content_text(text)
     cjk_count = len(re.findall(r"[\u4e00-\u9fff]", imported_body))
