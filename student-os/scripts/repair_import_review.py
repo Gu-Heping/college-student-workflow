@@ -271,6 +271,9 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
             or not isinstance(page.get("path"), str)
             or not str(page.get("path")).strip()
             or not Path(str(page.get("path"))).is_file()
+            or Path(str(page.get("path"))).suffix.lower() != ".png"
+            or not str(page.get("sha256") or "").strip()
+            or file_sha256(Path(str(page.get("path")))) != str(page.get("sha256") or "")
             for page in pages
         ):
             issues.append(

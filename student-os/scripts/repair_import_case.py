@@ -232,7 +232,7 @@ def render_pdf_pages(source_pdf: Path, output_dir: Path, pages: list[int]) -> di
                 pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
                 image_path = output_dir / f"page-{page_number}.png"
                 pixmap.save(str(image_path))
-                written.append({"page": page_number, "path": json_path(image_path)})
+                written.append({"page": page_number, "path": json_path(image_path), "sha256": file_sha256(image_path)})
             except Exception as exc:
                 failures.append({"page": page_number, "reason": "render-failed", "error": str(exc)})
     finally:
