@@ -12,6 +12,7 @@ export const inject = ['tools', 'systemPrompt']
 export interface Config {
   repoRoot?: string
   python?: string
+  timeoutMs?: number
 }
 
 export interface StudentOsToolResult {
@@ -21,6 +22,7 @@ export interface StudentOsToolResult {
   command: string[]
   stdout: string
   stderr: string
+  stage?: string
   signal?: string
   payload?: JsonValue
 }
@@ -28,6 +30,7 @@ export interface StudentOsToolResult {
 interface ScriptRunOptions {
   repoRoot?: string
   python?: string
+  timeoutMs?: number
   signal: AbortSignal
 }
 
@@ -43,6 +46,7 @@ const toolResultSchema = {
     command: { type: 'array', required: true, items: { type: 'string' } },
     stdout: { type: 'string', required: true },
     stderr: { type: 'string', required: true },
+    stage: { type: 'string' },
     signal: { type: 'string' },
     payload: { type: 'json' },
   },
@@ -98,9 +102,11 @@ export function runStudentOsScript(
   const repoRoot = resolveRepoRoot(options.repoRoot)
   const scriptPath = resolve(repoRoot, 'student-os', 'scripts', scriptName)
   const command = [pythonCommand(options.python), scriptPath, ...args]
+  const timeoutMs = Math.max(1, options.timeoutMs ?? 45_000)
 
   return new Promise((resolveResult, reject) => {
     let settled = false
+    let timedOut = false
     const child = spawn(command[0], command.slice(1), {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -110,11 +116,16 @@ export function runStudentOsScript(
     const stderrChunks: Buffer[] = []
 
     const abort = () => child.kill()
+    const timeout = setTimeout(() => {
+      timedOut = true
+      child.kill()
+    }, timeoutMs)
     options.signal.addEventListener('abort', abort, { once: true })
     child.stdout.on('data', chunk => stdoutChunks.push(Buffer.from(chunk)))
     child.stderr.on('data', chunk => stderrChunks.push(Buffer.from(chunk)))
     child.on('error', error => {
       options.signal.removeEventListener('abort', abort)
+      clearTimeout(timeout)
       if (!settled) {
         settled = true
         reject(error)
@@ -122,14 +133,37 @@ export function runStudentOsScript(
     })
     child.on('close', (code, signal) => {
       options.signal.removeEventListener('abort', abort)
+      clearTimeout(timeout)
       if (settled) return
       settled = true
-      if (options.signal.aborted) {
-        reject(new Error('student-os subprocess aborted'))
-        return
-      }
       const stdout = Buffer.concat(stdoutChunks).toString('utf8')
       const stderr = Buffer.concat(stderrChunks).toString('utf8')
+      if (timedOut) {
+        resolveResult({
+          ok: false,
+          exitCode: null,
+          cwd: repoRoot,
+          command,
+          stdout,
+          stderr,
+          stage: 'timeout',
+          signal: signal ?? 'SIGTERM',
+        })
+        return
+      }
+      if (options.signal.aborted) {
+        resolveResult({
+          ok: false,
+          exitCode: null,
+          cwd: repoRoot,
+          command,
+          stdout,
+          stderr,
+          stage: 'aborted',
+          signal: signal ?? 'SIGTERM',
+        })
+        return
+      }
       const payload = parsePayload(stdout)
       resolveResult({
         ok: code === 0,
@@ -168,7 +202,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     name: 'student-os',
     order: 118,
     text: [
-      'Before modifying a Student OS managed vault, inspect it with student_os_inspect.',
+      'Before modifying a Student OS managed vault, run a compact preflight appropriate to the task.',
+      'For imported markdown repair, prefer student_os_group_changes or the repair queue instead of a full-vault inspect.',
       'Do not automatically commit or push Student OS vault changes.',
       'External publication must use the Student OS privacy flow.',
     ].join('\n'),
@@ -179,6 +214,10 @@ export function apply(ctx: Context, config: Config = {}): void {
     description: 'Inspect a Student OS vault using the portable Python inspect_repo.py script.',
     parameters: {
       vault: { type: 'string', description: 'Vault root to inspect. Defaults to the DSH process cwd.' },
+      compact: { type: 'boolean', description: 'Use compact agent-facing output. Defaults to true.' },
+      limit: { type: 'integer', description: 'Maximum sample items in compact output. Defaults to 20.' },
+      scope: { type: 'string', enum: ['repo', 'git', 'hygiene'], description: 'Inspection scope. Defaults to hygiene.' },
+      timeout_ms: { type: 'integer', description: 'Timeout in milliseconds. Defaults to 45000.' },
     },
     output: {
       schema: toolResultSchema,
@@ -187,7 +226,16 @@ export function apply(ctx: Context, config: Config = {}): void {
     isConcurrencySafe: () => true,
     execute(args, exec) {
       const vault = resolveUserPath(requireString(args.vault, 'vault', '.'))
-      return runStudentOsScript('inspect_repo.py', [vault], { ...config, signal: exec.signal })
+      const compact = args.compact !== false
+      const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? Math.max(1, Math.trunc(args.limit)) : 20
+      const scope = typeof args.scope === 'string' && ['repo', 'git', 'hygiene'].includes(args.scope) ? args.scope : 'hygiene'
+      const timeoutMs = typeof args.timeout_ms === 'number' && Number.isFinite(args.timeout_ms)
+        ? Math.max(1, Math.trunc(args.timeout_ms))
+        : config.timeoutMs
+      const scriptArgs = [vault, '--scope', scope, '--limit', String(limit)]
+      if (compact) scriptArgs.push('--compact-json')
+      else scriptArgs.push('--full-json')
+      return runStudentOsScript('inspect_repo.py', scriptArgs, { ...config, timeoutMs, signal: exec.signal })
     },
   }))
 
@@ -196,6 +244,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     description: 'Group git changes in a Student OS vault using the portable Python group_git_changes.py script.',
     parameters: {
       vault: { type: 'string', description: 'Vault root to analyze. Defaults to the DSH process cwd.' },
+      compact: { type: 'boolean', description: 'Use compact preflight output. Defaults to true.' },
+      limit: { type: 'integer', description: 'Maximum sample paths in compact output. Defaults to 20.' },
     },
     output: {
       schema: toolResultSchema,
@@ -204,7 +254,11 @@ export function apply(ctx: Context, config: Config = {}): void {
     isConcurrencySafe: () => true,
     execute(args, exec) {
       const vault = resolveUserPath(requireString(args.vault, 'vault', '.'))
-      return runStudentOsScript('group_git_changes.py', [vault], { ...config, signal: exec.signal })
+      const compact = args.compact !== false
+      const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? Math.max(1, Math.trunc(args.limit)) : 20
+      const scriptArgs = [vault]
+      if (compact) scriptArgs.push('--compact-json', '--limit', String(limit))
+      return runStudentOsScript('group_git_changes.py', scriptArgs, { ...config, signal: exec.signal })
     },
   }))
 

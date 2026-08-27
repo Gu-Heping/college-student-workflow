@@ -473,16 +473,36 @@ def extract_replacement(proposal_path: Path) -> str:
     return body + "\n"
 
 
+def detect_line_ending(path: Path) -> str:
+    if not path.exists():
+        return "\n"
+    data = path.read_bytes()
+    crlf_count = data.count(b"\r\n")
+    lf_count = data.count(b"\n") - crlf_count
+    return "\r\n" if crlf_count > lf_count else "\n"
+
+
+def line_ending_name(newline: str) -> str:
+    return "crlf" if newline == "\r\n" else "lf"
+
+
+def normalize_line_endings(text: str, newline: str) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    return normalized.replace("\n", newline)
+
+
 def apply_proposal(proposal_path: Path, target: Path, output: Path | None, *, evidence_mode: str) -> Path:
     replacement = extract_replacement(proposal_path)
     governed = mark_auto_repaired(replacement, needs_review=True)
     governed = ensure_field(governed, "repair_evidence_mode", evidence_mode)
     governed = ensure_field(governed, "repair_ai_confidence", "unverified")
     destination = (output or target).resolve()
+    source_for_newline = destination if destination.exists() else target
+    governed = normalize_line_endings(governed, detect_line_ending(source_for_newline))
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=str(destination.parent))
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
             handle.write(governed)
         if destination.exists():
             os.chmod(temp_name, destination.stat().st_mode)

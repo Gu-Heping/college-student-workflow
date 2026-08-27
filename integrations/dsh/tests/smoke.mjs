@@ -98,6 +98,10 @@ try {
   const groupTool = requireTool(ctx, 'student_os_group_changes')
   const frontmatterTool = requireTool(ctx, 'student_os_frontmatter')
   assert.equal(inspectTool.parameters.properties.vault.type, 'string')
+  assert.equal(inspectTool.parameters.properties.compact.type, 'boolean')
+  assert.equal(inspectTool.parameters.properties.scope.type, 'string')
+  assert.equal(inspectTool.parameters.properties.timeout_ms.type, 'integer')
+  assert.equal(groupTool.parameters.properties.compact.type, 'boolean')
   assert.equal(frontmatterTool.parameters.required.includes('path'), true)
   assert.equal(frontmatterTool.parameters.properties.apply.type, 'boolean')
   assert.equal(inspectTool.isConcurrencySafe?.({}), true)
@@ -119,13 +123,43 @@ try {
   assert.equal(inspect.value.exitCode, 0)
   assert.equal(inspect.value.cwd, repoRoot)
   assert.equal(inspect.value.payload.is_git_repo, true)
+  assert.equal(inspect.value.payload.compact, true)
+  assert.equal(inspect.value.command.includes('--compact-json'), true)
+  assert.equal(inspect.value.command.includes('--scope'), true)
+  assert.equal(inspect.value.command.includes('hygiene'), true)
+  assert.equal(inspect.value.command.includes('--limit'), true)
+  assert.equal(inspect.value.command.includes('20'), true)
   assert.equal(inspect.value.command[1], resolve(repoRoot, 'student-os', 'scripts', 'inspect_repo.py'))
 
   writeFileSync(join(vault, 'note.md'), '# Note\n', 'utf8')
   const grouped = await execute(ctx, 'student_os_group_changes', { vault })
   assert.equal(grouped.isError, false)
   assert.equal(grouped.value.ok, true)
-  assert.deepEqual(grouped.value.payload.artifact_grouping.ops, ['note.md'])
+  assert.equal(grouped.value.payload.counts.changed_groups.ops, 1)
+  assert.equal(grouped.value.command.includes('--compact-json'), true)
+
+  const fullGrouped = await execute(ctx, 'student_os_group_changes', { vault, compact: false })
+  assert.equal(fullGrouped.isError, false)
+  assert.deepEqual(fullGrouped.value.payload.artifact_grouping.ops, ['note.md'])
+
+  const slowRepoRoot = join(tmpRoot, 'slow-repo')
+  const slowScripts = join(slowRepoRoot, 'student-os', 'scripts')
+  mkdirSync(slowScripts, { recursive: true })
+  writeFileSync(
+    join(slowScripts, 'slow.py'),
+    'import time\nprint("started", flush=True)\ntime.sleep(2)\n',
+    'utf8',
+  )
+  const slow = await StudentOsPlugin.runStudentOsScript('slow.py', [], {
+    repoRoot: slowRepoRoot,
+    timeoutMs: 50,
+    signal: new AbortController().signal,
+  })
+  assert.equal(slow.ok, false)
+  assert.equal(slow.exitCode, null)
+  assert.equal(slow.stage, 'timeout')
+  assert.equal(typeof slow.stdout, 'string')
+  assert.equal(typeof slow.stderr, 'string')
 
   const sidecar = join(vault, 'sample.pdf.md')
   writeFileSync(sidecar, '# Imported\n', 'utf8')

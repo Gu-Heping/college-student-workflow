@@ -88,6 +88,47 @@ def compact_visible_text(text: str) -> str:
     return re.sub(r"\s+", "", body)
 
 
+def review_failure_guidance(
+    issues: list[dict[str, object]],
+    risk_items: list[dict[str, object]],
+) -> tuple[str, str]:
+    if not any(item.get("severity") == "error" for item in issues):
+        return "", ""
+    if any(item.get("code") in {"proposal-target-stale", "proposal-case-target-stale"} for item in issues):
+        return (
+            "stale-proposal",
+            "Regenerate the repair queue and case for the current file content, then rebuild the proposal from that case.",
+        )
+    remaining_blocking = sorted(
+        {
+            str(risk.get("code"))
+            for risk in risk_items
+            if str(risk.get("code", "")) in BLOCKING_RISK_CODES
+        }
+    )
+    if remaining_blocking:
+        return (
+            "replacement-still-has-blocking-risks",
+            "The replacement still has blocking diagnostics: "
+            + ", ".join(remaining_blocking)
+            + ". Choose a smaller queue item/section, or explicitly widen the proposal and fix every blocking risk in scope.",
+        )
+    if any(item.get("code") == "proposal-derived-from-scratch-fix" for item in issues):
+        return (
+            "scratch-fix-proposal-rejected",
+            "Generate the proposal directly from the Student OS case artifact; do not wrap .fixed files or vault-local scratch outputs.",
+        )
+    if any(str(item.get("code", "")).startswith("text-") for item in issues):
+        return (
+            "insufficient-evidence-mode",
+            "A text-only proposal cannot resolve vision-blocked work; create a blocked proposal or regenerate the case with stronger evidence.",
+        )
+    return (
+        "proposal-review-failed",
+        "Read the structured issue codes/messages in this JSON and update the proposal metadata or replacement; do not inspect Student OS source code unless the tool crashed.",
+    )
+
+
 def validate_queue_item(queue_item: dict[str, object]) -> list[dict[str, object]]:
     required_nonempty = ["schema_version", "path", "content_sha256", "recommended_evidence_mode"]
     issues: list[dict[str, object]] = []
@@ -514,6 +555,7 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
             )
 
     review_pass = not any(item["severity"] == "error" for item in issues)
+    failure_reason, recommended_next_action = review_failure_guidance(issues, risk_items)
     return {
         "schema_version": SCHEMA_VERSION,
         "ok": True,
@@ -521,6 +563,8 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
         "target": json_path(resolved_target) if resolved_target else "",
         "metadata": metadata,
         "review_pass": review_pass,
+        "failure_reason": failure_reason,
+        "recommended_next_action": recommended_next_action,
         "issues": issues,
         "risk_items": risk_items,
         "question_numbers": {"before": old_numbers, "after": new_numbers},

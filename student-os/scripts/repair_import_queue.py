@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -37,6 +38,12 @@ FORMAT_RISKS = {
     "math-dollar-unbalanced",
 }
 HEURISTIC_RISKS = {"math-dollar-unbalanced", "math-dollar-heuristic-suspect"}
+BLOCKING_RISKS = {
+    "math-dollar-odd-line",
+    "latex-left-right-unbalanced",
+    "latex-array-column-mismatch",
+    "obsidian-inline-array-render-risk",
+}
 SEMANTIC_RISKS = {
     "mojibake-replacement-char",
     "low-cjk-density",
@@ -82,6 +89,36 @@ def relative_path(root: Path, path: Path) -> str:
         return path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
         return path.resolve().as_posix()
+
+
+def git_root_for(path: Path) -> Path | None:
+    start = path if path.is_dir() else path.parent
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except FileNotFoundError:
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return Path(result.stdout.strip()).resolve()
+
+
+def state_root_for_scan(target: Path) -> Path:
+    target = target.resolve()
+    git_root = git_root_for(target)
+    if git_root is not None and (git_root / ".student-os").exists():
+        return git_root
+    start = target if target.is_dir() else target.parent
+    for parent in [start, *start.parents]:
+        if (parent / ".student-os").exists():
+            return parent.resolve()
+    return start.resolve()
 
 
 def is_relative_to(path: Path, root: Path) -> bool:
@@ -675,6 +712,53 @@ def primary_risk(risks: list[dict[str, object]]) -> dict[str, object]:
     )
 
 
+def blocking_risk_lines(risks: list[dict[str, object]], snippets: list[dict[str, object]]) -> list[int]:
+    lines: set[int] = set()
+    for risk in risks:
+        if str(risk.get("code", "")) not in BLOCKING_RISKS:
+            continue
+        line = risk.get("line")
+        if isinstance(line, int):
+            lines.add(line)
+        risk_lines = risk.get("lines")
+        if isinstance(risk_lines, list):
+            for value in risk_lines:
+                if isinstance(value, int):
+                    lines.add(value)
+                elif isinstance(value, dict) and isinstance(value.get("line"), int):
+                    lines.add(value["line"])
+    for snippet in snippets:
+        if str(snippet.get("code", "")) in BLOCKING_RISKS and isinstance(snippet.get("line"), int):
+            lines.add(int(snippet["line"]))
+    return sorted(lines)
+
+
+def blocking_risk_count(risks: list[dict[str, object]]) -> int:
+    total = 0
+    for risk in risks:
+        if str(risk.get("code", "")) not in BLOCKING_RISKS:
+            continue
+        count = risk.get("count")
+        total += count if isinstance(count, int) and count > 0 else 1
+    return total
+
+
+def review_strategy_for(blocking_count: int, lines: list[int]) -> str:
+    if blocking_count == 0:
+        return "metadata-or-nonblocking-review"
+    if blocking_count <= 2 and len(lines) <= 2:
+        return "single-local-section"
+    return "blocked-or-split-into-smaller-cases"
+
+
+def suggested_next_step_for(strategy: str) -> str:
+    if strategy == "single-local-section":
+        return "Generate one case and repair the local section that contains the blocking display/render issue; keep verify_status: unverified."
+    if strategy == "blocked-or-split-into-smaller-cases":
+        return "Create a blocked case or choose a smaller item/section; do not attempt a broad whole-file rewrite from this queue item."
+    return "Handle metadata or nonblocking readability repairs only; do not claim human verification."
+
+
 def build_queue_item(root: Path, path: Path, *, text: str | None = None, decode_error: bool | None = None) -> dict[str, object] | None:
     if text is None or decode_error is None:
         text, decode_error = read_markdown(path)
@@ -700,6 +784,9 @@ def build_queue_item(root: Path, path: Path, *, text: str | None = None, decode_
     evidence = classify_evidence(path, text, risks, frontmatter, snippets, boundary_root=root)
     sections = split_sections(text)
     suspect_sections = sections_for_snippets(sections, snippets)
+    blocking_lines = blocking_risk_lines(risks, snippets)
+    blocking_count = blocking_risk_count(risks)
+    review_strategy = review_strategy_for(blocking_count, blocking_lines)
     item = {
         "schema_version": SCHEMA_VERSION,
         "id": stable_id(root, path),
@@ -720,11 +807,15 @@ def build_queue_item(root: Path, path: Path, *, text: str | None = None, decode_
         "snippets": snippets[:8],
         "sections": sections,
         "suspect_sections": suspect_sections,
+        "blocking_risk_count": blocking_count,
+        "blocking_risk_lines": blocking_lines,
+        "single_section_candidate": review_strategy == "single-local-section",
+        "review_strategy": review_strategy,
         "evidence": evidence,
         "repair_class": evidence["class"],
         "recommended_evidence_mode": evidence["recommended_mode"],
         "blocked": evidence["blocked"],
-        "suggested_next_step": "Generate one AI repair case for the primary risk, prefer Obsidian-readable display math for long arrays, then keep verify_status: unverified until human source review.",
+        "suggested_next_step": suggested_next_step_for(review_strategy),
     }
     return item
 
@@ -776,6 +867,10 @@ def compact_item(item: dict[str, object], *, queue_path: str) -> dict[str, objec
             "suggestion": primary.get("suggestion", ""),
         },
         "risk_codes": item.get("risk_codes", []),
+        "blocking_risk_count": item.get("blocking_risk_count", 0),
+        "blocking_risk_lines": item.get("blocking_risk_lines", []),
+        "single_section_candidate": item.get("single_section_candidate", False),
+        "review_strategy": item.get("review_strategy", ""),
         "risks": [
             {
                 "code": risk.get("code", ""),
@@ -796,7 +891,7 @@ def compact_item(item: dict[str, object], *, queue_path: str) -> dict[str, objec
         ],
         "localized_snippet_count": len(item.get("snippets", [])) if isinstance(item.get("snippets"), list) else 0,
         "suspect_section_count": len(item.get("suspect_sections", [])) if isinstance(item.get("suspect_sections"), list) else 0,
-        "recommended_action": "Generate exactly one case for this item; if primary_risk is an Obsidian render risk, repair one local display-math section instead of debugging bytes or renderer packages.",
+        "recommended_action": item.get("suggested_next_step", ""),
         "case_argv": [
             "python",
             "student-os/scripts/repair_import_case.py",
@@ -837,7 +932,7 @@ def compact_queue_payload(payload: dict[str, object], *, limit: int) -> dict[str
 
 def build_queue(root: Path, *, include_verified: bool = False) -> dict[str, object]:
     root = root.resolve()
-    state_root = root.parent if root.is_file() else root
+    state_root = state_root_for_scan(root)
     scanned = 0
     skipped_verified = 0
     items: list[dict[str, object]] = []

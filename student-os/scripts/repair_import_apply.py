@@ -5,7 +5,7 @@ import argparse
 import json
 from pathlib import Path
 
-from repair_import_case import apply_proposal, json_path
+from repair_import_case import apply_proposal, detect_line_ending, json_path, line_ending_name
 from repair_import_review import SCHEMA_VERSION as REVIEW_SCHEMA_VERSION
 from repair_import_review import proposal_target, review_proposal
 from repair_import_review import is_relative_to
@@ -143,7 +143,10 @@ def main() -> int:
         }
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 1
+    destination = output or target
+    before_line_ending = detect_line_ending(destination if destination.exists() else target)
     written = apply_proposal(proposal_path, target, output, evidence_mode=declared_evidence_mode)
+    after_line_ending = detect_line_ending(written)
     payload = {
         "schema_version": SCHEMA_VERSION,
         "ok": True,
@@ -155,6 +158,9 @@ def main() -> int:
         "verify_status": "unverified",
         "repair_status": "auto-repaired",
         "repair_evidence_mode": declared_evidence_mode,
+        "line_ending_before": line_ending_name(before_line_ending),
+        "line_ending_after": line_ending_name(after_line_ending),
+        "line_ending_preserved": before_line_ending == after_line_ending,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0

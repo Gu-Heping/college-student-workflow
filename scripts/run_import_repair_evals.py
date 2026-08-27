@@ -402,8 +402,10 @@ def main() -> int:
         if "derived-note.md" not in direct_names:
             raise AssertionError(f"Direct file scan should include derived_from_import markdown: {direct_derived_queue}")
         direct_written = run_json("repair_import_queue.py", str(paths["derived_note"]), "--write-queue", "--json", cwd=ROOT)
-        if Path(str(direct_written["queue_path"])).parent != paths["derived_note"].parent / ".student-os" / "import-repair":
-            raise AssertionError(f"Single-file queue should be written beside the target file: {direct_written}")
+        if Path(str(direct_written["queue_path"])).parent != vault / ".student-os" / "import-repair":
+            raise AssertionError(f"Single-file queue inside a vault should write repair state at vault root: {direct_written}")
+        queue = run_json("repair_import_queue.py", str(vault), "--write-queue", "--classify-evidence", "--json", cwd=ROOT)
+        by_name = {Path(str(item["path"])).name: item for item in queue["items"]}  # type: ignore[index]
         derived_item = by_name["derived-note.md"]
         derived_case = run_json(
             "repair_import_case.py",

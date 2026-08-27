@@ -1562,6 +1562,7 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     vault = tmp_root / "vault"
     imports = vault / "references" / "imports"
     imports.mkdir(parents=True)
+    (vault / ".student-os").mkdir()
     source_pdf = imports / "source.pdf"
     write_multipage_pdf_fixture(source_pdf, 2)
     raw_md = imports / "source.pdf.raw.md"
@@ -1692,6 +1693,12 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Queue items should include suspect sections: {paths['source.pdf.md']}")
     if not paths["source.pdf.md"].get("content_sha256"):
         raise AssertionError(f"Queue items should include a target content hash: {paths['source.pdf.md']}")
+    if paths["source.pdf.md"].get("single_section_candidate") is not False:
+        raise AssertionError(f"Multi-risk source item should not be presented as a single-section repair: {paths['source.pdf.md']}")
+    if int(paths["source.pdf.md"].get("blocking_risk_count", 0)) < 3:
+        raise AssertionError(f"Source item should expose blocking risk count: {paths['source.pdf.md']}")
+    if paths["legacy.pdf.md"].get("review_strategy") != "metadata-or-nonblocking-review":
+        raise AssertionError(f"Metadata-only legacy item should not look like broad content repair: {paths['legacy.pdf.md']}")
 
     include_verified_payload = json.loads(run_script("repair_import_queue.py", str(vault), "--include-verified", "--json"))
     include_paths = {Path(item["path"]).name for item in include_verified_payload["items"]}
@@ -1716,6 +1723,11 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Obsidian inline array risk should steer agents to display math: {compact_queue}")
     if not any("Do not write .fixed" in rule for rule in compact_queue.get("agent_rules", [])):
         raise AssertionError(f"Compact queue should include anti-scratch-file agent rules: {compact_queue}")
+    compact_source = next(item for item in compact_queue["items"] if Path(str(item["path"])).name == "source.pdf.md")
+    if compact_source.get("single_section_candidate") is not False:
+        raise AssertionError(f"Compact queue should tell agents to split multi-risk items: {compact_source}")
+    if "smaller item" not in str(compact_source.get("recommended_action", "")):
+        raise AssertionError(f"Compact queue should recommend split/blocked handling for broad items: {compact_source}")
 
     queue_written = json.loads(run_script("repair_import_queue.py", str(vault), "--write-queue", "--json"))
     queue_path = Path(queue_written["queue_path"])
@@ -1723,6 +1735,9 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"--write-queue should write queue.json: {queue_written}")
     if b"\r\n" in queue_path.read_bytes():
         raise AssertionError("queue.json should be written with LF newlines")
+    subdir_queue = json.loads(run_script("repair_import_queue.py", str(imports), "--write-queue", "--json", cwd=vault))
+    if Path(subdir_queue["queue_path"]).resolve() != (vault / ".student-os" / "import-repair" / "queue.json").resolve():
+        raise AssertionError(f"Subdirectory scans should write repair state at vault root: {subdir_queue}")
 
     queue_item_id = paths["source.pdf.md"]["id"]
     case_payload = json.loads(
@@ -1844,6 +1859,10 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Broken proposal should fail review: {bad_review}")
     if not any(issue.get("code") == "remaining-math-dollar-odd-line" for issue in bad_review.get("issues", [])):
         raise AssertionError(f"Broken inline math should fail on localized odd-line risk: {bad_review}")
+    if bad_review.get("failure_reason") != "replacement-still-has-blocking-risks":
+        raise AssertionError(f"Failed review should explain the blocking reason: {bad_review}")
+    if "smaller" not in str(bad_review.get("recommended_next_action", "")):
+        raise AssertionError(f"Failed review should provide a next action without source reading: {bad_review}")
 
     inline_array_proposal = vault / ".student-os" / "import-repair" / "proposals" / "inline-array-proposal.md"
     inline_array_proposal.write_text(
@@ -2022,6 +2041,80 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Proposal apply should preserve UTF-8 Chinese text:\n{applied_text}")
     if b"\r\n" in applied.read_bytes():
         raise AssertionError("Applied proposal should be written with LF newlines")
+    if apply_payload.get("line_ending_preserved") is not True or apply_payload.get("line_ending_after") != "lf":
+        raise AssertionError(f"Apply JSON should report LF preservation: {apply_payload}")
+
+    crlf_target = imports / "crlf.pdf.md"
+    crlf_target.write_text(
+        (
+            "---\n"
+            "source_file: crlf.pdf\n"
+            "repair_status: auto-repaired\n"
+            "verify_status: unverified\n"
+            "---\n"
+            "\n"
+            "1. Small CRLF item with broken math $x\n"
+        ).replace("\n", "\r\n"),
+        encoding="utf-8",
+        newline="",
+    )
+    crlf_queue = json.loads(run_script("repair_import_queue.py", str(vault), "--write-queue", "--json", cwd=vault))
+    crlf_item = next(item for item in crlf_queue["items"] if Path(item["path"]).name == "crlf.pdf.md")
+    crlf_case = json.loads(
+        run_script(
+            "repair_import_case.py",
+            "--queue",
+            crlf_queue["queue_path"],
+            "--queue-item",
+            crlf_item["id"],
+            "--write-case",
+            "--evidence-mode",
+            "text-only",
+            "--json",
+            cwd=vault,
+        )
+    )
+    crlf_case_state = json.loads(Path(crlf_case["case_json"]).read_text(encoding="utf-8"))
+    crlf_proposal = vault / ".student-os" / "import-repair" / "proposals" / "crlf-proposal.md"
+    crlf_proposal.write_text(
+        "# CRLF Proposal\n\n"
+        "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+        f"<!-- student-os-target: {crlf_target} -->\n\n"
+        f"<!-- student-os-target-sha256: {crlf_item['content_sha256']} -->\n"
+        f"<!-- student-os-case-json: {crlf_case['case_json']} -->\n"
+        f"<!-- student-os-case-sha256: {crlf_case_state['case_sha256']} -->\n"
+        f"<!-- student-os-evidence-sha256: {crlf_case_state['evidence_sha256']} -->\n"
+        "<!-- student-os-evidence-mode: text-only -->\n"
+        "<!-- student-os-model-capability: text-only -->\n"
+        "<!-- student-os-changed-sections: section-test -->\n"
+        "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+        "<!-- student-os-replacement-start -->\n"
+        "---\n"
+        "source_file: crlf.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "1. Small CRLF item with fixed math $x$.\n"
+        "<!-- student-os-replacement-end -->\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    crlf_apply = json.loads(
+        run_script(
+            "repair_import_apply.py",
+            "--proposal",
+            str(crlf_proposal),
+            "--target",
+            str(crlf_target),
+            "--json",
+            cwd=vault,
+        )
+    )
+    if crlf_apply.get("line_ending_preserved") is not True or crlf_apply.get("line_ending_after") != "crlf":
+        raise AssertionError(f"Apply should preserve CRLF line endings: {crlf_apply}")
+    if b"\r\n" not in crlf_target.read_bytes():
+        raise AssertionError("CRLF target should remain CRLF after apply")
 
 
 def verify_local_pdf_risk_forwarding(tmp_root: Path) -> None:
@@ -6956,10 +7049,10 @@ def verify_inspect_repo(repo: Path) -> None:
         raise AssertionError("inspect_repo.py should report sync-conflict copies")
     if ".obsidian/workspace.json" not in payload["local_only_files"]:
         raise AssertionError("inspect_repo.py should report local workspace files")
-    if "__pycache__/inspect_repo.cpython-310.pyc" not in payload["generated_cache_files"]:
-        raise AssertionError("inspect_repo.py should report generated cache files")
-    if "tmp/scratch.log" not in payload["temp_files"]:
-        raise AssertionError("inspect_repo.py should report files under tmp/temp paths")
+    if "__pycache__/inspect_repo.cpython-310.pyc" in payload["generated_cache_files"]:
+        raise AssertionError("inspect_repo.py should skip generated cache directories in large vault scans")
+    if "tmp/scratch.log" in payload["temp_files"]:
+        raise AssertionError("inspect_repo.py should skip temp directories in large vault scans")
     if "references/textbooks/linear-algebra-textbook.pdf" not in payload["binary_files"]:
         raise AssertionError("inspect_repo.py should report binary source documents")
     if "references/slides/week-1-capture.mp4" not in payload["binary_files"]:
@@ -6975,14 +7068,39 @@ def verify_inspect_repo(repo: Path) -> None:
     warnings = payload.get("hygiene_warnings", [])
     for snippet in [
         "sync-conflict files detected",
-        "generated caches detected",
         "local-only workspace or environment files detected",
-        "temporary files detected under tmp/temp paths",
         "large files detected",
         "binary-heavy areas detected",
     ]:
         if not any(snippet in warning for warning in warnings):
             raise AssertionError(f"inspect_repo.py should emit a hygiene warning containing: {snippet}")
+    (repo / ".dsh").mkdir(parents=True, exist_ok=True)
+    (repo / ".dsh" / "generated.pdf").write_bytes(b"%PDF ignored by inspect\n")
+    evidence_dir = repo / ".student-os" / "import-repair" / "evidence" / "case-1"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    (evidence_dir / "page-1.png").write_bytes(b"PNG ignored by inspect\n")
+    compact = json.loads(run_script("inspect_repo.py", str(repo), "--compact-json", "--limit", "2"))
+    if compact.get("compact") is not True:
+        raise AssertionError(f"inspect_repo.py --compact-json should identify compact output: {compact}")
+    for noisy_field in {"dirty_files", "large_files", "binary_files", "binary_zones"}:
+        if noisy_field in compact:
+            raise AssertionError(f"Compact inspect should not include full {noisy_field}: {compact}")
+    if len(compact.get("dirty_sample", [])) > 2:
+        raise AssertionError(f"Compact inspect should limit dirty samples: {compact}")
+    if compact.get("dirty_count", 0) < 1:
+        raise AssertionError(f"Compact inspect should still expose dirty counts: {compact}")
+    compact_text = json.dumps(compact, ensure_ascii=False)
+    if ".dsh/generated.pdf" in compact_text or "page-1.png" in compact_text:
+        raise AssertionError(f"Compact inspect should skip DSH/evidence artifacts: {compact}")
+    repo_scope = json.loads(run_script("inspect_repo.py", str(repo), "--compact-json", "--scope", "repo"))
+    if repo_scope["warning_counts"]["large_files"] != 0 or repo_scope["warning_counts"]["binary_zones"] != 0:
+        raise AssertionError(f"Repo-scope inspect should skip binary-heavy hygiene checks: {repo_scope}")
+    git_scope = json.loads(run_script("inspect_repo.py", str(repo), "--compact-json", "--scope", "git"))
+    if git_scope["counts"]["files_scanned"] != 0:
+        raise AssertionError(f"Git-scope inspect should avoid filesystem walking: {git_scope}")
+    full_explicit = json.loads(run_script("inspect_repo.py", str(repo), "--full-json"))
+    if "dirty_files" not in full_explicit or "binary_files" not in full_explicit:
+        raise AssertionError(f"--full-json should preserve full inspect fields: {full_explicit}")
 
 
 def verify_git_grouping(repo: Path, today: date) -> None:
