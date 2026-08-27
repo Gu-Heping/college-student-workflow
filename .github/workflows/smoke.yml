@@ -43,10 +43,21 @@ jobs:
       - name: Compile check
         run: >
           python -m py_compile
+          scripts/bootstrap_dsh.py
+          scripts/dsh_plugin_build.py
           scripts/extract_release_notes.py
           scripts/install_student_os.py
+          scripts/run_import_repair_evals.py
           scripts/run_smoke_tests.py
+          student-os/scripts/import_governance.py
           student-os/scripts/update_student_os.py
+          student-os/scripts/repair_import_queue.py
+          student-os/scripts/repair_import_case.py
+          student-os/scripts/repair_import_review.py
+          student-os/scripts/repair_import_apply.py
 
       - name: Run smoke tests
         run: python scripts/run_smoke_tests.py
+
+      - name: Run import repair evals
+        run: python scripts/run_import_repair_evals.py

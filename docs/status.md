@@ -15,15 +15,16 @@
 | **privacy redaction** | `--stdin` / `--check-stdin` / `--check-only`；`sanitize_and_post.py` 包装 `gh`；有 warning 默认拦截 |
 | **materials_convert** | 批量 PDF/DOCX/PPTX/XLSX/图片/旧 Office → markdown sidecar；positional 为 source，非 vault |
 | **MinerU API** | `--method auto` / `--method api`；有 token 时走 v4 精准 API；`auto` 无 token 时 ≤10MB 文件可走 v1 Agent 免登录 API；PDF 按 ≤20 页/片限制自动拆分合并 |
-| **markdown repair** | `repair_markdown_import.py`；`materials_convert --repair` / `--repair-only` |
+| **markdown repair** | `repair_markdown_import.py`；`materials_convert --repair` / `--repair-only`；AI 导入修复队列/case/proposal/review/apply 闭环可生成证据包并阻止未审查 proposal 直接落盘 |
 | **exam-census** | Init → taxonomy → annotate → aggregate；Phase A–E（fill / quality / multi-dim / deep-dive / cross-val）；备考包模板；多平台 adapters |
-| **smoke tests / CI** | `scripts/run_smoke_tests.py`；`.github/workflows/smoke.yml` |
+| **smoke tests / CI** | `scripts/run_smoke_tests.py`、`scripts/run_import_repair_evals.py`；`.github/workflows/smoke.yml` |
 
 ## 部分可用 / 需小心
 
 | 能力 | 注意 |
 | --- | --- |
 | **MinerU / OCR** | 无 token 且超过 v1 Agent 10MB 限制时需配置 token；`--force-strategy ocr/mineru-api` 仍按强制策略处理。质量依赖源文件与 API |
+| **AI 导入修复** | 可尽量无人值守生成 proposal 和自动审查，但 `verified` 仍只表示人工对照原 PDF/原文确认；无视觉证据时保持 blocked/unverified |
 | **旧 vault 接入** | 可映射，不强制改名；复杂布局需人工确认 `repo-profile.md` |
 | **exam-census 内容质量** | 脚本生成骨架与门禁；题型解析正文仍依赖 agent 填写，需跑 Phase B |
 | **GitHub 发布** | 隐私 warning 需显式确认；裸管道接 `gh` 不安全 |

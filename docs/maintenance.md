@@ -40,8 +40,9 @@
 - 合并前至少本地跑：
 
 ```bash
-python -m py_compile scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py
+python -m py_compile scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_import_repair_evals.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py student-os/scripts/repair_import_queue.py student-os/scripts/repair_import_case.py student-os/scripts/repair_import_review.py student-os/scripts/repair_import_apply.py
 python scripts/run_smoke_tests.py
+python scripts/run_import_repair_evals.py
 ```
 
 - 纯文档 PR：仍建议跑上述命令，确认未误改脚本；若环境无法跑，在 PR Notes 写明原因。
