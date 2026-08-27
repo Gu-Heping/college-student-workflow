@@ -30,18 +30,19 @@ Use this loop when the user asks for flexible cleanup or semantic reconstruction
 
 1. Inspect Git in the learning vault with compact, task-specific preflight before changing files. For import repair, prefer `group_git_changes.py --compact-json` over a full-vault hygiene inspect.
 2. Build the evidence queue with compact agent output: `python student-os/scripts/repair_import_queue.py <vault-or-folder> --write-queue --classify-evidence --compact-json --json`.
-3. Generate a case for exactly one unverified queue item with `single_section_candidate: true`: `python student-os/scripts/repair_import_case.py --queue <queue.json> --queue-item <id> --evidence-mode auto --write-case --json`.
+3. Generate a case for exactly one unverified `recommended_item` with `single_section_candidate: true`: `python student-os/scripts/repair_import_case.py --queue <queue.json> --queue-item <id> --evidence-mode auto --write-case --json`.
 4. Compare the current sidecar, raw import excerpt, repair summary, paired paper/answer sidecar, and original source path. If the source evidence is unavailable, say so and keep the result unverified.
-5. Write a proposal that explains the evidence, the intended full replacement, and remaining human-review risks.
+5. Write a proposal that explains the evidence, the intended section replacement, and remaining human-review risks.
 6. Run `repair_import_review.py --proposal <proposal.md> --json`; fix the proposal when review reports blocking structural or Markdown/KaTeX issues.
 7. Apply with `repair_import_apply.py --proposal <proposal.md> --require-review-pass --json`.
 
 Operational guardrails:
 - Do not generate cases in parallel.
 - If the compact queue says `single_section_candidate: false`, create a blocked case or choose a smaller item/section instead of rewriting the whole file.
-- Use compact queue `top_item.case_argv` as the default next step; read full `queue.json` only when the compact output is insufficient or the tool asks for fallback.
+- Use compact queue `recommended_item.case_argv` as the default next step. If `top_blocked_item` is present, use `next_repairable_item` or narrow the target folder instead of reading the full queue.
 - For local render repairs, write a section replacement block with `student-os-section-replacement-start/end`; reserve full-file replacement for explicitly widened repairs.
 - Do not write `.fixed` files or vault-local debug/trace/repair scripts.
+- After apply, do not directly edit the target sidecar. If another defect appears, create a follow-up proposal, review it, and apply it.
 - Do not read Student OS script source to interpret risk labels unless the script itself fails.
 - When review fails, follow `failure_reason` and `recommended_next_action` from the JSON.
 - Treat `unicode-escape` as readability-only and `math-dollar-unbalanced` as a low-confidence heuristic; prioritize localized `math-dollar-odd-line` and render-blocking `latex-left-right-unbalanced` items.

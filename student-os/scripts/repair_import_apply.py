@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from repair_import_case import apply_proposal, detect_line_ending, json_path, line_ending_name
@@ -13,6 +14,14 @@ from repair_import_review import state_root_from_case_json
 
 
 SCHEMA_VERSION = "import-repair-apply/v1"
+
+
+def configure_stdout() -> None:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+        sys.stderr.reconfigure(encoding="utf-8", newline="\n")
+    except AttributeError:
+        pass
 
 
 def load_review(path: Path) -> dict[str, object]:
@@ -33,6 +42,7 @@ def state_root_from_review(review_payload: dict[str, object]) -> Path | None:
 
 
 def main() -> int:
+    configure_stdout()
     parser = argparse.ArgumentParser(description="Apply a reviewed AI import repair proposal with Student OS governance.")
     parser.add_argument("--proposal", required=True, help="Proposal markdown path")
     parser.add_argument("--target", help="Target sidecar path; defaults to student-os-target marker in proposal")
@@ -161,6 +171,12 @@ def main() -> int:
         "line_ending_before": line_ending_name(before_line_ending),
         "line_ending_after": line_ending_name(after_line_ending),
         "line_ending_preserved": before_line_ending == after_line_ending,
+        "paragraph_boundaries_preserved": bool(review_payload.get("paragraph_boundaries_preserved", True)),
+        "post_apply_direct_edit_allowed": False,
+        "next_action_on_post_apply_issue": "create-follow-up-proposal",
+        "recommended_next_action": (
+            "If another defect is found after apply, create a follow-up proposal, review it, then apply it; do not edit the target sidecar directly."
+        ),
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0

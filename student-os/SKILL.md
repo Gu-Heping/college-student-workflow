@@ -193,8 +193,8 @@ Import repair governance:
 AI-assisted import repair:
 - Inspect Git in the learning vault first with a compact, task-specific preflight. In DSH, use `student_os_group_changes` for import repair preflight; use `student_os_inspect` with compact output for repository shape checks, not as a default full-vault hygiene scan.
 - For preflight grouping, prefer `scripts/group_git_changes.py <vault> --compact-json`.
-- Build an evidence queue with `scripts/repair_import_queue.py <vault-or-folder> --write-queue --classify-evidence --compact-json --json`; use the returned `top_item` and `case_argv` instead of reading full `queue.json` unless the tool asks for a fallback.
-- Pick exactly one highest-risk unverified `top_item` whose compact queue entry has `single_section_candidate: true`, then generate exactly one case with `scripts/repair_import_case.py --queue <queue.json> --queue-item <id> --evidence-mode auto --write-case --json`.
+- Build an evidence queue with `scripts/repair_import_queue.py <vault-or-folder> --write-queue --classify-evidence --compact-json --json`; use `recommended_item.case_argv` first. If `top_blocked_item` is present, do not read full `queue.json` just to pick an item; use `next_repairable_item` or narrow the target folder.
+- Pick exactly one highest-risk unverified `recommended_item` whose compact queue entry has `single_section_candidate: true`, then generate exactly one case with `scripts/repair_import_case.py --queue <queue.json> --queue-item <id> --evidence-mode auto --write-case --json`.
 - If `single_section_candidate: false`, create a blocked case or choose a smaller item/section. Do not attempt a broad whole-file rewrite unless the user explicitly authorizes widening the repair.
 - Read `references/import-repair-examples.md` before drafting the first proposal in a repair session.
 - Do not generate multiple cases in parallel. Do not batch apply repairs.
@@ -210,6 +210,7 @@ AI-assisted import repair:
 - For `ocr-assisted`, create a vault-local `.md` or `.txt` OCR evidence artifact first, then bind it with `repair_import_case.py --evidence-mode ocr-assisted --ocr-evidence <path>`; do not treat OCR text as human verification.
 - Copy the proposal metadata markers from the case, including `student-os-target-sha256`, `student-os-case-json`, `student-os-case-sha256`, and `student-os-evidence-sha256`; stale proposals must be regenerated instead of applied. For a local repair, use `student-os-section-replacement-start/end` markers from the case template instead of full-file replacement.
 - Review proposals with `repair_import_review.py --proposal <proposal.md> --json`; if review fails, follow `failure_reason` and `recommended_next_action` from the JSON instead of reading Student OS source. Apply only with `repair_import_apply.py --proposal <proposal.md> --require-review-pass --json`.
+- After apply, do not directly edit the target `.pdf.md` sidecar to fix a newly noticed defect. Create a follow-up proposal, review it, then apply it; proposal artifacts may be edited while drafting.
 - Applied AI proposals must keep `repair_status: auto-repaired`, `verify_status: unverified`, `repair_evidence_mode`, and `repair_ai_confidence: unverified`.
 - Never mark AI-assisted repair as `verified`; only the user can confirm verification after checking the original PDF/material.
 

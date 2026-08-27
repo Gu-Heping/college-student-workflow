@@ -1766,9 +1766,20 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Expected compact queue output with three items: {compact_queue}")
     if not compact_queue.get("top_item") or compact_queue["top_item"] != compact_queue["items"][0]:
         raise AssertionError(f"Compact queue should expose exactly one top recommended item: {compact_queue}")
+    if not compact_queue.get("top_blocked_item"):
+        raise AssertionError(f"Compact queue should expose the highest-risk blocked item separately: {compact_queue}")
+    next_repairable = compact_queue.get("next_repairable_item", {})
+    if not next_repairable or next_repairable.get("single_section_candidate") is not True:
+        raise AssertionError(f"Compact queue should expose a directly repairable next item: {compact_queue}")
+    if compact_queue.get("recommended_item") != next_repairable:
+        raise AssertionError(f"Compact queue should recommend the repairable item when the top item is blocked: {compact_queue}")
+    if not compact_queue.get("recommended_reason") or "next_repairable_item" not in compact_queue["recommended_reason"]:
+        raise AssertionError(f"Compact queue should explain why the top item is not the next action: {compact_queue}")
     default_compact = json.loads(run_script("repair_import_queue.py", str(vault), "--compact-json", "--json"))
     if default_compact.get("items_returned") != 1 or len(default_compact.get("items", [])) != 1:
         raise AssertionError(f"Default compact queue should return one top candidate: {default_compact}")
+    if not default_compact.get("next_repairable_item", {}).get("case_argv"):
+        raise AssertionError(f"Default compact queue should provide a repairable case argv without reading full queue: {default_compact}")
     for compact_item in compact_queue["items"]:
         for noisy_field in {"frontmatter", "snippets", "sections", "suspect_sections"}:
             if noisy_field in compact_item:
@@ -1922,6 +1933,10 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     )
     if section_review["review_pass"] is not True or section_review.get("replacement_kind") != "section":
         raise AssertionError(f"Section patch proposal should pass review: {section_review}")
+    if section_review.get("paragraph_boundaries_preserved") is not True:
+        raise AssertionError(f"Section review should report preserved paragraph boundaries: {section_review}")
+    if section_review.get("post_apply_direct_edit_allowed") is not False:
+        raise AssertionError(f"Review should not permit direct target edits after apply: {section_review}")
     if section_review.get("scope_pass") is not True or len(section_review.get("actual_changed_sections", [])) != 1:
         raise AssertionError(f"Section patch review should report one changed section: {section_review}")
     if "obsidian-inline-array-render-risk" not in section_review.get("render_risks_cleared", []):
@@ -1941,6 +1956,53 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     section_text = section_output.read_text(encoding="utf-8")
     if section_apply.get("ok") is not True or "2. 保持不变的题目。" not in section_text:
         raise AssertionError(f"Section apply should only replace the target section: {section_apply}\n{section_text}")
+    if section_apply.get("paragraph_boundaries_preserved") is not True or section_apply.get("post_apply_direct_edit_allowed") is not False:
+        raise AssertionError(f"Section apply should report boundary preservation and no direct-edit permission: {section_apply}")
+    if "\n，求A。\n2. 保持不变的题目。" in section_text:
+        raise AssertionError(f"Section apply should preserve the blank separator before the next question:\n{section_text}")
+
+    boundary_bad_proposal = vault / ".student-os" / "import-repair" / "proposals" / "boundary-regression.md"
+    boundary_bad_proposal.write_text(
+        "# Boundary Regression Proposal\n\n"
+        "Converts math but glues the following question to the previous paragraph.\n\n"
+        "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+        f"<!-- student-os-target: {single_section_md} -->\n"
+        f"<!-- student-os-target-sha256: {single_item['content_sha256']} -->\n"
+        f"<!-- student-os-case-json: {single_case_json} -->\n"
+        f"<!-- student-os-case-sha256: {single_case_digest} -->\n"
+        f"<!-- student-os-evidence-sha256: {single_evidence_sha256} -->\n"
+        "<!-- student-os-evidence-mode: text-only -->\n"
+        "<!-- student-os-model-capability: text-only -->\n"
+        f"<!-- student-os-changed-sections: {single_section_id} -->\n"
+        "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+        "<!-- student-os-replacement-start -->\n"
+        "---\n"
+        "source_file: single-section.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "1. 设矩阵\n\n"
+        "$$\n"
+        "A = \\left( \\begin{array} { c c } 1 & 0 \\\\ 0 & 1 \\end{array} \\right)\n"
+        "$$\n\n"
+        "，求A。\n"
+        "2. 保持不变的题目。\n"
+        "<!-- student-os-replacement-end -->\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    boundary_bad_review = run_script_failure_json(
+        "repair_import_review.py",
+        "--proposal",
+        str(boundary_bad_proposal),
+        "--json",
+        cwd=vault,
+    )
+    if boundary_bad_review.get("paragraph_boundaries_preserved") is not False:
+        raise AssertionError(f"Boundary regression should be reported: {boundary_bad_review}")
+    if not any(issue.get("code") == "markdown-paragraph-boundary-regression" for issue in boundary_bad_review.get("issues", [])):
+        raise AssertionError(f"Boundary regression should fail review with a specific code: {boundary_bad_review}")
 
     widened_proposal = vault / ".student-os" / "import-repair" / "proposals" / "widened-without-auth.md"
     widened_proposal.write_text(

@@ -932,6 +932,32 @@ def compact_queue_payload(payload: dict[str, object], *, limit: int) -> dict[str
     ranked = sorted(items, key=risk_score, reverse=True)
     queue_path = str(payload.get("queue_path", ""))
     compact_items = [compact_item(item, queue_path=queue_path) for item in ranked[:limit]]
+    top_item = compact_items[0] if compact_items else {}
+    top_source = ranked[0] if ranked else {}
+    top_blocked_item = compact_item(top_source, queue_path=queue_path) if top_source and top_source.get("single_section_candidate") is not True else {}
+    next_repairable_source = next(
+        (
+            item
+            for item in ranked
+            if item.get("single_section_candidate") is True
+            and str(item.get("blocked") or "") == ""
+            and int(item.get("blocking_risk_count") or 0) > 0
+        ),
+        None,
+    )
+    next_repairable_item = compact_item(next_repairable_source, queue_path=queue_path) if next_repairable_source else {}
+    recommended_item = next_repairable_item or top_item
+    if next_repairable_item and top_blocked_item:
+        recommended_reason = (
+            "Highest-risk item is not a single-section candidate; use next_repairable_item.case_argv "
+            "instead of reading full queue.json."
+        )
+    elif next_repairable_item:
+        recommended_reason = "Use recommended_item.case_argv to generate exactly one local repair case."
+    elif top_blocked_item:
+        recommended_reason = "No single-section repair candidate was found; create a blocked case or narrow the target folder."
+    else:
+        recommended_reason = "No import repair queue items were found."
     return {
         "schema_version": payload.get("schema_version"),
         "ok": payload.get("ok"),
@@ -941,13 +967,18 @@ def compact_queue_payload(payload: dict[str, object], *, limit: int) -> dict[str
         "compact": True,
         "items_returned": min(limit, len(ranked)),
         "items_total": len(ranked),
-        "top_item": compact_items[0] if compact_items else {},
+        "top_item": top_item,
+        "top_blocked_item": top_blocked_item,
+        "next_repairable_item": next_repairable_item,
+        "recommended_item": recommended_item,
+        "recommended_reason": recommended_reason,
         "items": compact_items,
         "agent_rules": [
             "Process one queue item at a time.",
             "Do not generate multiple cases in parallel.",
             "Do not write .fixed files or vault-local debug scripts.",
             "Do not inspect Student OS source code to interpret diagnostics unless a script crashes.",
+            "If top_blocked_item is present, use next_repairable_item.case_argv before reading full queue.json.",
         ],
     }
 

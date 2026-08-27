@@ -1,7 +1,7 @@
-import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { homedir } from 'node:os'
+import { spawn, spawnSync } from 'node:child_process'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool, type JsonValue } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -23,6 +23,11 @@ export interface StudentOsToolResult {
   command: string[]
   stdout: string
   stderr: string
+  plugin_version: string
+  repo_commit: string
+  repo_root: string
+  vault?: string
+  vault_resolution_source?: string
   stage?: string
   signal?: string
   payload?: JsonValue
@@ -32,10 +37,14 @@ interface ScriptRunOptions {
   repoRoot?: string
   python?: string
   timeoutMs?: number
+  vault?: string
+  vaultResolutionSource?: string
   signal: AbortSignal
 }
 
 const moduleDir = dirname(fileURLToPath(import.meta.url))
+const pluginVersion = '0.1.0'
+let repoCommitCache: string | undefined
 
 const toolResultSchema = {
   type: 'object',
@@ -47,6 +56,11 @@ const toolResultSchema = {
     command: { type: 'array', required: true, items: { type: 'string' } },
     stdout: { type: 'string', required: true },
     stderr: { type: 'string', required: true },
+    plugin_version: { type: 'string', required: true },
+    repo_commit: { type: 'string', required: true },
+    repo_root: { type: 'string', required: true },
+    vault: { type: 'string' },
+    vault_resolution_source: { type: 'string' },
     stage: { type: 'string' },
     signal: { type: 'string' },
     payload: { type: 'json' },
@@ -72,6 +86,25 @@ function maybeString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value : undefined
 }
 
+function repoCommit(repoRoot: string): string {
+  if (repoCommitCache !== undefined) return repoCommitCache
+  const result = spawnSync('git', ['-C', repoRoot, 'rev-parse', '--short=12', 'HEAD'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+  repoCommitCache = result.status === 0 && result.stdout.trim() !== '' ? result.stdout.trim() : 'unknown'
+  return repoCommitCache
+}
+
+function baseResult(config: Config): Pick<StudentOsToolResult, 'plugin_version' | 'repo_commit' | 'repo_root'> {
+  const repoRoot = resolveRepoRoot(config.repoRoot)
+  return {
+    plugin_version: pluginVersion,
+    repo_commit: repoCommit(repoRoot),
+    repo_root: repoRoot,
+  }
+}
+
 function executionWorkspace(exec: unknown): string | undefined {
   if (exec === null || typeof exec !== 'object') return undefined
   const record = exec as Record<string, unknown>
@@ -89,9 +122,12 @@ function executionWorkspace(exec: unknown): string | undefined {
   return undefined
 }
 
-function resolveVaultArg(value: unknown, exec: unknown, config: Config): string | StudentOsToolResult {
+function resolveVaultArg(value: unknown, exec: unknown, config: Config): { path: string; source: string } | StudentOsToolResult {
   const explicit = value === undefined ? undefined : requireString(value, 'vault')
-  const candidate = explicit ?? maybeString(config.vaultRoot) ?? maybeString(process.env.STUDENT_OS_VAULT_ROOT) ?? executionWorkspace(exec)
+  const configured = maybeString(config.vaultRoot)
+  const envVault = maybeString(process.env.STUDENT_OS_VAULT_ROOT)
+  const workspace = executionWorkspace(exec)
+  const candidate = explicit ?? configured ?? envVault ?? workspace
   if (candidate === undefined) {
     const repoRoot = resolveRepoRoot(config.repoRoot)
     return {
@@ -101,10 +137,18 @@ function resolveVaultArg(value: unknown, exec: unknown, config: Config): string 
       command: [],
       stdout: '',
       stderr: 'Student OS vault is required: DSH did not expose a reliable workspace cwd. Pass vault explicitly.',
+      ...baseResult(config),
       stage: 'missing-vault',
     }
   }
-  return resolveUserPath(candidate)
+  const source = explicit !== undefined
+    ? 'argument'
+    : configured !== undefined
+      ? 'config.vaultRoot'
+      : envVault !== undefined
+        ? 'STUDENT_OS_VAULT_ROOT'
+        : 'dsh-workspace'
+  return { path: resolveUserPath(candidate), source }
 }
 
 function requireString(value: unknown, name: string, fallback?: string): string {
@@ -151,6 +195,11 @@ export function runStudentOsScript(
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: 'utf-8',
+        PYTHONUTF8: '1',
+      },
     })
     const stdoutChunks: Buffer[] = []
     const stderrChunks: Buffer[] = []
@@ -186,6 +235,9 @@ export function runStudentOsScript(
           command,
           stdout,
           stderr,
+          ...baseResult(options),
+          ...options.vault === undefined ? {} : { vault: options.vault },
+          ...options.vaultResolutionSource === undefined ? {} : { vault_resolution_source: options.vaultResolutionSource },
           stage: 'timeout',
           signal: signal ?? 'SIGTERM',
         })
@@ -199,6 +251,9 @@ export function runStudentOsScript(
           command,
           stdout,
           stderr,
+          ...baseResult(options),
+          ...options.vault === undefined ? {} : { vault: options.vault },
+          ...options.vaultResolutionSource === undefined ? {} : { vault_resolution_source: options.vaultResolutionSource },
           stage: 'aborted',
           signal: signal ?? 'SIGTERM',
         })
@@ -212,6 +267,9 @@ export function runStudentOsScript(
         command,
         stdout,
         stderr,
+        ...baseResult(options),
+        ...options.vault === undefined ? {} : { vault: options.vault },
+        ...options.vaultResolutionSource === undefined ? {} : { vault_resolution_source: options.vaultResolutionSource },
         ...signal === null ? {} : { signal },
         ...payload === undefined ? {} : { payload },
       })
@@ -230,7 +288,12 @@ function renderResult(toolName: string, value: StudentOsToolResult): { type: 'te
     text: [
       header,
       `cwd: ${value.cwd}`,
+      `plugin: student-os ${value.plugin_version} (${value.repo_commit})`,
+      `repo: ${value.repo_root}`,
+      value.vault === undefined ? '' : `vault: ${value.vault} (${value.vault_resolution_source ?? 'unknown'})`,
       `command: ${value.command.join(' ')}`,
+      value.stage === 'missing-vault' ? 'next: pass vault explicitly or restart DSH from the vault workspace with the Student OS overlay.' : '',
+      value.stage === 'timeout' ? 'next: rerun with a narrower vault/folder or compact task-specific command.' : '',
       value.stdout.trim() === '' ? '' : `stdout:\n${value.stdout.trim()}`,
       value.stderr.trim() === '' ? '' : `stderr:\n${value.stderr.trim()}`,
     ].filter(Boolean).join('\n\n'),
@@ -244,6 +307,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     text: [
       'Before modifying a Student OS managed vault, run a compact preflight appropriate to the task.',
       'For imported markdown repair, prefer student_os_group_changes or the repair queue instead of a full-vault inspect.',
+      'After a Student OS repair proposal is applied, do not directly edit the target sidecar; create a follow-up proposal/review/apply if another defect appears.',
       'Do not automatically commit or push Student OS vault changes.',
       'External publication must use the Student OS privacy flow.',
     ].join('\n'),
@@ -266,17 +330,23 @@ export function apply(ctx: Context, config: Config = {}): void {
     isConcurrencySafe: () => true,
     execute(args, exec) {
       const vault = resolveVaultArg(args.vault, exec, config)
-      if (typeof vault !== 'string') return Promise.resolve(vault)
+      if ('ok' in vault) return Promise.resolve(vault)
       const compact = args.compact !== false
       const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? Math.max(1, Math.trunc(args.limit)) : 20
       const scope = typeof args.scope === 'string' && ['repo', 'git', 'hygiene'].includes(args.scope) ? args.scope : 'hygiene'
       const timeoutMs = typeof args.timeout_ms === 'number' && Number.isFinite(args.timeout_ms)
         ? Math.max(1, Math.trunc(args.timeout_ms))
         : config.timeoutMs
-      const scriptArgs = [vault, '--scope', scope, '--limit', String(limit)]
+      const scriptArgs = [vault.path, '--scope', scope, '--limit', String(limit)]
       if (compact) scriptArgs.push('--compact-json')
       else scriptArgs.push('--full-json')
-      return runStudentOsScript('inspect_repo.py', scriptArgs, { ...config, timeoutMs, signal: exec.signal })
+      return runStudentOsScript('inspect_repo.py', scriptArgs, {
+        ...config,
+        timeoutMs,
+        vault: vault.path,
+        vaultResolutionSource: vault.source,
+        signal: exec.signal,
+      })
     },
   }))
 
@@ -296,15 +366,21 @@ export function apply(ctx: Context, config: Config = {}): void {
     isConcurrencySafe: () => true,
     execute(args, exec) {
       const vault = resolveVaultArg(args.vault, exec, config)
-      if (typeof vault !== 'string') return Promise.resolve(vault)
+      if ('ok' in vault) return Promise.resolve(vault)
       const compact = args.compact !== false
       const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? Math.max(1, Math.trunc(args.limit)) : 20
       const timeoutMs = typeof args.timeout_ms === 'number' && Number.isFinite(args.timeout_ms)
         ? Math.max(1, Math.trunc(args.timeout_ms))
         : config.timeoutMs
-      const scriptArgs = [vault]
+      const scriptArgs = [vault.path]
       if (compact) scriptArgs.push('--compact-json', '--limit', String(limit))
-      return runStudentOsScript('group_git_changes.py', scriptArgs, { ...config, timeoutMs, signal: exec.signal })
+      return runStudentOsScript('group_git_changes.py', scriptArgs, {
+        ...config,
+        timeoutMs,
+        vault: vault.path,
+        vaultResolutionSource: vault.source,
+        signal: exec.signal,
+      })
     },
   }))
 

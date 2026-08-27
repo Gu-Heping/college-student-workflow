@@ -5,6 +5,7 @@ import argparse
 import difflib
 import json
 import re
+import sys
 from pathlib import Path
 
 from import_governance import diagnose_import_risks, frontmatter_value, mark_auto_repaired, read_frontmatter
@@ -34,6 +35,14 @@ BLOCKING_RISK_CODES = {
     "obsidian-inline-array-render-risk",
     "display-math-delimiter-not-standalone",
 }
+
+
+def configure_stdout() -> None:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+        sys.stderr.reconfigure(encoding="utf-8", newline="\n")
+    except AttributeError:
+        pass
 
 
 def proposal_target(proposal_path: Path, explicit_target: str | None) -> Path | None:
@@ -114,6 +123,11 @@ def review_failure_guidance(
         return (
             "proposal-scope-widened",
             "Keep the proposal to one case section, or add student-os-repair-scope: widened only when the user explicitly authorizes a broader repair.",
+        )
+    if any(item.get("code") == "markdown-paragraph-boundary-regression" for item in issues):
+        return (
+            "markdown-paragraph-boundary-regression",
+            "Preserve the blank separator before the next question; update the proposal and re-run review/apply instead of editing the target sidecar directly.",
         )
     remaining_blocking = sorted(
         {
@@ -246,6 +260,40 @@ def declared_widened_scope(metadata: dict[str, str]) -> bool:
 
 def risk_codes(items: list[dict[str, object]]) -> set[str]:
     return {str(item.get("code", "")) for item in items if str(item.get("code", ""))}
+
+
+def question_boundary_key(line: str) -> str | None:
+    stripped = line.strip()
+    match = QUESTION_RE.match(stripped)
+    if not match:
+        return None
+    return f"{match.group('num')}:{stripped[:80]}"
+
+
+def markdown_paragraph_boundary_regressions(before: str, after: str) -> list[dict[str, object]]:
+    before_lines = before.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    after_lines = after.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    before_separated: set[str] = set()
+    for index, line in enumerate(before_lines):
+        key = question_boundary_key(line)
+        if key is None or index == 0:
+            continue
+        if before_lines[index - 1].strip() == "":
+            before_separated.add(key)
+    regressions: list[dict[str, object]] = []
+    for index, line in enumerate(after_lines):
+        key = question_boundary_key(line)
+        if key is None or key not in before_separated or index == 0:
+            continue
+        if after_lines[index - 1].strip() != "":
+            regressions.append(
+                {
+                    "line": index + 1,
+                    "question": line.strip()[:120],
+                    "previous_line": after_lines[index - 1].strip()[:120],
+                }
+            )
+    return regressions
 
 
 def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[str, object]:
@@ -617,6 +665,15 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                         detail={"case_sha256": item_sha, "actual": current_sha},
                     )
                 )
+        boundary_regressions = markdown_paragraph_boundary_regressions(original_text, replacement)
+        if boundary_regressions:
+            issues.append(
+                issue(
+                    "markdown-paragraph-boundary-regression",
+                    "Replacement glues a question heading to the previous paragraph; preserve the blank separator line.",
+                    detail={"regressions": boundary_regressions},
+                )
+            )
     elif resolved_target:
         issues.append(
             issue(
@@ -697,6 +754,7 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
     render_codes = {"obsidian-inline-array-render-risk", "display-math-delimiter-not-standalone"}
     review_pass = not any(item["severity"] == "error" for item in issues)
     failure_reason, recommended_next_action = review_failure_guidance(issues, risk_items)
+    paragraph_boundaries_preserved = not any(item.get("code") == "markdown-paragraph-boundary-regression" for item in issues)
     return {
         "schema_version": SCHEMA_VERSION,
         "ok": True,
@@ -708,6 +766,9 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
         "actual_changed_sections": actual_changed_sections,
         "changed_line_ranges": changed_ranges,
         "scope_pass": scope_pass,
+        "paragraph_boundaries_preserved": paragraph_boundaries_preserved,
+        "post_apply_direct_edit_allowed": False,
+        "next_action_on_post_apply_issue": "create-follow-up-proposal",
         "blocking_risk_count_before": len(before_blocking),
         "blocking_risk_count_after": len(after_blocking),
         "render_risks_cleared": sorted((before_blocking & render_codes) - (after_blocking & render_codes)),
@@ -729,6 +790,7 @@ def write_review(payload: dict[str, object], *, root: Path, proposal_path: Path)
 
 
 def main() -> int:
+    configure_stdout()
     parser = argparse.ArgumentParser(description="Mechanically review an AI import repair proposal before apply.")
     parser.add_argument("--proposal", required=True, help="Proposal markdown path")
     parser.add_argument("--target", help="Target sidecar path; defaults to student-os-target marker in proposal")

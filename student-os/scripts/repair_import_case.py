@@ -524,7 +524,11 @@ def apply_section_replacements(original: str, replacements: list[tuple[str, str]
     for start, end, selector, body in spans:
         if end > previous_start:
             raise SystemExit(f"Section replacement ranges overlap or are not independent: {selector}")
-        lines[start:end] = body.rstrip("\n").split("\n")
+        original_span = lines[start:end]
+        replacement_lines = body.rstrip("\n").split("\n")
+        if original_span and original_span[-1].strip() == "" and (not replacement_lines or replacement_lines[-1].strip() != ""):
+            replacement_lines.append("")
+        lines[start:end] = replacement_lines
         previous_start = start
     result = "\n".join(lines)
     return result + "\n" if had_final_newline or result else result
