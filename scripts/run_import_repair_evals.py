@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STUDENT_OS_SCRIPTS = ROOT / "student-os" / "scripts"
 sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
 from repair_import_queue import decode_yaml_path  # noqa: E402
-from repair_import_case import case_sha256, object_sha256  # noqa: E402
+from repair_import_case import case_sha256, object_sha256, render_pdf_pages  # noqa: E402
 
 
 def run_student_script(name: str, *args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -87,7 +87,8 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         "verify_status: unverified\n"
         "---\n"
         "\n"
-        "Raw OCR evidence with \\boxplus noise.\n",
+        "Raw OCR evidence with \\boxplus noise.\n"
+        "```python\nprint('embedded fence')\n```\n",
     )
 
     answer = imports / "2014参考答案.pdf.md"
@@ -112,6 +113,18 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         "---\n"
         "\n"
         "证明：由条件可得结论成立。\n",
+    )
+
+    broad_answer = imports / "2019计算机答案.pdf.md"
+    write_text(
+        broad_answer,
+        "---\n"
+        "source_file: 计算机答案.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "解：设 x=1，计算得到结果。\n",
     )
 
     vision = imports / "2015-proof.pdf.md"
@@ -232,7 +245,7 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         "another latin page title\n"
         "\n"
         "## Page 3\n"
-        + ("alpha beta gamma delta epsilon zeta eta theta " * 60)
+        + "\n".join(["alpha beta gamma delta epsilon zeta eta theta"] * 60)
         + "\n",
     )
 
@@ -266,6 +279,7 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         "raw": raw,
         "answer": answer,
         "proof_answer": proof_answer,
+        "broad_answer": broad_answer,
         "vision": vision,
         "missing_pdf": missing_pdf,
         "legacy": legacy,
@@ -289,6 +303,19 @@ def main() -> int:
         vault = Path(tmp) / "vault"
         paths = build_fixture(vault)
         imports = paths["semantic"].parent
+        try:
+            import fitz  # type: ignore[import-not-found]
+        except ImportError:
+            fitz = None
+        if fitz is not None:
+            one_page_pdf = Path(tmp) / "one-page.pdf"
+            document = fitz.open()
+            document.new_page()
+            document.save(str(one_page_pdf))
+            document.close()
+            partial_render = render_pdf_pages(one_page_pdf, Path(tmp) / "partial-pages", [1, 2])
+            if partial_render.get("ok") is not False or partial_render.get("reason") != "partial-page-render-failed":
+                raise AssertionError(f"Partial vision rendering should be blocking: {partial_render}")
         outside_secret = Path(tmp) / "outside-secret.md"
         write_text(outside_secret, "---\nsecret: true\n---\n\nDo not embed me.\n")
         malicious_derived = imports / "malicious-derived.pdf.md"
@@ -396,6 +423,8 @@ def main() -> int:
         semantic_case_state = json.loads(semantic_case_json.read_text(encoding="utf-8"))
         semantic_evidence_sha = semantic_case_state["evidence_sha256"]
         semantic_case_digest = semantic_case_state["case_sha256"]
+        if "````markdown" not in str(semantic_case["markdown"]):
+            raise AssertionError("Case markdown should use longer fences when evidence excerpts contain triple backticks")
 
         answer_item = by_name["2014参考答案.pdf.md"]
         if answer_item["repair_class"] != "answer-paper-crosscheck":
@@ -405,6 +434,9 @@ def main() -> int:
         proof_answer_item = by_name["2018证明答案.pdf.md"]
         if "answer-missing-question-stem" not in set(proof_answer_item["risk_codes"]):
             raise AssertionError(f"Proof-only answer sidecar should not treat its solution lead as a question stem: {proof_answer_item}")
+        broad_answer_item = by_name["2019计算机答案.pdf.md"]
+        if "answer-missing-question-stem" not in set(broad_answer_item["risk_codes"]):
+            raise AssertionError(f"Frontmatter or solution words should not count as a question stem: {broad_answer_item}")
 
         vision_item = by_name["2015-proof.pdf.md"]
         if vision_item["recommended_evidence_mode"] != "vision-assisted":
@@ -796,6 +828,30 @@ def main() -> int:
         comment_padded_review = run_json("repair_import_review.py", "--proposal", str(comment_padded), "--json", cwd=vault, expect_ok=False)
         if not any(issue["code"] == "replacement-body-erased" for issue in comment_padded_review["issues"]):  # type: ignore[index]
             raise AssertionError(f"Hidden comments should not count as retained visible content: {comment_padded_review}")
+
+        html_padded = vault / ".student-os" / "import-repair" / "proposals" / "html-padded.md"
+        write_text(
+            html_padded,
+            "# HTML padded proposal\n\n"
+            "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+            f"<!-- student-os-target: {paths['long_body']} -->\n\n"
+            f"<!-- student-os-target-sha256: {long_item['content_sha256']} -->\n"
+            f"<!-- student-os-case-json: {long_case_json} -->\n"
+            f"<!-- student-os-case-sha256: {long_case_state['case_sha256']} -->\n"
+            f"<!-- student-os-evidence-sha256: {long_case_state['evidence_sha256']} -->\n"
+            "<!-- student-os-evidence-mode: text-only -->\n"
+            "<!-- student-os-model-capability: text-only -->\n"
+            "<!-- student-os-changed-sections: line-1 -->\n"
+            "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+            "<!-- student-os-replacement-start -->\n"
+            "---\nsource_file: long-body.pdf\nrepair_status: auto-repaired\nverify_status: unverified\n---\n\n"
+            "Short retained fragment.\n"
+            "<span title=\"" + ("hidden padding " * 300) + "\"></span>\n"
+            "<!-- student-os-replacement-end -->\n",
+        )
+        html_padded_review = run_json("repair_import_review.py", "--proposal", str(html_padded), "--json", cwd=vault, expect_ok=False)
+        if not any(issue["code"] == "replacement-body-erased" for issue in html_padded_review["issues"]):  # type: ignore[index]
+            raise AssertionError(f"HTML attributes should not count as retained visible content: {html_padded_review}")
 
         numbered_item = by_name["numbered-long.pdf.md"]
         numbered_case = run_json(

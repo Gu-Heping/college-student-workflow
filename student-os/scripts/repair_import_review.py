@@ -75,6 +75,10 @@ def markdown_body(text: str) -> str:
 
 def compact_visible_text(text: str) -> str:
     body = re.sub(r"(?s)<!--.*?-->", "", markdown_body(text))
+    body = re.sub(r"(?is)<(script|style)\b.*?</\1>", "", body)
+    body = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", body)
+    body = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", body)
+    body = re.sub(r"(?s)<[^>]+>", "", body)
     return re.sub(r"\s+", "", body)
 
 

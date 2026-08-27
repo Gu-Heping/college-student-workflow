@@ -157,6 +157,12 @@ def safe_markdown_evidence_path(path_value: object, *, root: Path) -> Path | Non
     return path
 
 
+def fenced_block(language: str, content: str) -> str:
+    longest = max((len(match.group(0)) for match in re.finditer(r"`+", content)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return f"{fence}{language}\n{content}\n{fence}"
+
+
 def source_evidence(item: dict[str, object], target: Path) -> dict[str, object]:
     evidence = item.get("evidence")
     if isinstance(evidence, dict):
@@ -233,6 +239,8 @@ def render_pdf_pages(source_pdf: Path, output_dir: Path, pages: list[int]) -> di
         document.close()
     if not written:
         return {"ok": False, "reason": "page-render-failed", "pages": [], "failures": failures}
+    if failures:
+        return {"ok": False, "reason": "partial-page-render-failed", "pages": written, "failures": failures}
     return {"ok": True, "pages": written, "failures": failures}
 
 
@@ -323,9 +331,7 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
                     "",
                     f"- Lines: {section.get('start_line')}..{section.get('end_line')}",
                     "",
-                    "```markdown",
-                    str(section.get("excerpt", "")),
-                    "```",
+                    fenced_block("markdown", str(section.get("excerpt", ""))),
                     "",
                 ]
             )
@@ -341,9 +347,7 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
                 [
                     f"### {snippet.get('code')} at line {snippet.get('line')}",
                     "",
-                    "```markdown",
-                    str(snippet.get("excerpt", "")),
-                    "```",
+                    fenced_block("markdown", str(snippet.get("excerpt", ""))),
                     "",
                 ]
             )
@@ -376,9 +380,7 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
             "",
             "## Source Evidence",
             "",
-            "```json",
-            json.dumps({"source": evidence, "prepared": evidence_payload}, ensure_ascii=False, indent=2),
-            "```",
+            fenced_block("json", json.dumps({"source": evidence, "prepared": evidence_payload}, ensure_ascii=False, indent=2)),
             "",
             "## Suspicious Snippets",
             "",
@@ -388,21 +390,15 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
             *section_lines,
             "## Repair Summary Excerpt",
             "",
-            "```markdown",
-            excerpt(summary_path, max_chars=2500) or "unavailable",
-            "```",
+            fenced_block("markdown", excerpt(summary_path, max_chars=2500) or "unavailable"),
             "",
             "## Raw Import Excerpt",
             "",
-            "```markdown",
-            excerpt(raw_path, max_chars=4000) or "unavailable",
-            "```",
+            fenced_block("markdown", excerpt(raw_path, max_chars=4000) or "unavailable"),
             "",
             "## Current Sidecar Excerpt",
             "",
-            "```markdown",
-            excerpt(target, max_chars=5000),
-            "```",
+            fenced_block("markdown", excerpt(target, max_chars=5000)),
             "",
             "## Proposal Template",
             "",

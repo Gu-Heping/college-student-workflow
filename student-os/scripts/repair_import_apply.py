@@ -8,6 +8,7 @@ from pathlib import Path
 from repair_import_case import apply_proposal, json_path
 from repair_import_review import SCHEMA_VERSION as REVIEW_SCHEMA_VERSION
 from repair_import_review import proposal_target, review_proposal
+from repair_import_review import is_relative_to
 from repair_import_review import state_root_from_case_json
 
 
@@ -21,14 +22,6 @@ def load_review(path: Path) -> dict[str, object]:
     if payload.get("schema_version") != REVIEW_SCHEMA_VERSION:
         raise SystemExit(f"Unsupported review schema_version: {payload.get('schema_version')}")
     return payload
-
-
-def is_relative_to(path: Path, root: Path) -> bool:
-    try:
-        path.resolve().relative_to(root.resolve())
-        return True
-    except ValueError:
-        return False
 
 
 def state_root_from_review(review_payload: dict[str, object]) -> Path | None:

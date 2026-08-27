@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 from import_governance import (
@@ -121,20 +122,22 @@ def is_repair_target_markdown(path: Path, header: str) -> bool:
     return (is_import_markdown(path) and not is_raw_import_markdown(path)) or bool(frontmatter_value(header, "derived_from_import"))
 
 
-def iter_import_markdown(root: Path) -> list[tuple[Path, str | None]]:
+def iter_import_markdown(root: Path) -> Iterator[tuple[Path, str | None]]:
     if root.is_file():
         if root.suffix.lower() != ".md":
-            return []
+            return
         header = read_markdown_header(root)
-        return [(root, header)] if is_repair_target_markdown(root, header) else []
-    paths: list[tuple[Path, str | None]] = []
-    for path in root.rglob("*.md"):
-        if any(part in SKIP_DIRS for part in path.parts):
-            continue
+        if is_repair_target_markdown(root, header):
+            yield root, header
+        return
+    paths = sorted(
+        (path for path in root.rglob("*.md") if not any(part in SKIP_DIRS for part in path.parts)),
+        key=lambda item: item.as_posix().lower(),
+    )
+    for path in paths:
         header = read_markdown_header(path)
         if is_repair_target_markdown(path, header):
-            paths.append((path, header))
-    return sorted(paths, key=lambda item: item[0].as_posix().lower())
+            yield path, header
 
 
 def find_repair_summary(path: Path) -> Path | None:
@@ -222,8 +225,16 @@ def candidate_pages_for(text: str, snippets: list[dict[str, object]]) -> list[in
 
 
 def has_question_stem(text: str) -> bool:
-    head = SOLUTION_LEAD_RE.sub("", text[:3000], count=1)
-    return bool(QUESTION_STEM_RE.search(head))
+    parsed = read_frontmatter(text)
+    body = text[parsed[2] :] if parsed else text
+    solution_match = SOLUTION_LEAD_RE.search(body)
+    candidate = body[: solution_match.start() if solution_match else min(len(body), 3000)]
+    structural_patterns = [
+        r"(?m)^\s*(?:#{1,3}\s*)?(?:第?\s*)?(?:[一二三四五六七八九十]+|[0-9]+)[\.、．)]\s*\S+",
+        r"(?:题干|已知|求证|本题|试证明)",
+        r"(?:求|计算)[^。\n]{0,80}(?:值|解|概率|面积|体积|矩阵|特征|导数|积分)",
+    ]
+    return any(re.search(pattern, candidate) for pattern in structural_patterns)
 
 
 def section_id(title: str, line: int) -> str:
@@ -417,18 +428,29 @@ def first_snippet_for_risk(text: str, code: str, *, radius: int = 2) -> dict[str
     if code == "low-cjk-density":
         parsed = read_frontmatter(text)
         body_start = text[: parsed[2]].count("\n") if parsed else 0
+        aggregate = ""
+        aggregate_start = body_start
         for body_index, line in enumerate(lines[body_start:], start=body_start):
             stripped = line.strip()
             if not stripped or re.match(r"^---$|^##\s+Page\b|^<!--", stripped, flags=re.I):
+                aggregate = ""
+                aggregate_start = body_index + 1
                 continue
             visible = re.sub(r"\s+", "", stripped)
             cjk_count = len(re.findall(r"[\u4e00-\u9fff]", visible))
-            if len(visible) >= 80 and cjk_count == 0:
-                start = max(0, body_index - radius)
+            if cjk_count:
+                aggregate = ""
+                aggregate_start = body_index + 1
+                continue
+            if not aggregate:
+                aggregate_start = body_index
+            aggregate += visible
+            if len(aggregate) >= 80:
+                start = max(0, aggregate_start - radius)
                 end = min(len(lines), body_index + radius + 1)
                 return {
                     "code": code,
-                    "line": body_index + 1,
+                    "line": aggregate_start + 1,
                     "excerpt": "\n".join(lines[start:end]),
                 }
         return None
