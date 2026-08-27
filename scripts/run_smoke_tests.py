@@ -1595,6 +1595,7 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         "## 一. OCR promoted heading\n"
         "Broken math $x\n"
         "Formula \\left( x + 1\n"
+        "解： $( A , C ) \\to \\left( \\begin{array} { c c c c } { { 1 } } & { { 0 } } & { { 0 } } \\\\ { { 0 } } & { { 1 } } & { { 0 } } \\\\ { { 0 } } & { { 0 } } & { { 1 } } \\end{array} \\middle| \\begin{array} { c c } { { 1 5 } } & { { - 7 } } \\\\ { { 2 } } & { { - 2 } } \\\\ { { - 1 0 } } & { { 6 } } \\end{array} \\right) $，则：\n"
         "Placeholder □\n",
         encoding="utf-8",
         newline="\n",
@@ -1656,9 +1657,24 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         if expected not in paths:
             raise AssertionError(f"Expected {expected} in import repair queue, got: {paths.keys()}")
     risky_codes = set(paths["source.pdf.md"]["risk_codes"])
-    for expected in {"frontmatter-repair-risk", "question-heading-promoted", "math-dollar-unbalanced", "latex-left-right-unbalanced"}:
+    for expected in {
+        "frontmatter-repair-risk",
+        "question-heading-promoted",
+        "math-dollar-odd-line",
+        "latex-left-right-unbalanced",
+        "latex-array-column-mismatch",
+        "obsidian-inline-array-render-risk",
+    }:
         if expected not in risky_codes:
             raise AssertionError(f"Expected {expected} in risky queue item, got: {risky_codes}")
+    if paths["source.pdf.md"].get("highest_severity") != "error":
+        raise AssertionError(f"Queue item should expose highest severity in full queue JSON: {paths['source.pdf.md']}")
+    primary_risk = paths["source.pdf.md"].get("primary_risk", {})
+    if primary_risk.get("code") not in {"latex-array-column-mismatch", "obsidian-inline-array-render-risk"}:
+        raise AssertionError(f"Primary risk should prioritize Obsidian render/array structure: {primary_risk}")
+    array_risk = next(risk for risk in paths["source.pdf.md"]["risks"] if risk["code"] == "latex-array-column-mismatch")
+    if array_risk.get("safe_fix_kind") != "align-array-column-spec-with-row-cells":
+        raise AssertionError(f"Array mismatch should provide an actionable safe fix kind: {array_risk}")
     risky_evidence = paths["source.pdf.md"]["evidence"]
     if risky_evidence["source_pdf"]["exists"] is not True or risky_evidence["raw_import"]["exists"] is not True:
         raise AssertionError(f"Evidence classification should resolve source PDF and raw import: {risky_evidence}")
@@ -1696,6 +1712,8 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     compact_risks = {risk["code"]: risk for item in compact_queue["items"] for risk in item["risks"]}
     if compact_risks.get("unicode-escape", {}).get("safe_fix_kind") != "decode-yaml-unicode-escapes":
         raise AssertionError(f"unicode-escape should be marked as readability-only safe fix: {compact_queue}")
+    if compact_risks.get("obsidian-inline-array-render-risk", {}).get("safe_fix_kind") != "convert-long-inline-array-to-display-math":
+        raise AssertionError(f"Obsidian inline array risk should steer agents to display math: {compact_queue}")
     if not any("Do not write .fixed" in rule for rule in compact_queue.get("agent_rules", [])):
         raise AssertionError(f"Compact queue should include anti-scratch-file agent rules: {compact_queue}")
 
@@ -1729,6 +1747,9 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         "Source Evidence",
         "student-os-replacement-start",
         "math-dollar-unbalanced",
+        "literal TeX",
+        "display math block",
+        "ccc|cc",
     }:
         if expected not in case_text:
             raise AssertionError(f"Repair case should include {expected!r}:\n{case_text}")
@@ -1823,6 +1844,44 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Broken proposal should fail review: {bad_review}")
     if not any(issue.get("code") == "remaining-math-dollar-odd-line" for issue in bad_review.get("issues", [])):
         raise AssertionError(f"Broken inline math should fail on localized odd-line risk: {bad_review}")
+
+    inline_array_proposal = vault / ".student-os" / "import-repair" / "proposals" / "inline-array-proposal.md"
+    inline_array_proposal.write_text(
+        "# Inline Array Proposal\n\n"
+        "Leaves a long inline array in place, so Obsidian may show literal TeX.\n\n"
+        "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+        f"<!-- student-os-target: {risky_md} -->\n\n"
+        f"<!-- student-os-target-sha256: {paths['source.pdf.md']['content_sha256']} -->\n"
+        f"<!-- student-os-case-json: {case_json} -->\n"
+        f"<!-- student-os-case-sha256: {case_digest} -->\n"
+        f"<!-- student-os-evidence-sha256: {evidence_sha256} -->\n"
+        "<!-- student-os-evidence-mode: text-only -->\n"
+        "<!-- student-os-model-capability: text-only -->\n"
+        "<!-- student-os-changed-sections: section-test -->\n"
+        "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+        "<!-- student-os-replacement-start -->\n"
+        "---\n"
+        "source_file: source.pdf\n"
+        "derived_from_import: source.pdf.raw.md\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "解： $( A , C ) \\to \\left( \\begin{array} { c c c c } 1 & 0 & 0 \\\\ 0 & 1 & 0 \\\\ 0 & 0 & 1 \\end{array} \\middle| \\begin{array} { c c } 15 & -7 \\\\ 2 & -2 \\\\ -10 & 6 \\end{array} \\right) $\n"
+        "<!-- student-os-replacement-end -->\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    inline_array_review = run_script_failure_json(
+        "repair_import_review.py",
+        "--proposal",
+        str(inline_array_proposal),
+        "--json",
+        cwd=vault,
+    )
+    inline_codes = {issue.get("code") for issue in inline_array_review.get("issues", [])}
+    if "remaining-obsidian-inline-array-render-risk" not in inline_codes or "remaining-latex-array-column-mismatch" not in inline_codes:
+        raise AssertionError(f"Review should block inline array render and column mismatch risks: {inline_array_review}")
     bad_apply = run_script_failure_json(
         "repair_import_apply.py",
         "--proposal",

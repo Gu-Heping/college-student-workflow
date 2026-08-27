@@ -273,6 +273,52 @@ def odd_inline_math_dollar_lines(text: str, *, max_items: int = 8) -> list[dict[
     return items
 
 
+def inline_array_render_risk_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    for line_number, line in enumerate(_strip_markdown_code(text).splitlines(), start=1):
+        for match in re.finditer(r"(?<!\\)\$(?P<body>[^$\n]*(?:\\begin\{(?:array|matrix|[pbvBV]?matrix)\})[^$\n]*)(?<!\\)\$", line):
+            body = match.group("body")
+            if len(body) >= 80 or r"\begin{array}" in body:
+                items.append({"line": line_number, "length": len(body)})
+                break
+        if len(items) >= max_items:
+            break
+    return items
+
+
+def array_column_mismatches(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    array_re = re.compile(r"\\begin\{array\}\s*\{(?P<spec>[^}]*)\}(?P<body>.*?)\\end\{array\}")
+    for line_number, line in enumerate(_strip_markdown_code(text).splitlines(), start=1):
+        for match in array_re.finditer(line):
+            body = match.group("body")
+            if r"\begin{array}" in body:
+                continue
+            spec = match.group("spec")
+            expected_columns = len(re.findall(r"[clr]", spec))
+            if expected_columns <= 0:
+                continue
+            row_columns: list[int] = []
+            for row in re.split(r"(?<!\\)\\\\", body):
+                row = row.strip()
+                if not row:
+                    continue
+                row_columns.append(row.count("&") + 1)
+            actual_columns = sorted(set(row_columns))
+            if actual_columns and actual_columns != [expected_columns]:
+                items.append(
+                    {
+                        "line": line_number,
+                        "expected_columns": expected_columns,
+                        "actual_columns": actual_columns,
+                        "spec": spec.strip(),
+                    }
+                )
+                if len(items) >= max_items:
+                    return items
+    return items
+
+
 def count_orphan_latex_nonumber(text: str) -> int:
     count = 0
     for line in _strip_markdown_code(text).splitlines():
@@ -322,6 +368,14 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
     right_count = len(re.findall(r"\\right\b", diagnostic_text))
     if left_count != right_count:
         risks.append({"code": "latex-left-right-unbalanced", "left": left_count, "right": right_count})
+
+    array_mismatches = array_column_mismatches(text)
+    if array_mismatches:
+        risks.append({"code": "latex-array-column-mismatch", "count": len(array_mismatches), "lines": array_mismatches})
+
+    inline_array_lines = inline_array_render_risk_lines(text)
+    if inline_array_lines:
+        risks.append({"code": "obsidian-inline-array-render-risk", "count": len(inline_array_lines), "lines": inline_array_lines})
 
     inline_dollars = count_likely_math_dollars(text)
     if inline_dollars % 2 == 1:

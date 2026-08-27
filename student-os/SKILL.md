@@ -200,6 +200,9 @@ AI-assisted import repair:
 - Do not write `.fixed` files, debug scripts, trace scripts, or temporary repair scripts inside the vault; use the Student OS case/review/apply tools and one-off read-only commands.
 - Do not inspect Student OS script source to interpret diagnostics unless a script crashes or the user explicitly asks to debug Student OS itself.
 - Treat `math-dollar-unbalanced` as a low-confidence heuristic. Prefer localized `math-dollar-odd-line` and render-blocking `latex-left-right-unbalanced` evidence when choosing what to repair.
+- Treat Obsidian/Markdown preview showing literal TeX (`$ ... \begin{array} ... $`) as render failure. Do not argue from byte-level backslash dumps, and do not search for KaTeX/MathJax packages unless the user explicitly asks for renderer debugging.
+- For long inline `array`/matrix formulas, prefer a `$$ ... $$` display math block. If the formula is an augmented matrix, prefer one structurally correct `array` such as `{ccc|cc}` over delimiter-only patches like `\middle|`.
+- When repairing arrays, check that the column declaration matches row cells (`ccc` for three cells, `ccc|cc` for five cells split 3+2). This semantic structure check is more important than merely balancing `\left`/`\right`.
 - Use the case bundle, raw import excerpt, repair summary, and source evidence path to propose a semantic fix. Do not invent missing source content when the evidence is unavailable.
 - Use `text-only` evidence for text models; use `vision-assisted` only when the runtime can inspect rendered PDF page images. If the queue says `blocked: requires-vision-evidence`, a text-only model must stop and report that visual evidence is required.
 - For `ocr-assisted`, create a vault-local `.md` or `.txt` OCR evidence artifact first, then bind it with `repair_import_case.py --evidence-mode ocr-assisted --ocr-evidence <path>`; do not treat OCR text as human verification.

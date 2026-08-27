@@ -17,7 +17,12 @@ SCHEMA_VERSION = "import-repair-review/v1"
 TARGET_RE = re.compile(r"<!--\s*student-os-target:\s*(?P<path>.*?)\s*-->")
 META_RE = re.compile(r"<!--\s*student-os-(?P<key>[a-z0-9-]+):\s*(?P<value>.*?)\s*-->")
 QUESTION_RE = re.compile(r"(?m)^\s*(?:#{1,3}\s*)?(?P<num>[一二三四五六七八九十]+|[0-9]+)[\.、．)]")
-BLOCKING_RISK_CODES = {"math-dollar-odd-line", "latex-left-right-unbalanced"}
+BLOCKING_RISK_CODES = {
+    "math-dollar-odd-line",
+    "latex-left-right-unbalanced",
+    "latex-array-column-mismatch",
+    "obsidian-inline-array-render-risk",
+}
 
 
 def proposal_target(proposal_path: Path, explicit_target: str | None) -> Path | None:

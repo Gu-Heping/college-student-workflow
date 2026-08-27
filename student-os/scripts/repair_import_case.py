@@ -333,6 +333,7 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
     evidence_digest = str(case_payload["evidence_sha256"])
     case_digest = str(case_payload["case_sha256"])
     risk_lines = "\n".join(f"- `{risk}`" for risk in item.get("risk_codes", [])) or "- none"
+    primary_risk = item.get("primary_risk") if isinstance(item.get("primary_risk"), dict) else {}
     sections = item.get("suspect_sections") or item.get("sections") or []
     section_lines: list[str] = []
     if isinstance(sections, list):
@@ -371,6 +372,15 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
     return "\n".join(
         [
             "# Student OS Import Repair Case",
+            "",
+            "## Action Brief",
+            "",
+            "- Repair exactly one local section from this case before moving to another item.",
+            "- If Obsidian/Markdown preview shows literal TeX such as `$ ... \\begin{array} ... $`, treat that as render failure; do not debate byte-level backslash escapes.",
+            "- Do not search for KaTeX/MathJax packages unless the user explicitly asks for renderer debugging.",
+            "- For long matrix or array formulas, prefer a display math block (`$$ ... $$`) and align the array column spec with the actual row cells, such as `ccc|cc` for a 3-column block plus 2-column block.",
+            "",
+            fenced_block("json", json.dumps({"primary_risk": primary_risk}, ensure_ascii=False, indent=2)),
             "",
             "## Target",
             "",

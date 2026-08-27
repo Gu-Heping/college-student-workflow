@@ -32,6 +32,8 @@ FORMAT_RISKS = {
     "latex-nonumber",
     "latex-binom-fragment",
     "latex-left-right-unbalanced",
+    "latex-array-column-mismatch",
+    "obsidian-inline-array-render-risk",
     "math-dollar-unbalanced",
 }
 HEURISTIC_RISKS = {"math-dollar-unbalanced", "math-dollar-heuristic-suspect"}
@@ -420,6 +422,8 @@ def risk_line_patterns(code: str) -> list[re.Pattern[str]]:
         "latex-nonumber": [r"\\nonumber\b"],
         "latex-binom-fragment": [r"\\binom\b"],
         "latex-left-right-unbalanced": [r"\\(?:left|right)\b"],
+        "latex-array-column-mismatch": [r"\\begin\{array\}"],
+        "obsidian-inline-array-render-risk": [r"(?<!\\)\$.*\\begin\{(?:array|matrix|[pbvBV]?matrix)\}.*(?<!\\)\$"],
         "math-dollar-unbalanced": [r"\$"],
         "math-dollar-heuristic-suspect": [r"\$"],
         "math-dollar-odd-line": [r"\$"],
@@ -569,8 +573,25 @@ def risk_metadata(code: str) -> dict[str, object]:
             "severity": "error",
             "confidence": "high",
             "actionability": "localized-render-repair",
-            "safe_fix_kind": "balance-left-right-or-use-middle-delimiter",
-            "description": "A LaTeX left/right delimiter mismatch is render-blocking.",
+            "safe_fix_kind": "prefer-display-math-and-structural-array-rewrite",
+            "description": "A LaTeX left/right delimiter mismatch is render-blocking; do not stop at token balancing when the formula is a matrix.",
+            "suggestion": "For matrix/array formulas, prefer a display math block and a structurally correct array column spec instead of only swapping delimiters.",
+        },
+        "latex-array-column-mismatch": {
+            "severity": "error",
+            "confidence": "high",
+            "actionability": "localized-render-repair",
+            "safe_fix_kind": "align-array-column-spec-with-row-cells",
+            "description": "An array column declaration does not match the row cell counts, which can break Obsidian/MathJax rendering.",
+            "suggestion": "Count the cells in each row and change the array spec to match, e.g. ccc for three columns or ccc|cc for an augmented matrix.",
+        },
+        "obsidian-inline-array-render-risk": {
+            "severity": "error",
+            "confidence": "high",
+            "actionability": "localized-render-repair",
+            "safe_fix_kind": "convert-long-inline-array-to-display-math",
+            "description": "A long inline matrix/array formula is likely to appear as literal TeX in Obsidian; use a display math block.",
+            "suggestion": "Convert the local inline `$...\\begin{array}...$` span to `$$...$$`; do not validate it with KaTeX as a substitute for Obsidian preview.",
         },
         "math-dollar-unbalanced": {
             "severity": "warning",
@@ -624,6 +645,36 @@ def enrich_risks(risks: list[dict[str, object]]) -> list[dict[str, object]]:
     return enriched
 
 
+def highest_severity(risks: list[dict[str, object]]) -> str:
+    if any(risk.get("severity") == "error" for risk in risks):
+        return "error"
+    if any(risk.get("severity") == "warning" for risk in risks):
+        return "warning"
+    return "info"
+
+
+def primary_risk(risks: list[dict[str, object]]) -> dict[str, object]:
+    order = {"error": 3, "warning": 2, "info": 1}
+    actionable = {"localized-render-repair": 3, "localized-text-repair": 2, "local-format-repair": 1}
+    code_priority = {
+        "obsidian-inline-array-render-risk": 5,
+        "latex-array-column-mismatch": 4,
+        "latex-left-right-unbalanced": 3,
+        "math-dollar-odd-line": 2,
+    }
+    if not risks:
+        return {}
+    return max(
+        risks,
+        key=lambda risk: (
+            order.get(str(risk.get("severity")), 0),
+            actionable.get(str(risk.get("actionability")), 0),
+            code_priority.get(str(risk.get("code")), 0),
+            1 if risk.get("code") not in HEURISTIC_RISKS else 0,
+        ),
+    )
+
+
 def build_queue_item(root: Path, path: Path, *, text: str | None = None, decode_error: bool | None = None) -> dict[str, object] | None:
     if text is None or decode_error is None:
         text, decode_error = read_markdown(path)
@@ -664,6 +715,8 @@ def build_queue_item(root: Path, path: Path, *, text: str | None = None, decode_
         "frontmatter": frontmatter,
         "risk_codes": [str(risk["code"]) for risk in risks],
         "risks": risks,
+        "highest_severity": highest_severity(risks),
+        "primary_risk": primary_risk(risks),
         "snippets": snippets[:8],
         "sections": sections,
         "suspect_sections": suspect_sections,
@@ -671,7 +724,7 @@ def build_queue_item(root: Path, path: Path, *, text: str | None = None, decode_
         "repair_class": evidence["class"],
         "recommended_evidence_mode": evidence["recommended_mode"],
         "blocked": evidence["blocked"],
-        "suggested_next_step": "Generate an AI repair case, edit with source evidence, then keep verify_status: unverified until human source review.",
+        "suggested_next_step": "Generate one AI repair case for the primary risk, prefer Obsidian-readable display math for long arrays, then keep verify_status: unverified until human source review.",
     }
     return item
 
@@ -692,6 +745,8 @@ def risk_score(item: dict[str, object]) -> int:
             score += 5
         if actionability in {"localized-render-repair", "localized-text-repair"}:
             score += 20
+        if code in {"obsidian-inline-array-render-risk", "latex-array-column-mismatch"}:
+            score += 40
         if code == "unicode-escape":
             score -= 20
         if code in HEURISTIC_RISKS:
@@ -701,12 +756,9 @@ def risk_score(item: dict[str, object]) -> int:
 
 def compact_item(item: dict[str, object], *, queue_path: str) -> dict[str, object]:
     risks = [risk for risk in item.get("risks", []) if isinstance(risk, dict)]
-    highest = "info"
-    if any(risk.get("severity") == "error" for risk in risks):
-        highest = "error"
-    elif any(risk.get("severity") == "warning" for risk in risks):
-        highest = "warning"
+    highest = highest_severity(risks)
     item_id = str(item.get("id", ""))
+    primary = item.get("primary_risk") if isinstance(item.get("primary_risk"), dict) else primary_risk(risks)
     return {
         "id": item_id,
         "path": item.get("path", ""),
@@ -715,6 +767,14 @@ def compact_item(item: dict[str, object], *, queue_path: str) -> dict[str, objec
         "recommended_evidence_mode": item.get("recommended_evidence_mode", ""),
         "blocked": item.get("blocked", ""),
         "highest_severity": highest,
+        "primary_risk": {
+            "code": primary.get("code", ""),
+            "severity": primary.get("severity", ""),
+            "actionability": primary.get("actionability", ""),
+            "safe_fix_kind": primary.get("safe_fix_kind", ""),
+            "lines": primary.get("lines", []),
+            "suggestion": primary.get("suggestion", ""),
+        },
         "risk_codes": item.get("risk_codes", []),
         "risks": [
             {
@@ -727,12 +787,16 @@ def compact_item(item: dict[str, object], *, queue_path: str) -> dict[str, objec
                 "count": risk.get("count", ""),
                 "left": risk.get("left", ""),
                 "right": risk.get("right", ""),
+                "lines": risk.get("lines", []),
+                "expected_columns": risk.get("expected_columns", ""),
+                "actual_columns": risk.get("actual_columns", ""),
+                "suggestion": risk.get("suggestion", ""),
             }
             for risk in risks
         ],
         "localized_snippet_count": len(item.get("snippets", [])) if isinstance(item.get("snippets"), list) else 0,
         "suspect_section_count": len(item.get("suspect_sections", [])) if isinstance(item.get("suspect_sections"), list) else 0,
-        "recommended_action": "Generate exactly one case for this item, then write a proposal before applying.",
+        "recommended_action": "Generate exactly one case for this item; if primary_risk is an Obsidian render risk, repair one local display-math section instead of debugging bytes or renderer packages.",
         "case_argv": [
             "python",
             "student-os/scripts/repair_import_case.py",

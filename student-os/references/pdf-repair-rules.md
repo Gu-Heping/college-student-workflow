@@ -41,6 +41,8 @@ Operational guardrails:
 - Do not write `.fixed` files or vault-local debug/trace/repair scripts.
 - Do not read Student OS script source to interpret risk labels unless the script itself fails.
 - Treat `unicode-escape` as readability-only and `math-dollar-unbalanced` as a low-confidence heuristic; prioritize localized `math-dollar-odd-line` and render-blocking `latex-left-right-unbalanced` items.
+- If Obsidian or another Markdown preview shows literal TeX for an inline matrix/array formula, treat that preview as the failure. Do not spend time proving raw bytes contain `\\`, and do not use KaTeX as a substitute for the user's preview target unless asked.
+- For long inline `array` formulas, convert the local span to display math (`$$ ... $$`). For augmented matrices, prefer one structurally correct array such as `{ccc|cc}` and verify the column spec matches row cell counts.
 
 Evidence modes:
 - `text-only`: use current sidecar, raw import, repair summary, and paired paper/answer text. This is the default for non-vision models.
