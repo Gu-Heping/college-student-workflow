@@ -255,6 +255,8 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
     if evidence_mode == "vision-assisted" and case_payload is not None:
         evidence_payload = case_payload.get("evidence")
         vision_payload = evidence_payload.get("vision") if isinstance(evidence_payload, dict) else None
+        state_dir = Path(str(evidence_payload.get("state_dir"))).expanduser().resolve() if isinstance(evidence_payload, dict) and evidence_payload.get("state_dir") else None
+        pages_dir = state_dir / "pages" if state_dir is not None else None
         if model_capability != "vision":
             issues.append(issue("vision-model-capability-required", "Vision-assisted proposals require model-capability: vision."))
         pages = vision_payload.get("pages") if isinstance(vision_payload, dict) else []
@@ -272,6 +274,8 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
             or not str(page.get("path")).strip()
             or not Path(str(page.get("path"))).is_file()
             or Path(str(page.get("path"))).suffix.lower() != ".png"
+            or pages_dir is None
+            or not is_relative_to(Path(str(page.get("path"))), pages_dir)
             or not str(page.get("sha256") or "").strip()
             or file_sha256(Path(str(page.get("path")))) != str(page.get("sha256") or "")
             for page in pages
@@ -286,7 +290,18 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
     if evidence_mode == "ocr-assisted" and case_payload is not None:
         evidence_payload = case_payload.get("evidence")
         ocr_payload = evidence_payload.get("ocr") if isinstance(evidence_payload, dict) else None
-        if not (isinstance(ocr_payload, dict) and ocr_payload.get("ok") is True):
+        ocr_path = Path(str(ocr_payload.get("path"))).expanduser().resolve() if isinstance(ocr_payload, dict) and ocr_payload.get("path") else None
+        if (
+            not isinstance(ocr_payload, dict)
+            or ocr_payload.get("ok") is not True
+            or ocr_path is None
+            or not ocr_path.is_file()
+            or ocr_path.suffix.lower() not in {".md", ".txt"}
+            or case_state_root is None
+            or not is_relative_to(ocr_path, case_state_root)
+            or not str(ocr_payload.get("sha256") or "").strip()
+            or file_sha256(ocr_path) != str(ocr_payload.get("sha256") or "")
+        ):
             issues.append(
                 issue(
                     "ocr-evidence-unavailable",

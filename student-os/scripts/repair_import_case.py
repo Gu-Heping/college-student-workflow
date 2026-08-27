@@ -127,6 +127,9 @@ def resolve_queue_item(
     if payload.get("schema_version") != QUEUE_SCHEMA_VERSION:
         raise SystemExit(f"Unsupported queue schema_version: {payload.get('schema_version')}")
     root = Path(str(payload.get("target_root") or queue.parents[2])).resolve()
+    queue_root = queue.parents[2].resolve()
+    if root != queue_root:
+        raise SystemExit(f"Queue target_root does not match queue location: {root} != {queue_root}")
     for item in payload.get("items", []):
         if not isinstance(item, dict):
             continue
@@ -135,6 +138,8 @@ def resolve_queue_item(
             item_id = str(item.get("id") or "")
             if not SAFE_ID_RE.fullmatch(item_id):
                 raise SystemExit(f"Unsafe queue item id: {item_id!r}")
+            if target.suffix.lower() != ".md" or not is_relative_to(target, root):
+                raise SystemExit(f"Queue item target must be a markdown sidecar inside target_root: {target}")
             return root, item, target
     raise SystemExit(f"Queue item not found: {queue_item}")
 
@@ -460,6 +465,8 @@ def apply_proposal(proposal_path: Path, target: Path, output: Path | None, *, ev
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(governed)
+        if destination.exists():
+            os.chmod(temp_name, destination.stat().st_mode)
         Path(temp_name).replace(destination)
     except Exception:
         try:

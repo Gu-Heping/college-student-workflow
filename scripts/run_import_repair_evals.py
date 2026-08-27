@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 STUDENT_OS_SCRIPTS = ROOT / "student-os" / "scripts"
 sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
-from repair_import_queue import decode_yaml_path  # noqa: E402
+from repair_import_queue import decode_yaml_path, file_sha256  # noqa: E402
 from repair_import_case import case_sha256, object_sha256, render_pdf_pages  # noqa: E402
 
 
@@ -373,6 +373,22 @@ def main() -> int:
         )
         if "Unsafe queue item id" not in unsafe_queue_result.stderr:
             raise AssertionError(f"Unsafe queue item ids should fail clearly: {unsafe_queue_result.stderr}")
+        copied_queue_root = Path(tmp) / "copied-vault"
+        copied_queue = copied_queue_root / ".student-os" / "import-repair" / "queue.json"
+        copied_queue_payload = dict(queue)
+        copied_queue_payload["target_root"] = str(vault)
+        write_text(copied_queue, json.dumps(copied_queue_payload, ensure_ascii=False, indent=2) + "\n")
+        copied_queue_result = expect_failure(
+            "repair_import_case.py",
+            "--queue",
+            str(copied_queue),
+            "--queue-item",
+            str(queue["items"][0]["id"]),  # type: ignore[index]
+            "--json",
+            cwd=copied_queue_root,
+        )
+        if "target_root does not match queue location" not in copied_queue_result.stderr:
+            raise AssertionError(f"Copied queue roots should fail clearly: {copied_queue_result.stderr}")
         by_name = {Path(str(item["path"])).name: item for item in queue["items"]}  # type: ignore[index]
         if "verified.pdf.md" in by_name or "long-verified.pdf.md" in by_name or queue["counts"]["skipped_verified"] != 2:  # type: ignore[index]
             raise AssertionError(f"Verified files should be skipped by default: {queue}")
@@ -1050,6 +1066,10 @@ def main() -> int:
         ocr_success_review = run_json("repair_import_review.py", "--proposal", str(ocr_success_proposal), "--json", cwd=vault)
         if ocr_success_review["review_pass"] is not True:
             raise AssertionError(f"OCR-assisted proposal with bound evidence should pass: {ocr_success_review}")
+        write_text(ocr_evidence_file, "# OCR Evidence\n\nTampered OCR text.\n")
+        ocr_tampered_review = run_json("repair_import_review.py", "--proposal", str(ocr_success_proposal), "--json", cwd=vault, expect_ok=False)
+        if not any(issue["code"] == "ocr-evidence-unavailable" for issue in ocr_tampered_review["issues"]):  # type: ignore[index]
+            raise AssertionError(f"Tampered OCR evidence should fail review: {ocr_tampered_review}")
 
         evidence_schema_case = vault / ".student-os" / "import-repair" / "evidence" / "bad-evidence-schema" / "case.json"
         bad_evidence = dict(legacy_case_state["evidence"])
@@ -1141,6 +1161,8 @@ def main() -> int:
             raise AssertionError(f"Case JSON outside .student-os should fail review: {outside_case_review}")
 
         fake_vision_case = vault / ".student-os" / "import-repair" / "evidence" / "fake-vision" / "case.json"
+        outside_png = Path(tmp) / "outside.png"
+        outside_png.write_bytes(b"\x89PNG\r\n\x1a\nfake")
         fake_vision_evidence = {
             "schema_version": "import-repair-case/v1",
             "mode": "vision-assisted",
@@ -1148,7 +1170,7 @@ def main() -> int:
             "blocked": "",
             "pages": [],
             "state_dir": str(fake_vision_case.parent),
-            "vision": {"ok": True, "pages": [{"page": 1}], "failures": []},
+            "vision": {"ok": True, "pages": [{"page": 1, "path": str(outside_png), "sha256": file_sha256(outside_png)}], "failures": []},
         }
         fake_vision_payload = {
             "schema_version": "import-repair-case/v1",
@@ -1180,7 +1202,7 @@ def main() -> int:
         )
         fake_vision_review = run_json("repair_import_review.py", "--proposal", str(fake_vision_proposal), "--json", cwd=vault, expect_ok=False)
         if not any(issue["code"] == "vision-evidence-page-missing" for issue in fake_vision_review["issues"]):  # type: ignore[index]
-            raise AssertionError(f"Missing rendered vision page paths should fail review: {fake_vision_review}")
+            raise AssertionError(f"Vision page paths outside the case pages directory should fail review: {fake_vision_review}")
 
     print("OK import-repair-evals")
     return 0
