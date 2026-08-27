@@ -5,9 +5,11 @@ import argparse
 import json
 import re
 import hashlib
+import os
+import tempfile
 from pathlib import Path
 
-from import_governance import ensure_field, mark_auto_repaired
+from import_governance import ensure_field, is_verified, mark_auto_repaired
 from repair_import_queue import SCHEMA_VERSION as QUEUE_SCHEMA_VERSION
 from repair_import_queue import STATE_DIR, build_queue_item, file_sha256, json_path, relative_path
 
@@ -17,6 +19,7 @@ PROPOSAL_SCHEMA_VERSION = "import-repair-proposal/v1"
 REPLACEMENT_START = "<!-- student-os-replacement-start -->"
 REPLACEMENT_END = "<!-- student-os-replacement-end -->"
 EVIDENCE_MODES = {"auto", "text-only", "ocr-assisted", "vision-assisted"}
+SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 def load_json(path: Path) -> dict[str, object]:
@@ -69,10 +72,36 @@ def state_root_for_target(target: Path, cwd: Path) -> Path:
         return target.parent.resolve()
 
 
-def resolve_queue_item(queue_item: str, *, queue_path: Path | None, cwd: Path) -> tuple[Path, dict[str, object], Path]:
+def is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def safe_state_id(item: dict[str, object], target: Path) -> str:
+    item_id = str(item.get("id") or "").strip()
+    if SAFE_ID_RE.fullmatch(item_id):
+        return item_id
+    digest = hashlib.sha256(json_path(target).encode("utf-8", errors="replace")).hexdigest()[:12]
+    return f"import-repair-{digest}"
+
+
+def resolve_queue_item(
+    queue_item: str,
+    *,
+    queue_path: Path | None,
+    cwd: Path,
+    include_verified: bool = False,
+) -> tuple[Path, dict[str, object], Path]:
     candidate = Path(queue_item).expanduser()
     if candidate.exists():
         target = candidate.resolve()
+        if target.suffix.lower() != ".md":
+            raise SystemExit("Direct queue item targets must be markdown sidecars.")
+        if is_verified(target.read_text(encoding="utf-8", errors="replace")) and not include_verified:
+            raise SystemExit("Direct queue item target is verified; pass --include-verified to generate a case anyway.")
         root = state_root_for_target(target, cwd)
         item = build_queue_item(root, target)
         if item is None:
@@ -103,6 +132,9 @@ def resolve_queue_item(queue_item: str, *, queue_path: Path | None, cwd: Path) -
             continue
         if item.get("id") == queue_item or item.get("path") == queue_item or item.get("relative_path") == queue_item:
             target = Path(str(item["path"])).resolve()
+            item_id = str(item.get("id") or "")
+            if not SAFE_ID_RE.fullmatch(item_id):
+                raise SystemExit(f"Unsafe queue item id: {item_id!r}")
             return root, item, target
     raise SystemExit(f"Queue item not found: {queue_item}")
 
@@ -114,6 +146,15 @@ def excerpt(path: Path | None, *, max_chars: int = 5000) -> str:
     if len(text) <= max_chars:
         return text
     return text[:max_chars] + "\n\n...[truncated for repair case]...\n"
+
+
+def safe_markdown_evidence_path(path_value: object, *, root: Path) -> Path | None:
+    if not path_value:
+        return None
+    path = Path(str(path_value)).expanduser().resolve()
+    if path.suffix.lower() != ".md" or not is_relative_to(path, root):
+        return None
+    return path
 
 
 def source_evidence(item: dict[str, object], target: Path) -> dict[str, object]:
@@ -195,13 +236,14 @@ def render_pdf_pages(source_pdf: Path, output_dir: Path, pages: list[int]) -> di
     return {"ok": True, "pages": written, "failures": failures}
 
 
-def prepare_evidence(root: Path, item: dict[str, object], *, evidence_mode: str) -> dict[str, object]:
+def prepare_evidence(root: Path, item: dict[str, object], *, evidence_mode: str, ocr_evidence: Path | None = None) -> dict[str, object]:
     evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
     recommended = str(evidence.get("recommended_mode") or "text-only") if isinstance(evidence, dict) else "text-only"
     selected_mode = recommended if evidence_mode == "auto" else evidence_mode
     if selected_mode not in EVIDENCE_MODES:
         raise SystemExit(f"Unknown evidence mode: {selected_mode}")
-    item_id = str(item.get("id") or "repair-case")
+    target = Path(str(item.get("path") or root)).resolve()
+    item_id = safe_state_id(item, target)
     state_dir = root / STATE_DIR / "evidence" / item_id / selected_mode
     payload: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
@@ -221,11 +263,29 @@ def prepare_evidence(root: Path, item: dict[str, object], *, evidence_mode: str)
             page_numbers = [int(page) for page in pages if isinstance(page, int)]
             payload["vision"] = render_pdf_pages(source_path, state_dir / "pages", page_numbers)
     elif selected_mode == "ocr-assisted":
-        payload["ocr"] = {
-            "ok": False,
-            "reason": "not-run-by-case-tool",
-            "note": "Run materials_convert.py with an OCR-capable strategy to create text evidence, then regenerate the case.",
-        }
+        if ocr_evidence is None:
+            payload["ocr"] = {
+                "ok": False,
+                "reason": "not-run-by-case-tool",
+                "note": "Run materials_convert.py with an OCR-capable strategy to create text evidence, then regenerate the case with --ocr-evidence.",
+            }
+        else:
+            ocr_path = ocr_evidence.expanduser().resolve()
+            if not ocr_path.exists():
+                payload["ocr"] = {"ok": False, "reason": "ocr-evidence-missing", "path": json_path(ocr_path)}
+            elif ocr_path.suffix.lower() not in {".md", ".txt"} or not is_relative_to(ocr_path, root):
+                payload["ocr"] = {
+                    "ok": False,
+                    "reason": "ocr-evidence-outside-vault",
+                    "path": json_path(ocr_path),
+                }
+            else:
+                payload["ocr"] = {
+                    "ok": True,
+                    "path": json_path(ocr_path),
+                    "sha256": file_sha256(ocr_path),
+                    "excerpt": excerpt(ocr_path, max_chars=4000),
+                }
     return payload
 
 
@@ -243,8 +303,8 @@ def write_case_json(root: Path, item: dict[str, object], evidence_payload: dict[
 
 
 def render_case(root: Path, item: dict[str, object], target: Path, evidence_payload: dict[str, object]) -> str:
-    raw_path = Path(str(item.get("raw_import") or "")).resolve() if item.get("raw_import") else None
-    summary_path = Path(str(item.get("repair_summary") or "")).resolve() if item.get("repair_summary") else None
+    raw_path = safe_markdown_evidence_path(item.get("raw_import"), root=root)
+    summary_path = safe_markdown_evidence_path(item.get("repair_summary"), root=root)
     evidence = source_evidence(item, target)
     case_json = Path(str(evidence_payload["state_dir"])) / "case.json"
     case_payload = build_case_payload(item, evidence_payload)
@@ -372,7 +432,8 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
 def write_case(root: Path, item: dict[str, object], markdown: str) -> Path:
     case_dir = root / STATE_DIR / "cases"
     case_dir.mkdir(parents=True, exist_ok=True)
-    case_path = case_dir / f"{item.get('id', 'repair-case')}.md"
+    target = Path(str(item.get("path") or root)).resolve()
+    case_path = case_dir / f"{safe_state_id(item, target)}.md"
     case_path.write_text(markdown, encoding="utf-8", newline="\n")
     return case_path
 
@@ -399,7 +460,17 @@ def apply_proposal(proposal_path: Path, target: Path, output: Path | None, *, ev
     governed = ensure_field(governed, "repair_ai_confidence", "unverified")
     destination = (output or target).resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(governed, encoding="utf-8", newline="\n")
+    fd, temp_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=str(destination.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(governed)
+        Path(temp_name).replace(destination)
+    except Exception:
+        try:
+            Path(temp_name).unlink()
+        except OSError:
+            pass
+        raise
     return destination
 
 
@@ -407,6 +478,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Build or apply a Student OS AI import repair case.")
     parser.add_argument("--queue-item", required=True, help="Queue item id, queue relative path, or sidecar path")
     parser.add_argument("--queue", help="Explicit queue.json path")
+    parser.add_argument("--include-verified", action="store_true", help="Allow direct sidecar case generation for verified files")
     parser.add_argument("--write-case", action="store_true", help="Write .student-os/import-repair/cases/<id>.md")
     parser.add_argument(
         "--evidence-mode",
@@ -416,11 +488,17 @@ def main() -> int:
     )
     parser.add_argument("--output", help="Output path for --apply-proposal")
     parser.add_argument("--apply-proposal", help="Apply a proposal replacement block to the sidecar or --output")
+    parser.add_argument("--ocr-evidence", help="Existing OCR text/markdown artifact to bind for ocr-assisted evidence")
     parser.add_argument("--json", action="store_true", help="Print structured result")
     args = parser.parse_args()
 
     queue_path = Path(args.queue).expanduser() if args.queue else None
-    root, item, target = resolve_queue_item(args.queue_item, queue_path=queue_path, cwd=Path.cwd())
+    root, item, target = resolve_queue_item(
+        args.queue_item,
+        queue_path=queue_path,
+        cwd=Path.cwd(),
+        include_verified=args.include_verified,
+    )
 
     if args.apply_proposal:
         payload = {
@@ -433,7 +511,8 @@ def main() -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 2
 
-    evidence_payload = prepare_evidence(root, item, evidence_mode=args.evidence_mode)
+    ocr_evidence = Path(args.ocr_evidence).expanduser() if args.ocr_evidence else None
+    evidence_payload = prepare_evidence(root, item, evidence_mode=args.evidence_mode, ocr_evidence=ocr_evidence)
     case_json = write_case_json(root, item, evidence_payload)
     markdown = render_case(root, item, target, evidence_payload)
     case_path = write_case(root, item, markdown) if args.write_case else None

@@ -38,7 +38,7 @@ Use this loop when the user asks for flexible cleanup or semantic reconstruction
 
 Evidence modes:
 - `text-only`: use current sidecar, raw import, repair summary, and paired paper/answer text. This is the default for non-vision models.
-- `ocr-assisted`: use OCR/import only to create better text evidence; do not overwrite repaired markdown directly.
+- `ocr-assisted`: first create a vault-local `.md` or `.txt` OCR evidence artifact, then bind it with `repair_import_case.py --evidence-mode ocr-assisted --ocr-evidence <path>`. Do not overwrite repaired markdown directly.
 - `vision-assisted`: render only candidate PDF pages/crops for multimodal review. This is evidence grounding, not a duplicate OCR pass and not human verification.
 
 AI can help locate and rewrite likely broken content, but only a human source check can mark `verify_status: verified`.

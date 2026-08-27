@@ -288,6 +288,23 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="student-os-import-repair-eval-") as tmp:
         vault = Path(tmp) / "vault"
         paths = build_fixture(vault)
+        imports = paths["semantic"].parent
+        outside_secret = Path(tmp) / "outside-secret.md"
+        write_text(outside_secret, "---\nsecret: true\n---\n\nDo not embed me.\n")
+        malicious_derived = imports / "malicious-derived.pdf.md"
+        write_text(
+            malicious_derived,
+            "---\n"
+            "source_file: malicious-derived.pdf\n"
+            f"derived_from_import: {outside_secret}\n"
+            "repair_status: auto-repaired\n"
+            "verify_status: unverified\n"
+            "repair_risk: needs-human-review\n"
+            "---\n"
+            "\n"
+            "Sidecar with untrusted raw evidence pointer.\n",
+        )
+        paths["malicious_derived"] = malicious_derived
         missing_target = vault / "missing-vault"
         missing_target_result = run_json("repair_import_queue.py", str(missing_target), "--write-queue", "--json", cwd=ROOT, expect_ok=False)
         if missing_target_result.get("stage") != "resolve-target":
@@ -312,11 +329,31 @@ def main() -> int:
         )
         if "Unsupported queue schema_version" not in bad_queue_result.stderr:
             raise AssertionError(f"Unsupported queue schema should fail clearly: {bad_queue_result.stderr}")
+        unsafe_queue = vault / ".student-os" / "import-repair" / "unsafe-queue.json"
+        unsafe_queue_payload = dict(queue)
+        unsafe_item = dict(queue["items"][0])  # type: ignore[index]
+        unsafe_item["id"] = "../escape"
+        unsafe_queue_payload["items"] = [unsafe_item]
+        write_text(unsafe_queue, json.dumps(unsafe_queue_payload, ensure_ascii=False, indent=2) + "\n")
+        unsafe_queue_result = expect_failure(
+            "repair_import_case.py",
+            "--queue",
+            str(unsafe_queue),
+            "--queue-item",
+            "../escape",
+            "--json",
+            cwd=vault,
+        )
+        if "Unsafe queue item id" not in unsafe_queue_result.stderr:
+            raise AssertionError(f"Unsafe queue item ids should fail clearly: {unsafe_queue_result.stderr}")
         by_name = {Path(str(item["path"])).name: item for item in queue["items"]}  # type: ignore[index]
         if "verified.pdf.md" in by_name or "long-verified.pdf.md" in by_name or queue["counts"]["skipped_verified"] != 2:  # type: ignore[index]
             raise AssertionError(f"Verified files should be skipped by default: {queue}")
         if "2016-answer.pdf.raw.md" in by_name:
             raise AssertionError(f"Raw import evidence should not be queued as a repair target: {queue}")
+        malicious_item = by_name["malicious-derived.pdf.md"]
+        if malicious_item.get("raw_import") or malicious_item["evidence"]["raw_import"]["exists"] is not False:  # type: ignore[index]
+            raise AssertionError(f"Vault-external derived_from_import should not be accepted as raw evidence: {malicious_item}")
         direct_derived_queue = run_json("repair_import_queue.py", str(paths["derived_note"]), "--json", cwd=ROOT)
         direct_names = {Path(str(item["path"])).name for item in direct_derived_queue["items"]}  # type: ignore[index]
         if "derived-note.md" not in direct_names:
@@ -412,6 +449,9 @@ def main() -> int:
         direct_case_json = Path(str(direct_case["case_json"]))
         if not direct_case_json.is_relative_to(vault):
             raise AssertionError(f"Direct sidecar case should write state under the vault, not the repo cwd: {direct_case}")
+        verified_direct = expect_failure("repair_import_case.py", "--queue-item", str(paths["verified"]), "--json", cwd=ROOT)
+        if "--include-verified" not in verified_direct.stderr:
+            raise AssertionError(f"Direct verified targets should require explicit opt-in: {verified_direct.stderr}")
 
         proposal = vault / ".student-os" / "import-repair" / "proposals" / "bad.md"
         write_text(
@@ -913,6 +953,48 @@ def main() -> int:
         if not any(issue["code"] == "ocr-evidence-unavailable" for issue in ocr_review["issues"]):  # type: ignore[index]
             raise AssertionError(f"OCR-assisted proposal should require successful OCR evidence: {ocr_review}")
 
+        ocr_evidence_file = vault / ".student-os" / "import-repair" / "ocr" / "legacy-ocr.md"
+        write_text(ocr_evidence_file, "# OCR Evidence\n\nReadable body from a controlled OCR artifact.\n")
+        ocr_success_case = run_json(
+            "repair_import_case.py",
+            "--queue",
+            str(queue_path),
+            "--queue-item",
+            str(legacy_item["id"]),
+            "--evidence-mode",
+            "ocr-assisted",
+            "--ocr-evidence",
+            str(ocr_evidence_file),
+            "--json",
+            cwd=vault,
+        )
+        if ocr_success_case["evidence"]["ocr"]["ok"] is not True:  # type: ignore[index]
+            raise AssertionError(f"OCR evidence file should produce successful bound evidence: {ocr_success_case}")
+        ocr_success_case_json = Path(str(ocr_success_case["case_json"]))
+        ocr_success_state = json.loads(ocr_success_case_json.read_text(encoding="utf-8"))
+        ocr_success_proposal = vault / ".student-os" / "import-repair" / "proposals" / "ocr-success.md"
+        write_text(
+            ocr_success_proposal,
+            "# OCR success proposal\n\n"
+            "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+            f"<!-- student-os-target: {paths['legacy']} -->\n\n"
+            f"<!-- student-os-target-sha256: {legacy_item['content_sha256']} -->\n"
+            f"<!-- student-os-case-json: {ocr_success_case_json} -->\n"
+            f"<!-- student-os-case-sha256: {ocr_success_state['case_sha256']} -->\n"
+            f"<!-- student-os-evidence-sha256: {ocr_success_state['evidence_sha256']} -->\n"
+            "<!-- student-os-evidence-mode: ocr-assisted -->\n"
+            "<!-- student-os-model-capability: text-only -->\n"
+            "<!-- student-os-changed-sections: line-1 -->\n"
+            "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+            "<!-- student-os-replacement-start -->\n"
+            "---\nsource_file: legacy.pdf\nrepair_status: auto-repaired\nverify_status: unverified\n---\n\n"
+            "Readable body.\n"
+            "<!-- student-os-replacement-end -->\n",
+        )
+        ocr_success_review = run_json("repair_import_review.py", "--proposal", str(ocr_success_proposal), "--json", cwd=vault)
+        if ocr_success_review["review_pass"] is not True:
+            raise AssertionError(f"OCR-assisted proposal with bound evidence should pass: {ocr_success_review}")
+
         evidence_schema_case = vault / ".student-os" / "import-repair" / "evidence" / "bad-evidence-schema" / "case.json"
         bad_evidence = dict(legacy_case_state["evidence"])
         bad_evidence["schema_version"] = "import-repair-case/v0"
@@ -974,6 +1056,33 @@ def main() -> int:
         invalid_case_review = run_json("repair_import_review.py", "--proposal", str(invalid_case_proposal), "--json", cwd=vault, expect_ok=False)
         if not any(issue["code"] == "proposal-case-schema-invalid" for issue in invalid_case_review["issues"]):  # type: ignore[index]
             raise AssertionError(f"Invalid case schema should fail review: {invalid_case_review}")
+
+        outside_case_json = Path(tmp) / "outside-case.json"
+        outside_case_payload = json.loads(legacy_case_json.read_text(encoding="utf-8"))
+        outside_case_payload["case_sha256"] = case_sha256(outside_case_payload)
+        write_text(outside_case_json, json.dumps(outside_case_payload, ensure_ascii=False, indent=2) + "\n")
+        outside_case_proposal = vault / ".student-os" / "import-repair" / "proposals" / "outside-case.md"
+        write_text(
+            outside_case_proposal,
+            "# Outside case proposal\n\n"
+            "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+            f"<!-- student-os-target: {paths['legacy']} -->\n\n"
+            f"<!-- student-os-target-sha256: {legacy_item['content_sha256']} -->\n"
+            f"<!-- student-os-case-json: {outside_case_json} -->\n"
+            f"<!-- student-os-case-sha256: {outside_case_payload['case_sha256']} -->\n"
+            f"<!-- student-os-evidence-sha256: {legacy_case_state['evidence_sha256']} -->\n"
+            "<!-- student-os-evidence-mode: text-only -->\n"
+            "<!-- student-os-model-capability: text-only -->\n"
+            "<!-- student-os-changed-sections: line-1 -->\n"
+            "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+            "<!-- student-os-replacement-start -->\n"
+            "---\nsource_file: legacy.pdf\nrepair_status: auto-repaired\nverify_status: unverified\n---\n\n"
+            "Readable body.\n"
+            "<!-- student-os-replacement-end -->\n",
+        )
+        outside_case_review = run_json("repair_import_review.py", "--proposal", str(outside_case_proposal), "--json", cwd=vault, expect_ok=False)
+        if not any(issue["code"] == "proposal-case-json-outside-vault" for issue in outside_case_review["issues"]):  # type: ignore[index]
+            raise AssertionError(f"Case JSON outside .student-os should fail review: {outside_case_review}")
 
         fake_vision_case = vault / ".student-os" / "import-repair" / "evidence" / "fake-vision" / "case.json"
         fake_vision_evidence = {

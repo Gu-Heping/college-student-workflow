@@ -145,6 +145,14 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
         else:
             case_json_path = case_json_path.resolve()
             case_state_root = state_root_from_case_json(case_json_path)
+            if case_state_root is None:
+                issues.append(
+                    issue(
+                        "proposal-case-json-outside-vault",
+                        "Case JSON must be stored under a vault .student-os directory.",
+                        detail={"case_json": json_path(case_json_path)},
+                    )
+                )
             try:
                 loaded_case = load_json(case_json_path)
                 if not isinstance(loaded_case, dict):

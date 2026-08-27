@@ -71,6 +71,14 @@ def relative_path(root: Path, path: Path) -> str:
         return path.resolve().as_posix()
 
 
+def is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def read_markdown(path: Path) -> tuple[str, bool]:
     try:
         return path.read_text(encoding="utf-8"), False
@@ -143,9 +151,14 @@ def find_repair_summary(path: Path) -> Path | None:
     return None
 
 
-def raw_sibling(path: Path, frontmatter: dict[str, str]) -> Path | None:
+def raw_sibling(path: Path, frontmatter: dict[str, str], *, boundary_root: Path | None = None) -> Path | None:
     candidate = resolve_declared_path(frontmatter.get("derived_from_import", ""), base=path.parent)
-    if candidate and candidate.exists():
+    if (
+        candidate
+        and candidate.exists()
+        and candidate.suffix.lower() == ".md"
+        and (boundary_root is None or is_relative_to(candidate, boundary_root))
+    ):
         return candidate.resolve()
     candidates = [
         path.with_name(f"{path.stem}.raw.md"),
@@ -301,10 +314,12 @@ def classify_evidence(
     risks: list[dict[str, object]],
     frontmatter: dict[str, str],
     snippets: list[dict[str, object]],
+    *,
+    boundary_root: Path,
 ) -> dict[str, object]:
     risk_codes = {str(risk.get("code", "")) for risk in risks}
     source_path = source_path_for(path, frontmatter)
-    raw_path = raw_sibling(path, frontmatter)
+    raw_path = raw_sibling(path, frontmatter, boundary_root=boundary_root)
     summary_path = find_repair_summary(path)
     paired = pair_sidecar(path)
     source_exists = bool(source_path and source_path.exists())
@@ -489,13 +504,13 @@ def build_queue_item(root: Path, path: Path, *, text: str | None = None, decode_
         return None
 
     summary_path = find_repair_summary(path)
-    raw_path = raw_sibling(path, frontmatter)
+    raw_path = raw_sibling(path, frontmatter, boundary_root=root)
     snippets = [
         snippet
         for risk in risks
         if (snippet := first_snippet_for_risk(text, str(risk["code"]))) is not None
     ]
-    evidence = classify_evidence(path, text, risks, frontmatter, snippets)
+    evidence = classify_evidence(path, text, risks, frontmatter, snippets, boundary_root=root)
     sections = split_sections(text)
     suspect_sections = sections_for_snippets(sections, snippets)
     item = {
