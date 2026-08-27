@@ -27,11 +27,11 @@ function restoreEnv() {
   process.chdir(oldCwd)
 }
 
-async function setupHarnessContext() {
+async function setupHarnessContext(config = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(StudentOsPlugin, { repoRoot })
+  await ctx.plugin(StudentOsPlugin, { repoRoot, ...config })
   return ctx
 }
 
@@ -118,6 +118,12 @@ try {
   mkdirSync(away)
   process.chdir(away)
 
+  const missingVault = await execute(ctx, 'student_os_group_changes', {})
+  assert.equal(missingVault.isError, false)
+  assert.equal(missingVault.value.ok, false)
+  assert.equal(missingVault.value.stage, 'missing-vault')
+  assert.equal(missingVault.value.command.length, 0)
+
   const inspect = await execute(ctx, 'student_os_inspect', { vault })
   assert.equal(inspect.isError, false)
   assert.equal(inspect.value.ok, true)
@@ -142,6 +148,13 @@ try {
   const fullGrouped = await execute(ctx, 'student_os_group_changes', { vault, compact: false })
   assert.equal(fullGrouped.isError, false)
   assert.deepEqual(fullGrouped.value.payload.artifact_grouping.ops, ['note.md'])
+
+  const workspaceCtx = await setupHarnessContext({ vaultRoot: vault })
+  const defaultGrouped = await execute(workspaceCtx, 'student_os_group_changes', {})
+  assert.equal(defaultGrouped.isError, false)
+  assert.equal(defaultGrouped.value.ok, true)
+  assert.equal(defaultGrouped.value.payload.is_git_repo, true)
+  assert.equal(defaultGrouped.value.command.includes(vault), true)
 
   const slowRepoRoot = join(tmpRoot, 'slow-repo')
   const slowScripts = join(slowRepoRoot, 'student-os', 'scripts')

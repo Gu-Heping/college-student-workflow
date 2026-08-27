@@ -39,6 +39,8 @@ Use this loop when the user asks for flexible cleanup or semantic reconstruction
 Operational guardrails:
 - Do not generate cases in parallel.
 - If the compact queue says `single_section_candidate: false`, create a blocked case or choose a smaller item/section instead of rewriting the whole file.
+- Use compact queue `top_item.case_argv` as the default next step; read full `queue.json` only when the compact output is insufficient or the tool asks for fallback.
+- For local render repairs, write a section replacement block with `student-os-section-replacement-start/end`; reserve full-file replacement for explicitly widened repairs.
 - Do not write `.fixed` files or vault-local debug/trace/repair scripts.
 - Do not read Student OS script source to interpret risk labels unless the script itself fails.
 - When review fails, follow `failure_reason` and `recommended_next_action` from the JSON.

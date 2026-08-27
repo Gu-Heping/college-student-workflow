@@ -11,6 +11,7 @@ export const inject = ['tools', 'systemPrompt']
 
 export interface Config {
   repoRoot?: string
+  vaultRoot?: string
   python?: string
   timeoutMs?: number
 }
@@ -65,6 +66,45 @@ function resolveUserPath(input: string, base: string = process.cwd()): string {
     return resolve(homedir(), input.slice(2))
   }
   return resolve(base, input)
+}
+
+function maybeString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value : undefined
+}
+
+function executionWorkspace(exec: unknown): string | undefined {
+  if (exec === null || typeof exec !== 'object') return undefined
+  const record = exec as Record<string, unknown>
+  for (const key of ['cwd', 'workspace', 'workspaceRoot', 'workdir', 'workingDirectory']) {
+    const value = maybeString(record[key])
+    if (value !== undefined) return value
+  }
+  for (const key of ['session', 'meta', 'metadata']) {
+    const nested = record[key]
+    if (nested !== null && typeof nested === 'object') {
+      const value = executionWorkspace(nested)
+      if (value !== undefined) return value
+    }
+  }
+  return undefined
+}
+
+function resolveVaultArg(value: unknown, exec: unknown, config: Config): string | StudentOsToolResult {
+  const explicit = value === undefined ? undefined : requireString(value, 'vault')
+  const candidate = explicit ?? maybeString(config.vaultRoot) ?? maybeString(process.env.STUDENT_OS_VAULT_ROOT) ?? executionWorkspace(exec)
+  if (candidate === undefined) {
+    const repoRoot = resolveRepoRoot(config.repoRoot)
+    return {
+      ok: false,
+      exitCode: null,
+      cwd: repoRoot,
+      command: [],
+      stdout: '',
+      stderr: 'Student OS vault is required: DSH did not expose a reliable workspace cwd. Pass vault explicitly.',
+      stage: 'missing-vault',
+    }
+  }
+  return resolveUserPath(candidate)
 }
 
 function requireString(value: unknown, name: string, fallback?: string): string {
@@ -213,7 +253,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     name: 'student_os_inspect',
     description: 'Inspect a Student OS vault using the portable Python inspect_repo.py script.',
     parameters: {
-      vault: { type: 'string', description: 'Vault root to inspect. Defaults to the DSH process cwd.' },
+      vault: { type: 'string', description: 'Vault root to inspect. Defaults to the DSH workspace cwd when available.' },
       compact: { type: 'boolean', description: 'Use compact agent-facing output. Defaults to true.' },
       limit: { type: 'integer', description: 'Maximum sample items in compact output. Defaults to 20.' },
       scope: { type: 'string', enum: ['repo', 'git', 'hygiene'], description: 'Inspection scope. Defaults to hygiene.' },
@@ -225,7 +265,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     isConcurrencySafe: () => true,
     execute(args, exec) {
-      const vault = resolveUserPath(requireString(args.vault, 'vault', '.'))
+      const vault = resolveVaultArg(args.vault, exec, config)
+      if (typeof vault !== 'string') return Promise.resolve(vault)
       const compact = args.compact !== false
       const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? Math.max(1, Math.trunc(args.limit)) : 20
       const scope = typeof args.scope === 'string' && ['repo', 'git', 'hygiene'].includes(args.scope) ? args.scope : 'hygiene'
@@ -243,7 +284,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     name: 'student_os_group_changes',
     description: 'Group git changes in a Student OS vault using the portable Python group_git_changes.py script.',
     parameters: {
-      vault: { type: 'string', description: 'Vault root to analyze. Defaults to the DSH process cwd.' },
+      vault: { type: 'string', description: 'Vault root to analyze. Defaults to the DSH workspace cwd when available.' },
       compact: { type: 'boolean', description: 'Use compact preflight output. Defaults to true.' },
       limit: { type: 'integer', description: 'Maximum sample paths in compact output. Defaults to 20.' },
       timeout_ms: { type: 'integer', description: 'Timeout in milliseconds. Defaults to 45000.' },
@@ -254,7 +295,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     isConcurrencySafe: () => true,
     execute(args, exec) {
-      const vault = resolveUserPath(requireString(args.vault, 'vault', '.'))
+      const vault = resolveVaultArg(args.vault, exec, config)
+      if (typeof vault !== 'string') return Promise.resolve(vault)
       const compact = args.compact !== false
       const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? Math.max(1, Math.trunc(args.limit)) : 20
       const timeoutMs = typeof args.timeout_ms === 'number' && Number.isFinite(args.timeout_ms)

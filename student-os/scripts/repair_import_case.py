@@ -12,15 +12,21 @@ from pathlib import Path
 
 from import_governance import ensure_field, is_verified, mark_auto_repaired
 from repair_import_queue import SCHEMA_VERSION as QUEUE_SCHEMA_VERSION
-from repair_import_queue import STATE_DIR, build_queue_item, file_sha256, json_path, relative_path
+from repair_import_queue import STATE_DIR, build_queue_item, file_sha256, json_path, relative_path, split_sections
 
 
 SCHEMA_VERSION = "import-repair-case/v1"
 PROPOSAL_SCHEMA_VERSION = "import-repair-proposal/v1"
 REPLACEMENT_START = "<!-- student-os-replacement-start -->"
 REPLACEMENT_END = "<!-- student-os-replacement-end -->"
+SECTION_REPLACEMENT_END = "<!-- student-os-section-replacement-end -->"
 EVIDENCE_MODES = {"auto", "text-only", "ocr-assisted", "vision-assisted"}
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+SECTION_REPLACEMENT_RE = re.compile(
+    r"<!--\s*student-os-section-replacement-start:\s*(?P<section>.*?)\s*-->\s*\n(?P<body>.*?)\n\s*"
+    + re.escape(SECTION_REPLACEMENT_END),
+    flags=re.S,
+)
 
 
 def load_json(path: Path) -> dict[str, object]:
@@ -441,6 +447,12 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
             "<!-- student-os-changed-sections: section-id-or-line-range -->",
             "<!-- student-os-remaining-risks: human-review-required -->",
             "",
+            "Preferred for one-section repairs:",
+            "<!-- student-os-section-replacement-start: section-id-or-lines-START-END -->",
+            "<replacement markdown for only that section>",
+            SECTION_REPLACEMENT_END,
+            "",
+            "Compatibility fallback for explicitly widened repairs:",
             REPLACEMENT_START,
             "",
             "<full replacement markdown>",
@@ -460,7 +472,70 @@ def write_case(root: Path, item: dict[str, object], markdown: str) -> Path:
     return case_path
 
 
-def extract_replacement(proposal_path: Path) -> str:
+def proposal_replacement_kind(proposal_path: Path) -> str:
+    text = proposal_path.read_text(encoding="utf-8")
+    if SECTION_REPLACEMENT_RE.search(text):
+        return "section"
+    return "full"
+
+
+def section_replacements(proposal_path: Path) -> list[tuple[str, str]]:
+    text = proposal_path.read_text(encoding="utf-8")
+    replacements: list[tuple[str, str]] = []
+    for match in SECTION_REPLACEMENT_RE.finditer(text):
+        section = match.group("section").strip()
+        body = match.group("body").strip("\n")
+        if not section:
+            raise SystemExit("Section replacement marker must name a section id or line range.")
+        if not body.strip():
+            raise SystemExit(f"Section replacement block is empty: {section}")
+        replacements.append((section, body + "\n"))
+    return replacements
+
+
+def resolve_section_span(text: str, selector: str) -> tuple[int, int]:
+    selector = selector.strip()
+    line_match = re.fullmatch(r"(?:line|lines)[-: ](?P<start>\d+)(?:\s*(?:-|\.\.)\s*(?P<end>\d+))?", selector)
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").splitlines()
+    if line_match:
+        start = int(line_match.group("start"))
+        end = int(line_match.group("end") or start)
+        if start < 1 or end < start or end > len(lines):
+            raise SystemExit(f"Section replacement line range is outside the target: {selector}")
+        return start - 1, end
+    for section in split_sections(text):
+        if str(section.get("id")) == selector:
+            start = int(section["start_line"])
+            end = int(section["end_line"])
+            return start - 1, end
+    raise SystemExit(f"Section replacement selector was not found in the target: {selector}")
+
+
+def apply_section_replacements(original: str, replacements: list[tuple[str, str]]) -> str:
+    normalized = original.replace("\r\n", "\n").replace("\r", "\n")
+    had_final_newline = normalized.endswith("\n")
+    lines = normalized.splitlines()
+    spans: list[tuple[int, int, str, str]] = []
+    for selector, body in replacements:
+        start, end = resolve_section_span(normalized, selector)
+        spans.append((start, end, selector, body))
+    spans.sort(key=lambda item: item[0], reverse=True)
+    previous_start = len(lines) + 1
+    for start, end, selector, body in spans:
+        if end > previous_start:
+            raise SystemExit(f"Section replacement ranges overlap or are not independent: {selector}")
+        lines[start:end] = body.rstrip("\n").split("\n")
+        previous_start = start
+    result = "\n".join(lines)
+    return result + "\n" if had_final_newline or result else result
+
+
+def extract_replacement(proposal_path: Path, target: Path | None = None) -> str:
+    replacements = section_replacements(proposal_path)
+    if replacements:
+        if target is None:
+            raise SystemExit("Section replacement proposals require a resolved target sidecar.")
+        return apply_section_replacements(target.read_text(encoding="utf-8", errors="replace"), replacements)
     text = proposal_path.read_text(encoding="utf-8")
     pattern = re.compile(
         rf"{re.escape(REPLACEMENT_START)}\s*\n(?P<body>.*?)\n\s*{re.escape(REPLACEMENT_END)}",
@@ -494,7 +569,7 @@ def normalize_line_endings(text: str, newline: str) -> str:
 
 
 def apply_proposal(proposal_path: Path, target: Path, output: Path | None, *, evidence_mode: str) -> Path:
-    replacement = extract_replacement(proposal_path)
+    replacement = extract_replacement(proposal_path, target)
     governed = mark_auto_repaired(replacement, needs_review=True)
     governed = ensure_field(governed, "repair_evidence_mode", evidence_mode)
     governed = ensure_field(governed, "repair_ai_confidence", "unverified")

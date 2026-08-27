@@ -2,15 +2,25 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import re
 from pathlib import Path
 
 from import_governance import diagnose_import_risks, frontmatter_value, mark_auto_repaired, read_frontmatter
 from repair_import_case import SCHEMA_VERSION as CASE_SCHEMA_VERSION
-from repair_import_case import PROPOSAL_SCHEMA_VERSION, case_sha256, extract_replacement, json_path, load_json, object_sha256
+from repair_import_case import (
+    PROPOSAL_SCHEMA_VERSION,
+    case_sha256,
+    extract_replacement,
+    json_path,
+    load_json,
+    object_sha256,
+    proposal_replacement_kind,
+    section_replacements,
+)
 from repair_import_queue import SCHEMA_VERSION as QUEUE_SCHEMA_VERSION
-from repair_import_queue import decode_yaml_path, file_sha256, has_question_stem
+from repair_import_queue import decode_yaml_path, file_sha256, has_question_stem, split_sections
 
 
 SCHEMA_VERSION = "import-repair-review/v1"
@@ -100,6 +110,11 @@ def review_failure_guidance(
             "stale-proposal",
             "Regenerate the repair queue and case for the current file content, then rebuild the proposal from that case.",
         )
+    if any(item.get("code") == "proposal-scope-widened-without-authorization" for item in issues):
+        return (
+            "proposal-scope-widened",
+            "Keep the proposal to one case section, or add student-os-repair-scope: widened only when the user explicitly authorizes a broader repair.",
+        )
     remaining_blocking = sorted(
         {
             str(risk.get("code"))
@@ -148,12 +163,97 @@ def issue(code: str, message: str, *, severity: str = "error", detail: object | 
     return payload
 
 
+def changed_line_ranges(before: str, after: str) -> list[dict[str, int]]:
+    ranges: list[dict[str, int]] = []
+    matcher = difflib.SequenceMatcher(a=before.splitlines(), b=after.splitlines(), autojunk=False)
+    for tag, i1, i2, _j1, _j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        start = i1 + 1
+        end = max(i2, i1 + 1)
+        ranges.append({"start_line": start, "end_line": end})
+    return ranges
+
+
+def sections_for_ranges(text: str, ranges: list[dict[str, int]]) -> list[dict[str, object]]:
+    sections = split_sections(text)
+    selected: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for changed in ranges:
+        start = changed["start_line"]
+        end = changed["end_line"]
+        matched = False
+        for section in sections:
+            section_start = section.get("start_line")
+            section_end = section.get("end_line")
+            if isinstance(section_start, int) and isinstance(section_end, int) and start <= section_end and end >= section_start:
+                section_id = str(section.get("id", ""))
+                if section_id and section_id not in seen:
+                    selected.append(
+                        {
+                            "id": section_id,
+                            "title": section.get("title", ""),
+                            "start_line": section_start,
+                            "end_line": section_end,
+                        }
+                    )
+                    seen.add(section_id)
+                matched = True
+        if not matched:
+            key = f"lines-{start}-{end}"
+            if key not in seen:
+                selected.append({"id": key, "title": "", "start_line": start, "end_line": end})
+                seen.add(key)
+    return selected
+
+
+def sections_for_selectors(text: str, selectors: list[str]) -> list[dict[str, object]]:
+    selected: list[dict[str, object]] = []
+    seen: set[str] = set()
+    sections = split_sections(text)
+    by_id = {str(section.get("id", "")): section for section in sections}
+    for selector in selectors:
+        selector = selector.strip()
+        section = by_id.get(selector)
+        if section is not None:
+            section_id = str(section.get("id", ""))
+            if section_id and section_id not in seen:
+                selected.append(
+                    {
+                        "id": section_id,
+                        "title": section.get("title", ""),
+                        "start_line": section.get("start_line", 0),
+                        "end_line": section.get("end_line", 0),
+                    }
+                )
+                seen.add(section_id)
+            continue
+        line_match = re.fullmatch(r"(?:line|lines)[-: ](?P<start>\d+)(?:\s*(?:-|\.\.)\s*(?P<end>\d+))?", selector)
+        if line_match:
+            start = int(line_match.group("start"))
+            end = int(line_match.group("end") or start)
+            key = f"lines-{start}-{end}"
+            if key not in seen:
+                selected.append({"id": key, "title": "", "start_line": start, "end_line": end})
+                seen.add(key)
+    return selected
+
+
+def declared_widened_scope(metadata: dict[str, str]) -> bool:
+    scope = metadata.get("repair-scope", "").strip().lower()
+    return scope in {"widened", "multi-section", "full-file"}
+
+
+def risk_codes(items: list[dict[str, object]]) -> set[str]:
+    return {str(item.get("code", "")) for item in items if str(item.get("code", ""))}
+
+
 def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[str, object]:
     proposal_path = proposal_path.resolve()
     resolved_target = target or proposal_target(proposal_path, None)
     issues: list[dict[str, object]] = []
     try:
-        replacement = extract_replacement(proposal_path)
+        replacement = extract_replacement(proposal_path, resolved_target)
     except SystemExit as exc:
         return {
             "schema_version": SCHEMA_VERSION,
@@ -164,6 +264,7 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
             "issues": [issue("proposal-marker-invalid", str(exc))],
         }
     metadata = proposal_metadata(proposal_path)
+    replacement_kind = proposal_replacement_kind(proposal_path)
     if resolved_target is None:
         issues.append(issue("proposal-target-missing", "Proposal must include a student-os-target marker or pass --target."))
     if metadata.get("proposal-schema") != PROPOSAL_SCHEMA_VERSION:
@@ -391,6 +492,10 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
         issues.append(issue(f"remaining-{code}", "Replacement still has import risk diagnostics.", severity=severity, detail=risk))
 
     original_text = ""
+    before_risk_items: list[dict[str, object]] = []
+    changed_ranges: list[dict[str, int]] = []
+    actual_changed_sections: list[dict[str, object]] = []
+    scope_pass = True
     if resolved_target and case_state_root is not None:
         if resolved_target.suffix.lower() != ".md" or not is_relative_to(resolved_target, case_state_root):
             issues.append(
@@ -402,6 +507,38 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
             )
     if resolved_target and resolved_target.exists():
         original_text = resolved_target.read_text(encoding="utf-8", errors="replace")
+        before_risk_items = diagnose_import_risks(original_text)
+        changed_ranges = changed_line_ranges(original_text, replacement)
+        if replacement_kind == "section":
+            actual_changed_sections = sections_for_selectors(
+                original_text,
+                [selector for selector, _body in section_replacements(proposal_path)],
+            )
+        else:
+            actual_changed_sections = sections_for_ranges(original_text, changed_ranges)
+        single_section_case = bool(queue_item and queue_item.get("single_section_candidate") is True)
+        if single_section_case and len(actual_changed_sections) > 1 and not declared_widened_scope(metadata):
+            scope_pass = False
+            issues.append(
+                issue(
+                    "proposal-scope-widened-without-authorization",
+                    "Proposal was generated for a single-section queue item but changes multiple non-adjacent sections.",
+                    detail={
+                        "replacement_kind": replacement_kind,
+                        "actual_changed_sections": actual_changed_sections,
+                        "required_metadata": "student-os-repair-scope: widened",
+                    },
+                )
+            )
+        if single_section_case and replacement_kind == "full" and not declared_widened_scope(metadata):
+            issues.append(
+                issue(
+                    "proposal-full-replacement-for-single-section",
+                    "Single-section repairs must use student-os-section-replacement markers unless the user explicitly authorized widened scope.",
+                    severity="warning",
+                    detail={"required_metadata": "student-os-repair-scope: widened"},
+                )
+            )
         original_source = frontmatter_value(original_text, "source_file")
         replacement_source = frontmatter_value(replacement, "source_file")
         original_raw_import = frontmatter_value(original_text, "derived_from_import")
@@ -555,6 +692,9 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                 )
             )
 
+    before_blocking = risk_codes(before_risk_items) & BLOCKING_RISK_CODES
+    after_blocking = risk_codes(risk_items) & BLOCKING_RISK_CODES
+    render_codes = {"obsidian-inline-array-render-risk", "display-math-delimiter-not-standalone"}
     review_pass = not any(item["severity"] == "error" for item in issues)
     failure_reason, recommended_next_action = review_failure_guidance(issues, risk_items)
     return {
@@ -564,6 +704,14 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
         "target": json_path(resolved_target) if resolved_target else "",
         "metadata": metadata,
         "review_pass": review_pass,
+        "replacement_kind": replacement_kind,
+        "actual_changed_sections": actual_changed_sections,
+        "changed_line_ranges": changed_ranges,
+        "scope_pass": scope_pass,
+        "blocking_risk_count_before": len(before_blocking),
+        "blocking_risk_count_after": len(after_blocking),
+        "render_risks_cleared": sorted((before_blocking & render_codes) - (after_blocking & render_codes)),
+        "remaining_warnings": [item for item in issues if item.get("severity") == "warning"],
         "failure_reason": failure_reason,
         "recommended_next_action": recommended_next_action,
         "issues": issues,

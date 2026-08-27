@@ -1682,6 +1682,20 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         encoding="utf-8",
         newline="\n",
     )
+    single_section_md = imports / "single-section.pdf.md"
+    single_section_md.write_text(
+        "---\n"
+        "source_file: single-section.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "1. 设矩阵 $A = \\left( \\begin{array} { c c } 1 & 0 \\\\ 0 & 1 \\end{array} \\right)$，求A。\n"
+        "\n"
+        "2. 保持不变的题目。\n",
+        encoding="utf-8",
+        newline="\n",
+    )
 
     queue_payload = json.loads(run_script("repair_import_queue.py", str(vault), "--classify-evidence", "--json"))
     items = queue_payload["items"]
@@ -1692,7 +1706,7 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Queue should expose a stable schema version: {queue_payload}")
     if "verified.pdf.md" in paths:
         raise AssertionError(f"Verified import unexpectedly entered default queue: {queue_payload}")
-    for expected in {"source.pdf.md", "legacy.pdf.md", "2016参考答案.pdf.md"}:
+    for expected in {"source.pdf.md", "legacy.pdf.md", "2016参考答案.pdf.md", "single-section.pdf.md"}:
         if expected not in paths:
             raise AssertionError(f"Expected {expected} in import repair queue, got: {paths.keys()}")
     risky_codes = set(paths["source.pdf.md"]["risk_codes"])
@@ -1737,6 +1751,8 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Source item should expose blocking risk count: {paths['source.pdf.md']}")
     if paths["legacy.pdf.md"].get("review_strategy") != "metadata-or-nonblocking-review":
         raise AssertionError(f"Metadata-only legacy item should not look like broad content repair: {paths['legacy.pdf.md']}")
+    if paths["single-section.pdf.md"].get("single_section_candidate") is not True:
+        raise AssertionError(f"Single local render issue should be a section repair candidate: {paths['single-section.pdf.md']}")
 
     include_verified_payload = json.loads(run_script("repair_import_queue.py", str(vault), "--include-verified", "--json"))
     include_paths = {Path(item["path"]).name for item in include_verified_payload["items"]}
@@ -1748,6 +1764,11 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     )
     if compact_queue.get("compact") is not True or compact_queue.get("items_returned") != 3:
         raise AssertionError(f"Expected compact queue output with three items: {compact_queue}")
+    if not compact_queue.get("top_item") or compact_queue["top_item"] != compact_queue["items"][0]:
+        raise AssertionError(f"Compact queue should expose exactly one top recommended item: {compact_queue}")
+    default_compact = json.loads(run_script("repair_import_queue.py", str(vault), "--compact-json", "--json"))
+    if default_compact.get("items_returned") != 1 or len(default_compact.get("items", [])) != 1:
+        raise AssertionError(f"Default compact queue should return one top candidate: {default_compact}")
     for compact_item in compact_queue["items"]:
         for noisy_field in {"frontmatter", "snippets", "sections", "suspect_sections"}:
             if noisy_field in compact_item:
@@ -1843,6 +1864,124 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     evidence_sha256 = case_state["evidence_sha256"]
     case_digest = case_state["case_sha256"]
 
+    single_item = paths["single-section.pdf.md"]
+    single_case_payload = json.loads(
+        run_script(
+            "repair_import_case.py",
+            "--queue",
+            str(queue_path),
+            "--queue-item",
+            single_item["id"],
+            "--write-case",
+            "--evidence-mode",
+            "text-only",
+            "--json",
+            cwd=vault,
+        )
+    )
+    single_case_json = Path(single_case_payload["case_json"])
+    single_case_state = json.loads(single_case_json.read_text(encoding="utf-8"))
+    single_section_id = single_case_state["queue_item"]["suspect_sections"][0]["id"]
+    single_evidence_sha256 = single_case_state["evidence_sha256"]
+    single_case_digest = single_case_state["case_sha256"]
+    section_patch_proposal = vault / ".student-os" / "import-repair" / "proposals" / "section-patch-proposal.md"
+    section_patch_proposal.parent.mkdir(parents=True, exist_ok=True)
+    section_patch_proposal.write_text(
+        "# Section Patch Proposal\n\n"
+        "Converts one long inline matrix to display math with standalone delimiters.\n\n"
+        "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+        f"<!-- student-os-target: {single_section_md} -->\n"
+        f"<!-- student-os-target-sha256: {single_item['content_sha256']} -->\n"
+        f"<!-- student-os-case-json: {single_case_json} -->\n"
+        f"<!-- student-os-case-sha256: {single_case_digest} -->\n"
+        f"<!-- student-os-evidence-sha256: {single_evidence_sha256} -->\n"
+        "<!-- student-os-evidence-mode: text-only -->\n"
+        "<!-- student-os-model-capability: text-only -->\n"
+        f"<!-- student-os-changed-sections: {single_section_id} -->\n"
+        "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+        f"<!-- student-os-section-replacement-start: {single_section_id} -->\n"
+        "1. 设矩阵\n"
+        "\n"
+        "$$\n"
+        "A = \\left( \\begin{array} { c c } 1 & 0 \\\\ 0 & 1 \\end{array} \\right)\n"
+        "$$\n"
+        "\n"
+        "，求A。\n"
+        "<!-- student-os-section-replacement-end -->\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    section_review = json.loads(
+        run_script(
+            "repair_import_review.py",
+            "--proposal",
+            str(section_patch_proposal),
+            "--json",
+            cwd=vault,
+        )
+    )
+    if section_review["review_pass"] is not True or section_review.get("replacement_kind") != "section":
+        raise AssertionError(f"Section patch proposal should pass review: {section_review}")
+    if section_review.get("scope_pass") is not True or len(section_review.get("actual_changed_sections", [])) != 1:
+        raise AssertionError(f"Section patch review should report one changed section: {section_review}")
+    if "obsidian-inline-array-render-risk" not in section_review.get("render_risks_cleared", []):
+        raise AssertionError(f"Section patch should report cleared render risks: {section_review}")
+    section_output = imports / "single-section.applied.pdf.md"
+    section_apply = json.loads(
+        run_script(
+            "repair_import_apply.py",
+            "--proposal",
+            str(section_patch_proposal),
+            "--output",
+            str(section_output),
+            "--json",
+            cwd=vault,
+        )
+    )
+    section_text = section_output.read_text(encoding="utf-8")
+    if section_apply.get("ok") is not True or "2. 保持不变的题目。" not in section_text:
+        raise AssertionError(f"Section apply should only replace the target section: {section_apply}\n{section_text}")
+
+    widened_proposal = vault / ".student-os" / "import-repair" / "proposals" / "widened-without-auth.md"
+    widened_proposal.write_text(
+        "# Widened Proposal\n\n"
+        "Claims a single-section repair but rewrites two sections.\n\n"
+        "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+        f"<!-- student-os-target: {single_section_md} -->\n"
+        f"<!-- student-os-target-sha256: {single_item['content_sha256']} -->\n"
+        f"<!-- student-os-case-json: {single_case_json} -->\n"
+        f"<!-- student-os-case-sha256: {single_case_digest} -->\n"
+        f"<!-- student-os-evidence-sha256: {single_evidence_sha256} -->\n"
+        "<!-- student-os-evidence-mode: text-only -->\n"
+        "<!-- student-os-model-capability: text-only -->\n"
+        f"<!-- student-os-changed-sections: {single_section_id} -->\n"
+        "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+        "<!-- student-os-replacement-start -->\n"
+        "---\n"
+        "source_file: single-section.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "1. 设矩阵\n\n$$\nA = \\left( \\begin{array} { c c } 1 & 0 \\\\ 0 & 1 \\end{array} \\right)\n$$\n\n，求A。\n"
+        "\n"
+        "2. 被错误改动的题目。\n"
+        "<!-- student-os-replacement-end -->\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    widened_review = run_script_failure_json(
+        "repair_import_review.py",
+        "--proposal",
+        str(widened_proposal),
+        "--json",
+        cwd=vault,
+    )
+    if widened_review.get("scope_pass") is not False:
+        raise AssertionError(f"Review should fail unauthorized multi-section changes: {widened_review}")
+    if not any(issue.get("code") == "proposal-scope-widened-without-authorization" for issue in widened_review.get("issues", [])):
+        raise AssertionError(f"Review should explain widened scope failure: {widened_review}")
+
     vision_payload = json.loads(
         run_script(
             "repair_import_case.py",
@@ -1863,7 +2002,7 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         ensure_exists(Path(vision["pages"][0]["path"]))
 
     bad_proposal = vault / ".student-os" / "import-repair" / "proposals" / "bad-source-proposal.md"
-    bad_proposal.parent.mkdir(parents=True)
+    bad_proposal.parent.mkdir(parents=True, exist_ok=True)
     bad_proposal.write_text(
         "# Bad Proposal\n\n"
         "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"

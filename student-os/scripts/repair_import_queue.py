@@ -914,7 +914,7 @@ def compact_item(item: dict[str, object], *, queue_path: str) -> dict[str, objec
         "recommended_action": item.get("suggested_next_step", ""),
         "case_argv": [
             "python",
-            "student-os/scripts/repair_import_case.py",
+            json_path(Path(__file__).resolve().with_name("repair_import_case.py")),
             "--queue",
             queue_path,
             "--queue-item",
@@ -931,6 +931,7 @@ def compact_queue_payload(payload: dict[str, object], *, limit: int) -> dict[str
     items = [item for item in payload.get("items", []) if isinstance(item, dict)]
     ranked = sorted(items, key=risk_score, reverse=True)
     queue_path = str(payload.get("queue_path", ""))
+    compact_items = [compact_item(item, queue_path=queue_path) for item in ranked[:limit]]
     return {
         "schema_version": payload.get("schema_version"),
         "ok": payload.get("ok"),
@@ -940,7 +941,8 @@ def compact_queue_payload(payload: dict[str, object], *, limit: int) -> dict[str
         "compact": True,
         "items_returned": min(limit, len(ranked)),
         "items_total": len(ranked),
-        "items": [compact_item(item, queue_path=queue_path) for item in ranked[:limit]],
+        "top_item": compact_items[0] if compact_items else {},
+        "items": compact_items,
         "agent_rules": [
             "Process one queue item at a time.",
             "Do not generate multiple cases in parallel.",
@@ -1007,7 +1009,8 @@ def main() -> int:
         action="store_true",
         help="With --json, print a compact agent-facing summary while still writing the full queue when --write-queue is used.",
     )
-    parser.add_argument("--limit", type=int, default=20, help="Maximum items returned by --compact-json")
+    parser.add_argument("--full-json", action="store_true", help="Force full JSON output even when --compact-json is present.")
+    parser.add_argument("--limit", type=int, default=1, help="Maximum items returned by --compact-json")
     parser.add_argument("--json", action="store_true", help="Print the queue as JSON")
     args = parser.parse_args()
 
@@ -1042,7 +1045,7 @@ def main() -> int:
     if args.write_queue:
         write_queue(payload)
     if args.json or not args.write_queue:
-        if args.compact_json:
+        if args.compact_json and not args.full_json:
             limit = max(1, args.limit)
             payload = compact_queue_payload(payload, limit=limit)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
