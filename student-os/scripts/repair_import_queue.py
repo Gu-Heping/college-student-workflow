@@ -79,7 +79,8 @@ def read_markdown(path: Path) -> tuple[str, bool]:
 
 
 def read_markdown_header(path: Path, *, max_bytes: int = 65536) -> str:
-    return path.read_bytes()[:max_bytes].decode("utf-8", errors="replace")
+    with path.open("rb") as handle:
+        return handle.read(max_bytes).decode("utf-8", errors="replace")
 
 
 def decode_yaml_path(value: str) -> str:
@@ -309,7 +310,7 @@ def classify_evidence(
     source_exists = bool(source_path and source_path.exists())
     raw_exists = bool(raw_path and raw_path.exists())
     paired_exists = bool(paired and paired.exists())
-    candidate_pages = sorted(set(candidate_pages_for(text, snippets)) | set(pdf_text_candidate_pages(source_path, snippets)))[:6]
+    candidate_pages = candidate_pages_for(text, snippets)
 
     if risk_codes <= {"unicode-escape", "legacy-repaired-unverified", "frontmatter-repair-risk"}:
         repair_class = "metadata-only"
@@ -338,6 +339,8 @@ def classify_evidence(
 
     if recommended_mode == "vision-assisted" and not source_exists:
         blocked = "requires-vision-evidence"
+    if recommended_mode == "vision-assisted":
+        candidate_pages = sorted(set(candidate_pages) | set(pdf_text_candidate_pages(source_path, snippets)))[:6]
 
     return {
         "class": repair_class,
@@ -382,7 +385,6 @@ def risk_line_patterns(code: str) -> list[re.Pattern[str]]:
         "latex-binom-fragment": [r"\\binom\b"],
         "latex-left-right-unbalanced": [r"\\(?:left|right)\b"],
         "math-dollar-unbalanced": [r"\$"],
-        "low-cjk-density": [r"\S"],
         "lossy-ocr-placeholder": [r"□"],
         "question-heading-promoted": [r"^##\s+[一二三四五六七八九十]+[\.、]"],
         "answer-missing-question-stem": [r"^\s*(?:解|证明|答)[:：]"],
@@ -397,6 +399,24 @@ def risk_line_patterns(code: str) -> list[re.Pattern[str]]:
 
 def first_snippet_for_risk(text: str, code: str, *, radius: int = 2) -> dict[str, object] | None:
     lines = text.splitlines()
+    if code == "low-cjk-density":
+        parsed = read_frontmatter(text)
+        body_start = text[: parsed[2]].count("\n") if parsed else 0
+        for body_index, line in enumerate(lines[body_start:], start=body_start):
+            stripped = line.strip()
+            if not stripped or re.match(r"^---$|^##\s+Page\b|^<!--", stripped, flags=re.I):
+                continue
+            visible = re.sub(r"\s+", "", stripped)
+            cjk_count = len(re.findall(r"[\u4e00-\u9fff]", visible))
+            if len(visible) >= 80 and cjk_count == 0:
+                start = max(0, body_index - radius)
+                end = min(len(lines), body_index + radius + 1)
+                return {
+                    "code": code,
+                    "line": body_index + 1,
+                    "excerpt": "\n".join(lines[start:end]),
+                }
+        return None
     for index, line in enumerate(lines):
         if any(pattern.search(line) for pattern in risk_line_patterns(code)):
             start = max(0, index - radius)

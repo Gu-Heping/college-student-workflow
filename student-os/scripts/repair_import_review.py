@@ -318,6 +318,8 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
         original_text = resolved_target.read_text(encoding="utf-8", errors="replace")
         original_source = frontmatter_value(original_text, "source_file")
         replacement_source = frontmatter_value(replacement, "source_file")
+        original_raw_import = frontmatter_value(original_text, "derived_from_import")
+        replacement_raw_import = frontmatter_value(replacement, "derived_from_import")
         if original_source and not replacement_source:
             issues.append(
                 issue(
@@ -332,6 +334,25 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
                     "source-file-changed",
                     "Replacement changes source_file frontmatter from the current sidecar.",
                     detail={"before": decode_yaml_path(original_source), "after": decode_yaml_path(replacement_source)},
+                )
+            )
+        if original_raw_import and not replacement_raw_import:
+            issues.append(
+                issue(
+                    "derived-from-import-dropped",
+                    "Replacement drops derived_from_import frontmatter from the current sidecar.",
+                    detail={"derived_from_import": original_raw_import},
+                )
+            )
+        elif original_raw_import and decode_yaml_path(original_raw_import) != decode_yaml_path(replacement_raw_import):
+            issues.append(
+                issue(
+                    "derived-from-import-changed",
+                    "Replacement changes derived_from_import frontmatter from the current sidecar.",
+                    detail={
+                        "before": decode_yaml_path(original_raw_import),
+                        "after": decode_yaml_path(replacement_raw_import),
+                    },
                 )
             )
         target_sha = metadata.get("target-sha256", "")
@@ -405,11 +426,11 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
     new_numbers = question_numbers(replacement)
     original_visible = compact_visible_text(original_text)
     replacement_visible = compact_visible_text(replacement)
-    if not old_numbers and original_visible and len(replacement_visible) < max(1, len(original_visible) // 5):
+    if original_visible and len(replacement_visible) < max(1, len(original_visible) // 5):
         issues.append(
             issue(
                 "replacement-body-erased",
-                "Replacement removes most unnumbered imported content from the current sidecar.",
+                "Replacement removes most imported content from the current sidecar.",
                 detail={"before_chars": len(original_visible), "after_chars": len(replacement_visible)},
             )
         )

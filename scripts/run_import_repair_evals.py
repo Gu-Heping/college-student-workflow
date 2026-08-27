@@ -184,6 +184,20 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         "Derived import sidecar with nonstandard filename.\n",
     )
 
+    numbered_long = imports / "numbered-long.pdf.md"
+    write_text(
+        numbered_long,
+        "---\n"
+        "source_file: numbered-long.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "repair_risk: needs-human-review\n"
+        "---\n"
+        "\n"
+        "1. " + ("Long imported numbered question with conditions and explanation. " * 20) + "\n"
+        "2. " + ("Another long imported numbered question with answer context. " * 20) + "\n",
+    )
+
     many_pages = imports / "many-pages.pdf.md"
     page_lines = [
         "---",
@@ -197,6 +211,30 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         page_lines.extend([f"## Page {page_number}", f"Routine content on page {page_number}.", ""])
     page_lines.append("Broken late-page math $x")
     write_text(many_pages, "\n".join(page_lines) + "\n")
+
+    low_cjk_source = imports / "low-cjk.pdf"
+    low_cjk_source.write_bytes(b"%PDF-1.4\n% low cjk placeholder\n")
+    low_cjk = imports / "low-cjk.pdf.md"
+    write_text(
+        low_cjk,
+        "---\n"
+        "source_file: low-cjk.pdf\n"
+        "language: zh\n"
+        "import_method: mineru-agent-v1\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "## Page 1\n"
+        "routine latin page title\n"
+        "\n"
+        "## Page 2\n"
+        "another latin page title\n"
+        "\n"
+        "## Page 3\n"
+        + ("alpha beta gamma delta epsilon zeta eta theta " * 60)
+        + "\n",
+    )
 
     long_verified = imports / "long-verified.pdf.md"
     write_text(
@@ -233,7 +271,9 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         "legacy": legacy,
         "long_body": long_body,
         "derived_note": derived_note,
+        "numbered_long": numbered_long,
         "many_pages": many_pages,
+        "low_cjk": low_cjk,
         "long_verified": long_verified,
         "verified": verified,
     }
@@ -284,6 +324,20 @@ def main() -> int:
         direct_written = run_json("repair_import_queue.py", str(paths["derived_note"]), "--write-queue", "--json", cwd=ROOT)
         if Path(str(direct_written["queue_path"])).parent != paths["derived_note"].parent / ".student-os" / "import-repair":
             raise AssertionError(f"Single-file queue should be written beside the target file: {direct_written}")
+        derived_item = by_name["derived-note.md"]
+        derived_case = run_json(
+            "repair_import_case.py",
+            "--queue",
+            str(queue_path),
+            "--queue-item",
+            str(derived_item["id"]),
+            "--evidence-mode",
+            "text-only",
+            "--json",
+            cwd=vault,
+        )
+        derived_case_json = Path(str(derived_case["case_json"]))
+        derived_case_state = json.loads(derived_case_json.read_text(encoding="utf-8"))
 
         semantic_item = by_name["2016-answer.pdf.md"]
         if semantic_item["evidence"]["source_pdf"]["exists"] is not True:  # type: ignore[index]
@@ -343,6 +397,9 @@ def main() -> int:
         many_pages_item = by_name["many-pages.pdf.md"]
         if many_pages_item["evidence"]["candidate_pages"] != [8]:  # type: ignore[index]
             raise AssertionError(f"Candidate pages should point to the risky snippet page only: {many_pages_item}")
+        low_cjk_item = by_name["low-cjk.pdf.md"]
+        if low_cjk_item["evidence"]["candidate_pages"] != [3]:  # type: ignore[index]
+            raise AssertionError(f"Low-CJK risk should be localized to imported body pages: {low_cjk_item}")
         direct_case = run_json(
             "repair_import_case.py",
             "--queue-item",
@@ -699,6 +756,67 @@ def main() -> int:
         comment_padded_review = run_json("repair_import_review.py", "--proposal", str(comment_padded), "--json", cwd=vault, expect_ok=False)
         if not any(issue["code"] == "replacement-body-erased" for issue in comment_padded_review["issues"]):  # type: ignore[index]
             raise AssertionError(f"Hidden comments should not count as retained visible content: {comment_padded_review}")
+
+        numbered_item = by_name["numbered-long.pdf.md"]
+        numbered_case = run_json(
+            "repair_import_case.py",
+            "--queue",
+            str(queue_path),
+            "--queue-item",
+            str(numbered_item["id"]),
+            "--evidence-mode",
+            "text-only",
+            "--json",
+            cwd=vault,
+        )
+        numbered_case_json = Path(str(numbered_case["case_json"]))
+        numbered_case_state = json.loads(numbered_case_json.read_text(encoding="utf-8"))
+        numbered_erased = vault / ".student-os" / "import-repair" / "proposals" / "numbered-erased.md"
+        write_text(
+            numbered_erased,
+            "# Numbered body erased proposal\n\n"
+            "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+            f"<!-- student-os-target: {paths['numbered_long']} -->\n\n"
+            f"<!-- student-os-target-sha256: {numbered_item['content_sha256']} -->\n"
+            f"<!-- student-os-case-json: {numbered_case_json} -->\n"
+            f"<!-- student-os-case-sha256: {numbered_case_state['case_sha256']} -->\n"
+            f"<!-- student-os-evidence-sha256: {numbered_case_state['evidence_sha256']} -->\n"
+            "<!-- student-os-evidence-mode: text-only -->\n"
+            "<!-- student-os-model-capability: text-only -->\n"
+            "<!-- student-os-changed-sections: line-1 -->\n"
+            "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+            "<!-- student-os-replacement-start -->\n"
+            "---\nsource_file: numbered-long.pdf\nrepair_status: auto-repaired\nverify_status: unverified\n---\n\n"
+            "1. x\n"
+            "2. y\n"
+            "<!-- student-os-replacement-end -->\n",
+        )
+        numbered_erased_review = run_json("repair_import_review.py", "--proposal", str(numbered_erased), "--json", cwd=vault, expect_ok=False)
+        if not any(issue["code"] == "replacement-body-erased" for issue in numbered_erased_review["issues"]):  # type: ignore[index]
+            raise AssertionError(f"Numbered content erasure should fail review: {numbered_erased_review}")
+
+        derived_dropped = vault / ".student-os" / "import-repair" / "proposals" / "derived-dropped.md"
+        write_text(
+            derived_dropped,
+            "# Derived evidence dropped proposal\n\n"
+            "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+            f"<!-- student-os-target: {paths['derived_note']} -->\n\n"
+            f"<!-- student-os-target-sha256: {derived_item['content_sha256']} -->\n"
+            f"<!-- student-os-case-json: {derived_case_json} -->\n"
+            f"<!-- student-os-case-sha256: {derived_case_state['case_sha256']} -->\n"
+            f"<!-- student-os-evidence-sha256: {derived_case_state['evidence_sha256']} -->\n"
+            "<!-- student-os-evidence-mode: text-only -->\n"
+            "<!-- student-os-model-capability: text-only -->\n"
+            "<!-- student-os-changed-sections: line-1 -->\n"
+            "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+            "<!-- student-os-replacement-start -->\n"
+            "---\nsource_file: derived.pdf\nrepair_status: auto-repaired\nverify_status: unverified\n---\n\n"
+            "Derived import sidecar with nonstandard filename.\n"
+            "<!-- student-os-replacement-end -->\n",
+        )
+        derived_dropped_review = run_json("repair_import_review.py", "--proposal", str(derived_dropped), "--json", cwd=vault, expect_ok=False)
+        if not any(issue["code"] == "derived-from-import-dropped" for issue in derived_dropped_review["issues"]):  # type: ignore[index]
+            raise AssertionError(f"Dropping derived_from_import should fail review: {derived_dropped_review}")
 
         invalid_top_case = vault / ".student-os" / "import-repair" / "evidence" / "invalid-top-case.json"
         write_text(invalid_top_case, json.dumps([legacy_case_state], ensure_ascii=False, indent=2) + "\n")
