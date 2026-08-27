@@ -272,23 +272,25 @@ def hold_back_reason(repo: Path, path: str) -> str:
     return ""
 
 
-def read_git_status(repo: Path) -> tuple[list[str], bool, str]:
+def read_git_status(repo: Path, *, include_ignored: bool = True) -> tuple[list[str], bool, str]:
     if not (repo / ".git").exists():
         return [], False, "not a git repository"
+    command = [
+        "git",
+        "-c",
+        "core.quotepath=false",
+        "-c",
+        "i18n.logOutputEncoding=utf-8",
+        "-C",
+        str(repo),
+        "status",
+        "--short",
+        "--untracked-files=all",
+    ]
+    if include_ignored:
+        command.append("--ignored=matching")
     result = subprocess.run(
-        [
-            "git",
-            "-c",
-            "core.quotepath=false",
-            "-c",
-            "i18n.logOutputEncoding=utf-8",
-            "-C",
-            str(repo),
-            "status",
-            "--short",
-            "--untracked-files=all",
-            "--ignored=matching",
-        ],
+        command,
         check=False,
         capture_output=True,
         text=True,
@@ -321,11 +323,18 @@ def main() -> int:
         action="store_true",
         help="Print a compact preflight summary without large hold-back path lists.",
     )
+    parser.add_argument("--full-json", action="store_true", help="Force full output shape; non-compact mode is already full.")
+    parser.add_argument(
+        "--include-ignored",
+        action="store_true",
+        help="Include ignored files in compact output. Non-compact output includes ignored files by default.",
+    )
     parser.add_argument("--limit", type=int, default=20, help="Maximum paths per list in --compact-json output")
     args = parser.parse_args()
 
     repo = Path(args.repo).resolve()
-    lines, is_git_repo, git_status_error = read_git_status(repo)
+    compact_mode = args.compact_json and not args.full_json
+    lines, is_git_repo, git_status_error = read_git_status(repo, include_ignored=not compact_mode or args.include_ignored)
     groups: dict[str, list[str]] = {}
     eol_only_files: list[str] = []
     hold_back_files: list[str] = []
@@ -368,11 +377,13 @@ def main() -> int:
         "hold_back_files": hold_back_files,
         "hold_back_reasons": hold_back_reasons,
     }
-    if args.compact_json:
+    if compact_mode:
         limit = max(1, args.limit)
         compact_payload = {
             "is_git_repo": is_git_repo,
             "git_status_error": git_status_error,
+            "compact": True,
+            "ignored_included": bool(args.include_ignored),
             "counts": {
                 "changed_groups": {group: len(paths) for group, paths in groups.items()},
                 "eol_only_files": len(eol_only_files),

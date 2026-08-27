@@ -22,6 +22,7 @@ BLOCKING_RISK_CODES = {
     "latex-left-right-unbalanced",
     "latex-array-column-mismatch",
     "obsidian-inline-array-render-risk",
+    "display-math-delimiter-not-standalone",
 }
 
 

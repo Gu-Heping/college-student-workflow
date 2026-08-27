@@ -102,6 +102,7 @@ try {
   assert.equal(inspectTool.parameters.properties.scope.type, 'string')
   assert.equal(inspectTool.parameters.properties.timeout_ms.type, 'integer')
   assert.equal(groupTool.parameters.properties.compact.type, 'boolean')
+  assert.equal(groupTool.parameters.properties.timeout_ms.type, 'integer')
   assert.equal(frontmatterTool.parameters.required.includes('path'), true)
   assert.equal(frontmatterTool.parameters.properties.apply.type, 'boolean')
   assert.equal(inspectTool.isConcurrencySafe?.({}), true)

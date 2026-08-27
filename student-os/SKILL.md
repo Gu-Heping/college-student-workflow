@@ -202,7 +202,8 @@ AI-assisted import repair:
 - Do not inspect Student OS script source to interpret diagnostics unless a script crashes or the user explicitly asks to debug Student OS itself.
 - Treat `math-dollar-unbalanced` as a low-confidence heuristic. Prefer localized `math-dollar-odd-line` and render-blocking `latex-left-right-unbalanced` evidence when choosing what to repair.
 - Treat Obsidian/Markdown preview showing literal TeX (`$ ... \begin{array} ... $`) as render failure. Do not argue from byte-level backslash dumps, and do not search for KaTeX/MathJax packages unless the user explicitly asks for renderer debugging.
-- For long inline `array`/matrix formulas, prefer a `$$ ... $$` display math block. If the formula is an augmented matrix, prefer one structurally correct `array` such as `{ccc|cc}` over delimiter-only patches like `\middle|`.
+- For long inline `array`/matrix formulas, use a display math block whose opening and closing `$$` delimiters are each alone on their own line. Do not leave forms such as `即 $$`, `设矩阵 $$`, or `$$，则`.
+- If the formula is an augmented matrix, prefer one structurally correct `array` such as `{ccc|cc}` over delimiter-only patches like `\middle|`.
 - When repairing arrays, check that the column declaration matches row cells (`ccc` for three cells, `ccc|cc` for five cells split 3+2). This semantic structure check is more important than merely balancing `\left`/`\right`.
 - Use the case bundle, raw import excerpt, repair summary, and source evidence path to propose a semantic fix. Do not invent missing source content when the evidence is unavailable.
 - Use `text-only` evidence for text models; use `vision-assisted` only when the runtime can inspect rendered PDF page images. If the queue says `blocked: requires-vision-evidence`, a text-only model must stop and report that visual evidence is required.

@@ -44,7 +44,8 @@ Operational guardrails:
 - When review fails, follow `failure_reason` and `recommended_next_action` from the JSON.
 - Treat `unicode-escape` as readability-only and `math-dollar-unbalanced` as a low-confidence heuristic; prioritize localized `math-dollar-odd-line` and render-blocking `latex-left-right-unbalanced` items.
 - If Obsidian or another Markdown preview shows literal TeX for an inline matrix/array formula, treat that preview as the failure. Do not spend time proving raw bytes contain `\\`, and do not use KaTeX as a substitute for the user's preview target unless asked.
-- For long inline `array` formulas, convert the local span to display math (`$$ ... $$`). For augmented matrices, prefer one structurally correct array such as `{ccc|cc}` and verify the column spec matches row cell counts.
+- For long inline `array` formulas, convert the local span to display math with opening and closing `$$` delimiters each alone on their own line. Forms such as `即 $$`, `设矩阵 $$`, or `$$，则` are render-blocking.
+- For augmented matrices, prefer one structurally correct array such as `{ccc|cc}` and verify the column spec matches row cell counts.
 
 Evidence modes:
 - `text-only`: use current sidecar, raw import, repair summary, and paired paper/answer text. This is the default for non-vision models.

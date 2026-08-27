@@ -286,6 +286,34 @@ def inline_array_render_risk_lines(text: str, *, max_items: int = 8) -> list[dic
     return items
 
 
+def display_math_delimiter_not_standalone_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    for line_number, line in enumerate(_strip_markdown_code(text).splitlines(), start=1):
+        search_at = 0
+        while True:
+            index = line.find("$$", search_at)
+            if index == -1:
+                break
+            if index > 0 and line[index - 1] == "\\":
+                search_at = index + 2
+                continue
+            before = line[:index].strip()
+            after = line[index + 2 :].strip()
+            if before or after:
+                items.append(
+                    {
+                        "line": line_number,
+                        "before": before[-40:],
+                        "after": after[:40],
+                    }
+                )
+                break
+            search_at = index + 2
+        if len(items) >= max_items:
+            break
+    return items
+
+
 def array_column_mismatches(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     array_re = re.compile(r"\\begin\{array\}\s*\{(?P<spec>[^}]*)\}(?P<body>.*?)\\end\{array\}")
@@ -376,6 +404,16 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
     inline_array_lines = inline_array_render_risk_lines(text)
     if inline_array_lines:
         risks.append({"code": "obsidian-inline-array-render-risk", "count": len(inline_array_lines), "lines": inline_array_lines})
+
+    display_delimiter_lines = display_math_delimiter_not_standalone_lines(text)
+    if display_delimiter_lines:
+        risks.append(
+            {
+                "code": "display-math-delimiter-not-standalone",
+                "count": len(display_delimiter_lines),
+                "lines": display_delimiter_lines,
+            }
+        )
 
     inline_dollars = count_likely_math_dollars(text)
     if inline_dollars % 2 == 1:

@@ -1482,6 +1482,44 @@ def verify_mineru_v1_repair_rules() -> None:
     for unexpected in {"unicode-escape", "mojibake-replacement-char"}:
         if unexpected in code_unicode_risks:
             raise AssertionError(f"Unicode-looking markers inside code must not be flagged: {code_unicode_risks}")
+    glued_display_math = (
+        "---\n"
+        "import_method: mineru-agent-v1\n"
+        "---\n"
+        "\n"
+        "即 $$\n"
+        "A = \\left( \\begin{array} { c } 1 \\end{array} \\right)\n"
+        "$$\n"
+        "2.设矩阵 $$\n"
+        "B = \\left( \\begin{array} { c } 2 \\end{array} \\right)\n"
+        "$$\n"
+        "$$，则 C=0\n"
+    )
+    display_risk = next(
+        (
+            item
+            for item in repair_module.diagnose_import_risks(glued_display_math)
+            if item["code"] == "display-math-delimiter-not-standalone"
+        ),
+        None,
+    )
+    if display_risk is None or display_risk.get("count") != 3:
+        raise AssertionError(f"Glued display math delimiters should be flagged as render risks: {display_risk}")
+    clean_display_math = (
+        "---\n"
+        "import_method: mineru-agent-v1\n"
+        "---\n"
+        "\n"
+        "即\n"
+        "\n"
+        "$$\n"
+        "A = \\left( \\begin{array} { c } 1 \\end{array} \\right)\n"
+        "$$\n"
+        "\n"
+        "则 C=0。\n"
+    )
+    if any(item["code"] == "display-math-delimiter-not-standalone" for item in repair_module.diagnose_import_risks(clean_display_math)):
+        raise AssertionError("Standalone display math delimiters should not be flagged")
 
     english_import = "---\nimport_method: mineru-agent-v1\n---\n\n" + ("plain English text " * 160)
     if any(item["code"] == "low-cjk-density" for item in repair_module.diagnose_import_risks(english_import)):
@@ -1716,6 +1754,8 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
                 raise AssertionError(f"Compact queue item should not include {noisy_field}: {compact_item}")
         if not compact_item.get("case_argv") or not compact_item.get("risks"):
             raise AssertionError(f"Compact queue item should expose next action and risk metadata: {compact_item}")
+        if "primary_snippet" not in compact_item:
+            raise AssertionError(f"Compact queue item should expose a localized primary snippet: {compact_item}")
     compact_risks = {risk["code"]: risk for item in compact_queue["items"] for risk in item["risks"]}
     if compact_risks.get("unicode-escape", {}).get("safe_fix_kind") != "decode-yaml-unicode-escapes":
         raise AssertionError(f"unicode-escape should be marked as readability-only safe fix: {compact_queue}")
@@ -1901,6 +1941,46 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     inline_codes = {issue.get("code") for issue in inline_array_review.get("issues", [])}
     if "remaining-obsidian-inline-array-render-risk" not in inline_codes or "remaining-latex-array-column-mismatch" not in inline_codes:
         raise AssertionError(f"Review should block inline array render and column mismatch risks: {inline_array_review}")
+
+    glued_display_proposal = vault / ".student-os" / "import-repair" / "proposals" / "glued-display-proposal.md"
+    glued_display_proposal.write_text(
+        "# Glued Display Proposal\n\n"
+        "Moves formulas to display math, but leaves the opening delimiter glued to prose.\n\n"
+        "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
+        f"<!-- student-os-target: {risky_md} -->\n\n"
+        f"<!-- student-os-target-sha256: {paths['source.pdf.md']['content_sha256']} -->\n"
+        f"<!-- student-os-case-json: {case_json} -->\n"
+        f"<!-- student-os-case-sha256: {case_digest} -->\n"
+        f"<!-- student-os-evidence-sha256: {evidence_sha256} -->\n"
+        "<!-- student-os-evidence-mode: text-only -->\n"
+        "<!-- student-os-model-capability: text-only -->\n"
+        "<!-- student-os-changed-sections: section-test -->\n"
+        "<!-- student-os-remaining-risks: human-review-required -->\n\n"
+        "<!-- student-os-replacement-start -->\n"
+        "---\n"
+        "source_file: source.pdf\n"
+        "derived_from_import: source.pdf.raw.md\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "即 $$\n"
+        "A = \\left( \\begin{array} { c } 1 \\end{array} \\right)\n"
+        "$$\n"
+        "<!-- student-os-replacement-end -->\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    glued_display_review = run_script_failure_json(
+        "repair_import_review.py",
+        "--proposal",
+        str(glued_display_proposal),
+        "--json",
+        cwd=vault,
+    )
+    glued_codes = {issue.get("code") for issue in glued_display_review.get("issues", [])}
+    if "remaining-display-math-delimiter-not-standalone" not in glued_codes:
+        raise AssertionError(f"Review should block display math delimiters glued to prose: {glued_display_review}")
     bad_apply = run_script_failure_json(
         "repair_import_apply.py",
         "--proposal",
@@ -7336,12 +7416,24 @@ def verify_git_grouping(repo: Path, today: date) -> None:
     compact_grouping = json.loads(run_script("group_git_changes.py", str(repo), "--compact-json", "--limit", "2"))
     if "artifact_grouping" in compact_grouping or "hold_back_files" in compact_grouping:
         raise AssertionError(f"Compact git grouping should omit noisy full path lists: {compact_grouping}")
-    if compact_grouping["counts"]["hold_back_files"] < len(hold_back):
-        raise AssertionError(f"Compact git grouping should preserve hold-back counts: {compact_grouping}")
+    if compact_grouping.get("ignored_included") is not False:
+        raise AssertionError(f"Compact git grouping should skip ignored entries by default: {compact_grouping}")
+    if compact_grouping["counts"]["hold_back_files"] <= 0:
+        raise AssertionError(f"Compact git grouping should preserve non-ignored hold-back counts: {compact_grouping}")
     if not compact_grouping.get("hold_back_reason_counts", {}).get("binary media asset"):
         raise AssertionError(f"Compact git grouping should summarize binary media assets: {compact_grouping}")
     if len(compact_grouping.get("hold_back_sample", [])) > 2:
         raise AssertionError(f"Compact git grouping should honor --limit for samples: {compact_grouping}")
+    compact_text = json.dumps(compact_grouping, ensure_ascii=False)
+    if "tmp/scratch.log" in compact_text or ".venv/pyvenv.cfg" in compact_text:
+        raise AssertionError(f"Compact git grouping should not enumerate ignored temp/venv paths by default: {compact_grouping}")
+    compact_with_ignored = json.loads(
+        run_script("group_git_changes.py", str(repo), "--compact-json", "--include-ignored", "--limit", "2")
+    )
+    if compact_with_ignored.get("ignored_included") is not True:
+        raise AssertionError(f"--include-ignored should be explicit in compact output: {compact_with_ignored}")
+    if compact_with_ignored["counts"]["hold_back_files"] < len(hold_back):
+        raise AssertionError(f"Compact --include-ignored should preserve full hold-back counts: {compact_with_ignored}")
 
     group_git_changes = load_group_git_changes_module()
     if not group_git_changes.is_virtualenv_path(repo, "courses/Project/env/pyvenv.cfg"):

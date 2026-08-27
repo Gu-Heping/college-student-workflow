@@ -246,6 +246,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       vault: { type: 'string', description: 'Vault root to analyze. Defaults to the DSH process cwd.' },
       compact: { type: 'boolean', description: 'Use compact preflight output. Defaults to true.' },
       limit: { type: 'integer', description: 'Maximum sample paths in compact output. Defaults to 20.' },
+      timeout_ms: { type: 'integer', description: 'Timeout in milliseconds. Defaults to 45000.' },
     },
     output: {
       schema: toolResultSchema,
@@ -256,9 +257,12 @@ export function apply(ctx: Context, config: Config = {}): void {
       const vault = resolveUserPath(requireString(args.vault, 'vault', '.'))
       const compact = args.compact !== false
       const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? Math.max(1, Math.trunc(args.limit)) : 20
+      const timeoutMs = typeof args.timeout_ms === 'number' && Number.isFinite(args.timeout_ms)
+        ? Math.max(1, Math.trunc(args.timeout_ms))
+        : config.timeoutMs
       const scriptArgs = [vault]
       if (compact) scriptArgs.push('--compact-json', '--limit', String(limit))
-      return runStudentOsScript('group_git_changes.py', scriptArgs, { ...config, signal: exec.signal })
+      return runStudentOsScript('group_git_changes.py', scriptArgs, { ...config, timeoutMs, signal: exec.signal })
     },
   }))
 

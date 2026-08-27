@@ -35,6 +35,7 @@ FORMAT_RISKS = {
     "latex-left-right-unbalanced",
     "latex-array-column-mismatch",
     "obsidian-inline-array-render-risk",
+    "display-math-delimiter-not-standalone",
     "math-dollar-unbalanced",
 }
 HEURISTIC_RISKS = {"math-dollar-unbalanced", "math-dollar-heuristic-suspect"}
@@ -43,6 +44,7 @@ BLOCKING_RISKS = {
     "latex-left-right-unbalanced",
     "latex-array-column-mismatch",
     "obsidian-inline-array-render-risk",
+    "display-math-delimiter-not-standalone",
 }
 SEMANTIC_RISKS = {
     "mojibake-replacement-char",
@@ -461,6 +463,7 @@ def risk_line_patterns(code: str) -> list[re.Pattern[str]]:
         "latex-left-right-unbalanced": [r"\\(?:left|right)\b"],
         "latex-array-column-mismatch": [r"\\begin\{array\}"],
         "obsidian-inline-array-render-risk": [r"(?<!\\)\$.*\\begin\{(?:array|matrix|[pbvBV]?matrix)\}.*(?<!\\)\$"],
+        "display-math-delimiter-not-standalone": [r"(?<!\\)\$\$"],
         "math-dollar-unbalanced": [r"\$"],
         "math-dollar-heuristic-suspect": [r"\$"],
         "math-dollar-odd-line": [r"\$"],
@@ -627,8 +630,16 @@ def risk_metadata(code: str) -> dict[str, object]:
             "confidence": "high",
             "actionability": "localized-render-repair",
             "safe_fix_kind": "convert-long-inline-array-to-display-math",
-            "description": "A long inline matrix/array formula is likely to appear as literal TeX in Obsidian; use a display math block.",
-            "suggestion": "Convert the local inline `$...\\begin{array}...$` span to `$$...$$`; do not validate it with KaTeX as a substitute for Obsidian preview.",
+            "description": "A long inline matrix/array formula is likely to appear as literal TeX in Obsidian; use a display math block with standalone delimiters.",
+            "suggestion": "Convert the local inline `$...\\begin{array}...$` span to a display math block whose opening and closing `$$` are each alone on their own line.",
+        },
+        "display-math-delimiter-not-standalone": {
+            "severity": "error",
+            "confidence": "high",
+            "actionability": "localized-render-repair",
+            "safe_fix_kind": "put-display-math-delimiters-on-standalone-lines",
+            "description": "A display math delimiter is glued to prose, which can leave nearby LaTeX outside a proper display block in Obsidian.",
+            "suggestion": "Move each `$$` delimiter to its own line without changing formula content.",
         },
         "math-dollar-unbalanced": {
             "severity": "warning",
@@ -695,6 +706,7 @@ def primary_risk(risks: list[dict[str, object]]) -> dict[str, object]:
     actionable = {"localized-render-repair": 3, "localized-text-repair": 2, "local-format-repair": 1}
     code_priority = {
         "obsidian-inline-array-render-risk": 5,
+        "display-math-delimiter-not-standalone": 5,
         "latex-array-column-mismatch": 4,
         "latex-left-right-unbalanced": 3,
         "math-dollar-odd-line": 2,
@@ -850,6 +862,9 @@ def compact_item(item: dict[str, object], *, queue_path: str) -> dict[str, objec
     highest = highest_severity(risks)
     item_id = str(item.get("id", ""))
     primary = item.get("primary_risk") if isinstance(item.get("primary_risk"), dict) else primary_risk(risks)
+    snippets = [snippet for snippet in item.get("snippets", []) if isinstance(snippet, dict)]
+    primary_code = str(primary.get("code", ""))
+    primary_snippet = next((snippet for snippet in snippets if str(snippet.get("code", "")) == primary_code), snippets[0] if snippets else {})
     return {
         "id": item_id,
         "path": item.get("path", ""),
@@ -871,6 +886,11 @@ def compact_item(item: dict[str, object], *, queue_path: str) -> dict[str, objec
         "blocking_risk_lines": item.get("blocking_risk_lines", []),
         "single_section_candidate": item.get("single_section_candidate", False),
         "review_strategy": item.get("review_strategy", ""),
+        "primary_snippet": {
+            "code": primary_snippet.get("code", ""),
+            "line": primary_snippet.get("line", ""),
+            "excerpt": primary_snippet.get("excerpt", ""),
+        },
         "risks": [
             {
                 "code": risk.get("code", ""),
