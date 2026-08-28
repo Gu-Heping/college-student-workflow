@@ -11,8 +11,8 @@ from pathlib import Path
 
 from import_governance import diagnose_import_risks
 from repair_import_case import (
+    LINE_REPLACEMENT_END,
     PROPOSAL_SCHEMA_VERSION,
-    SECTION_REPLACEMENT_END,
     apply_proposal,
     build_case_payload,
     detect_line_ending,
@@ -22,6 +22,7 @@ from repair_import_case import (
     normalize_line_endings,
     prepare_evidence,
     render_case,
+    span_sha256,
     safe_state_id,
     write_case,
     write_case_json,
@@ -40,6 +41,7 @@ SCHEMA_VERSION = "import-repair-run/v1"
 DIRECT_REPAIR_CODES = {
     "obsidian-inline-array-render-risk",
     "display-math-delimiter-not-standalone",
+    "inline-math-delimiter-space",
 }
 
 
@@ -61,6 +63,13 @@ def result(payload: dict[str, object], *, json_output: bool) -> int:
 
 def normalized_lines(text: str) -> list[str]:
     return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
+
+def replacement_span_lines(text: str) -> list[str]:
+    lines = normalized_lines(text)
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines
 
 
 def transform_inline_array_line(line: str) -> list[str] | None:
@@ -113,6 +122,26 @@ def transform_display_delimiter_line(line: str) -> list[str] | None:
     return cleaned if changed else None
 
 
+def transform_inline_math_delimiter_space_line(line: str) -> list[str] | None:
+    changed = False
+
+    def replace(match: re.Match[str]) -> str:
+        nonlocal changed
+        body = match.group("body")
+        if not (body[:1].isspace() or body[-1:].isspace()):
+            return match.group(0)
+        compact = body.strip()
+        if not compact or re.fullmatch(r"\d[\d,]*(?:\.\d+)?(?:\s+\w+)?", compact):
+            return match.group(0)
+        if not re.search(r"\\|[_^=+\-*/]|\b(?:alpha|beta|lambda|mu|det|rank|sin|cos|log)\b|[\u4e00-\u9fff]", compact):
+            return match.group(0)
+        changed = True
+        return f"${compact}$"
+
+    fixed = re.sub(r"(?<!\\)(?<!\$)\$(?!\$)(?P<body>[^$\n]+?)(?<!\\)(?<!\$)\$(?!\$)", replace, line)
+    return [fixed] if changed else None
+
+
 def repair_section_text(section_text: str) -> tuple[str, list[dict[str, object]]]:
     output: list[str] = []
     changes: list[dict[str, object]] = []
@@ -123,6 +152,9 @@ def repair_section_text(section_text: str) -> tuple[str, list[dict[str, object]]
             replacement = transform_display_delimiter_line(line)
             code = "display-math-delimiter-not-standalone"
         if replacement is None:
+            replacement = transform_inline_math_delimiter_space_line(line)
+            code = "inline-math-delimiter-space"
+        if replacement is None:
             output.append(line)
             continue
         output.extend(replacement)
@@ -130,20 +162,20 @@ def repair_section_text(section_text: str) -> tuple[str, list[dict[str, object]]
     return "\n".join(output).rstrip("\n") + "\n", changes
 
 
-def section_text_for_item(target_text: str, item: dict[str, object]) -> tuple[str, str] | None:
+def section_text_for_item(target_text: str, item: dict[str, object]) -> tuple[str, int, int, str] | None:
     section = item.get("target_section") if isinstance(item.get("target_section"), dict) else {}
     selector = str(section.get("id") or "")
     start = section.get("start_line")
     end = section.get("end_line")
     if selector and isinstance(start, int) and isinstance(end, int):
         lines = normalized_lines(target_text)
-        return selector, "\n".join(lines[start - 1 : end]) + "\n"
+        return selector, start, end, "\n".join(lines[start - 1 : end]) + "\n"
     lines = item.get("blocking_risk_lines")
     if isinstance(lines, list) and lines and isinstance(lines[0], int):
         line = int(lines[0])
         text_lines = normalized_lines(target_text)
         if 1 <= line <= len(text_lines):
-            return f"lines-{line}", text_lines[line - 1] + "\n"
+            return f"lines-{line}", line, line, text_lines[line - 1] + "\n"
     return None
 
 
@@ -156,6 +188,9 @@ def write_proposal(
     case_json: Path,
     case_payload: dict[str, object],
     selector: str,
+    start_line: int,
+    end_line: int,
+    original_section: str,
     replacement: str,
 ) -> Path:
     proposal_path = run_dir / "proposal.md"
@@ -174,12 +209,12 @@ def write_proposal(
             f"<!-- student-os-evidence-sha256: {case_payload.get('evidence_sha256')} -->",
             f"<!-- student-os-evidence-mode: {evidence_mode} -->",
             "<!-- student-os-model-capability: text-only -->",
-            f"<!-- student-os-changed-sections: {selector} -->",
+            f"<!-- student-os-changed-sections: lines-{start_line}-{end_line} -->",
             "<!-- student-os-remaining-risks: human-review-required -->",
             "",
-            f"<!-- student-os-section-replacement-start: {selector} -->",
+            f"<!-- student-os-line-replacement-start: {start_line}-{end_line} sha256={span_sha256(replacement_span_lines(original_section))} -->",
             replacement.rstrip("\n"),
-            SECTION_REPLACEMENT_END,
+            LINE_REPLACEMENT_END,
             "",
         ]
     )
@@ -250,7 +285,7 @@ def run_one(target_root: Path, *, dry_run: bool, allow_widened: bool) -> dict[st
             "rolled_back": False,
             "recommended_next_action": "Use repair_import_case.py to create a manual case.",
         }
-    selector, section_text = selected
+    selector, start_line, end_line, section_text = selected
     replacement, changes = repair_section_text(section_text)
     if not changes:
         return {
@@ -281,6 +316,9 @@ def run_one(target_root: Path, *, dry_run: bool, allow_widened: bool) -> dict[st
         case_json=case_json,
         case_payload=case_payload,
         selector=selector,
+        start_line=start_line,
+        end_line=end_line,
+        original_section=section_text,
         replacement=replacement,
     )
     review = review_proposal(proposal_path, target=target)
@@ -303,6 +341,10 @@ def run_one(target_root: Path, *, dry_run: bool, allow_widened: bool) -> dict[st
         "review_path": json_path(review_path),
         "review": review,
         "review_pass": bool(review.get("review_pass")),
+        "applied": False,
+        "target_modified": False,
+        "rollback_needed": False,
+        "proposal_ready": True,
         "rolled_back": False,
         "verify_status": "unverified",
     }
@@ -314,6 +356,13 @@ def run_one(target_root: Path, *, dry_run: bool, allow_widened: bool) -> dict[st
     if not review.get("review_pass"):
         payload["error"] = "Generated direct repair did not pass review."
         payload["recommended_next_action"] = review.get("recommended_next_action", "Use the case/proposal flow.")
+        payload["next_argv"] = [
+            "python",
+            json_path(Path(__file__).resolve().with_name("repair_import_review.py")),
+            "--proposal",
+            json_path(proposal_path),
+            "--json",
+        ]
         (run_dir / "run.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
         return payload
 
@@ -342,6 +391,8 @@ def run_one(target_root: Path, *, dry_run: bool, allow_widened: bool) -> dict[st
                     "ok": True,
                     "stage": "complete",
                     "applied": True,
+                    "target_modified": True,
+                    "rollback_needed": False,
                     "output": json_path(written),
                     "rolled_back": False,
                     "repair_status": "auto-repaired",

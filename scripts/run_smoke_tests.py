@@ -1520,6 +1520,28 @@ def verify_mineru_v1_repair_rules() -> None:
     )
     if any(item["code"] == "display-math-delimiter-not-standalone" for item in repair_module.diagnose_import_risks(clean_display_math)):
         raise AssertionError("Standalone display math delimiters should not be flagged")
+    inline_math_with_spaces = (
+        "---\n"
+        "import_method: mineru-agent-v1\n"
+        "---\n"
+        "\n"
+        "Obsidian shows this literally: $ x = A^{-1}b $.\n"
+        "This one is fine: $x = A^{-1}b$.\n"
+        "$$\n"
+        " x = A^{-1}b \n"
+        "$$\n"
+        "Escaped dollar \\$ x \\$ is literal text.\n"
+    )
+    delimiter_space_risk = next(
+        (
+            item
+            for item in repair_module.diagnose_import_risks(inline_math_with_spaces)
+            if item["code"] == "inline-math-delimiter-space"
+        ),
+        None,
+    )
+    if delimiter_space_risk is None or delimiter_space_risk.get("count") != 1:
+        raise AssertionError(f"Inline math delimiter-adjacent spaces should be an Obsidian render risk: {delimiter_space_risk}")
 
     english_import = "---\nimport_method: mineru-agent-v1\n---\n\n" + ("plain English text " * 160)
     if any(item["code"] == "low-cjk-density" for item in repair_module.diagnose_import_risks(english_import)):
@@ -2476,6 +2498,37 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     for expected in ("before.md", "proposal.md", "review.json", "run.json"):
         if not (run_dir / expected).exists():
             raise AssertionError(f"Direct repair should leave auditable run artifact {expected}: {direct_run}")
+
+    inline_vault = tmp_root / "inline-vault"
+    inline_imports = inline_vault / "references" / "imports"
+    inline_imports.mkdir(parents=True)
+    (inline_vault / ".student-os").mkdir()
+    inline_target = inline_imports / "inline.pdf.md"
+    inline_target.write_text(
+        "---\n"
+        "source_file: inline.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "一. 由(ii)得(I)的通解为 $ x = A^{-1}b $，所以 $ y=C $。\n"
+        "\n"
+        "二. 相邻题不能被粘连。\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    inline_run = json.loads(run_script("repair_import_run.py", str(inline_vault), "--json", cwd=inline_vault))
+    if inline_run.get("ok") is not True or inline_run.get("review_pass") is not True:
+        raise AssertionError(f"Direct import repair should fix Obsidian inline math delimiter spaces: {inline_run}")
+    if inline_run.get("applied") is not True or inline_run.get("target_modified") is not True:
+        raise AssertionError(f"Direct run should clearly report that the target was modified: {inline_run}")
+    inline_text = inline_target.read_text(encoding="utf-8")
+    if "$ x = A^{-1}b $" in inline_text or "$ y=C $" in inline_text:
+        raise AssertionError(f"Inline math delimiter spaces should be trimmed without changing formulas:\n{inline_text}")
+    if "$x = A^{-1}b$" not in inline_text or "$y=C$" not in inline_text:
+        raise AssertionError(f"Trimmed inline formulas should remain inline math:\n{inline_text}")
+    if "二. 相邻题不能被粘连。" not in inline_text:
+        raise AssertionError(f"Direct inline repair should preserve neighboring question text:\n{inline_text}")
 
 
 def verify_local_pdf_risk_forwarding(tmp_root: Path) -> None:

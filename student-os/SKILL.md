@@ -193,8 +193,8 @@ Import repair governance:
 AI-assisted import repair:
 - Inspect Git in the learning vault first with a compact, task-specific preflight. In DSH, use `student_os_group_changes` for import repair preflight; use `student_os_inspect` with compact output for repository shape checks, not as a default full-vault hygiene scan.
 - For preflight grouping, prefer `scripts/group_git_changes.py <vault> --compact-json`.
-- For Obsidian-visible render/structure cleanup, default to one direct guarded run: `scripts/repair_import_run.py <vault-or-folder> --json`. It selects one repairable item, edits only one local section, reviews the result, and rolls back on review/post-review failure.
-- Use direct run for mechanical display issues such as long inline `array` formulas, `$$` delimiters glued to prose, or question paragraph boundary cleanup. It is not for missing stems, semantic reconstruction, or anything needing PDF/vision evidence.
+- For Obsidian-visible render/structure cleanup, default to one direct guarded run: `scripts/repair_import_run.py <vault-or-folder> --json`. In DSH, use `student_os_repair_import_run` when available. It selects one repairable item, edits only a local line/section span, reviews the result, and rolls back on review/post-review failure.
+- Use direct run for mechanical display issues such as inline math delimiter spaces (`$ x$`, `$x $`), long inline `array` formulas, `$$` delimiters glued to prose, or question paragraph boundary cleanup. It is not for missing stems, semantic reconstruction, or anything needing PDF/vision evidence.
 - If direct run returns `stage: queue` or `stage: plan`, follow its `recommended_next_action` instead of reading full queue or Student OS source.
 - For semantic/evidence-dependent repair, build an evidence queue with `scripts/repair_import_queue.py <vault-or-folder> --write-queue --classify-evidence --compact-json --json`; use `recommended_item.case_argv` first. If `top_blocked_item` is present, use `next_repairable_item` or narrow the target folder instead of reading full `queue.json`.
 - Pick exactly one highest-risk unverified `recommended_item` whose compact queue entry has `single_section_candidate: true`, then generate exactly one case with `scripts/repair_import_case.py --queue <queue.json> --queue-item <id> --evidence-mode auto --write-case --json`.
@@ -204,7 +204,8 @@ AI-assisted import repair:
 - Do not write `.fixed` files, debug scripts, trace scripts, or temporary repair scripts inside the vault; use the Student OS case/review/apply tools and one-off read-only commands.
 - Do not inspect Student OS script source to interpret diagnostics unless a script crashes or the user explicitly asks to debug Student OS itself.
 - Treat `math-dollar-unbalanced` as a low-confidence heuristic. Prefer localized `math-dollar-odd-line` and render-blocking `latex-left-right-unbalanced` evidence when choosing what to repair.
-- Treat Obsidian/Markdown preview showing literal TeX (`$ ... \begin{array} ... $`) as render failure. Do not argue from byte-level backslash dumps, and do not search for KaTeX/MathJax packages unless the user explicitly asks for renderer debugging.
+- Treat Obsidian/Markdown preview showing literal TeX (`$ x $`, `$ ... \begin{array} ... $`) as render failure. Do not argue from byte-level backslash dumps, and do not search for KaTeX/MathJax packages unless the user explicitly asks for renderer debugging.
+- For inline formulas, remove only spaces immediately inside `$...$` delimiters; `$ x = A^{-1}b $` should become `$x = A^{-1}b$`.
 - For long inline `array`/matrix formulas, use a display math block whose opening and closing `$$` delimiters are each alone on their own line. Do not leave forms such as `即 $$`, `设矩阵 $$`, or `$$，则`.
 - If the formula is an augmented matrix, prefer one structurally correct `array` such as `{ccc|cc}` over delimiter-only patches like `\middle|`.
 - When repairing arrays, check that the column declaration matches row cells (`ccc` for three cells, `ccc|cc` for five cells split 3+2). This semantic structure check is more important than merely balancing `\left`/`\right`.
@@ -213,7 +214,7 @@ AI-assisted import repair:
 - For `ocr-assisted`, create a vault-local `.md` or `.txt` OCR evidence artifact first, then bind it with `repair_import_case.py --evidence-mode ocr-assisted --ocr-evidence <path>`; do not treat OCR text as human verification.
 - Copy the proposal metadata markers from the case, including `student-os-target-sha256`, `student-os-case-json`, `student-os-case-sha256`, and `student-os-evidence-sha256`; stale proposals must be regenerated instead of applied. For a local manual proposal, use `student-os-section-replacement-start/end` markers from the case template instead of full-file replacement.
 - Review proposals with `repair_import_review.py --proposal <proposal.md> --json`; if review fails, follow `failure_reason` and `recommended_next_action` from the JSON instead of reading Student OS source. Apply only with `repair_import_apply.py --proposal <proposal.md> --require-review-pass --json`.
-- After apply, do not directly edit the target `.pdf.md` sidecar to fix a newly noticed defect. Create a follow-up proposal, review it, then apply it; proposal artifacts may be edited while drafting.
+- After apply, report “review passed” or “自动审查通过”, not “verified”. Do not directly edit the target `.pdf.md` sidecar to fix a newly noticed defect. Create a follow-up proposal, review it, then apply it; proposal artifacts may be edited while drafting.
 - Applied AI proposals must keep `repair_status: auto-repaired`, `verify_status: unverified`, `repair_evidence_mode`, and `repair_ai_confidence: unverified`.
 - Never mark AI-assisted repair as `verified`; only the user can confirm verification after checking the original PDF/material.
 

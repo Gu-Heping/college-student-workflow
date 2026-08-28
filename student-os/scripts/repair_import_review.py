@@ -34,6 +34,7 @@ BLOCKING_RISK_CODES = {
     "latex-array-column-mismatch",
     "obsidian-inline-array-render-risk",
     "display-math-delimiter-not-standalone",
+    "inline-math-delimiter-space",
 }
 
 
@@ -323,8 +324,8 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
             )
         )
     evidence_mode = metadata.get("evidence-mode", "")
-    if evidence_mode not in {"text-only", "ocr-assisted", "vision-assisted"}:
-        issues.append(issue("proposal-evidence-mode-invalid", "Proposal must declare text-only, ocr-assisted, or vision-assisted evidence mode."))
+    if evidence_mode not in {"text-only", "pdf-text-layer", "ocr-assisted", "vision-assisted"}:
+        issues.append(issue("proposal-evidence-mode-invalid", "Proposal must declare text-only, pdf-text-layer, ocr-assisted, or vision-assisted evidence mode."))
     model_capability = metadata.get("model-capability", "")
     if model_capability not in {"text-only", "vision"}:
         issues.append(issue("proposal-model-capability-invalid", "Proposal must declare model capability as text-only or vision."))
@@ -751,7 +752,7 @@ def review_proposal(proposal_path: Path, *, target: Path | None = None) -> dict[
 
     before_blocking = risk_codes(before_risk_items) & BLOCKING_RISK_CODES
     after_blocking = risk_codes(risk_items) & BLOCKING_RISK_CODES
-    render_codes = {"obsidian-inline-array-render-risk", "display-math-delimiter-not-standalone"}
+    render_codes = {"obsidian-inline-array-render-risk", "display-math-delimiter-not-standalone", "inline-math-delimiter-space"}
     review_pass = not any(item["severity"] == "error" for item in issues)
     failure_reason, recommended_next_action = review_failure_guidance(issues, risk_items)
     paragraph_boundaries_preserved = not any(item.get("code") == "markdown-paragraph-boundary-regression" for item in issues)

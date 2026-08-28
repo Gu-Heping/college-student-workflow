@@ -92,11 +92,13 @@ try {
     'student_os_frontmatter',
     'student_os_group_changes',
     'student_os_inspect',
+    'student_os_repair_import_run',
   ])
 
   const inspectTool = requireTool(ctx, 'student_os_inspect')
   const groupTool = requireTool(ctx, 'student_os_group_changes')
   const frontmatterTool = requireTool(ctx, 'student_os_frontmatter')
+  const repairRunTool = requireTool(ctx, 'student_os_repair_import_run')
   assert.equal(inspectTool.parameters.properties.vault.type, 'string')
   assert.equal(inspectTool.parameters.properties.compact.type, 'boolean')
   assert.equal(inspectTool.parameters.properties.scope.type, 'string')
@@ -105,10 +107,15 @@ try {
   assert.equal(groupTool.parameters.properties.timeout_ms.type, 'integer')
   assert.equal(frontmatterTool.parameters.required.includes('path'), true)
   assert.equal(frontmatterTool.parameters.properties.apply.type, 'boolean')
+  assert.equal(repairRunTool.parameters.properties.vault.type, 'string')
+  assert.equal(repairRunTool.parameters.properties.dryRun.type, 'boolean')
+  assert.equal(repairRunTool.parameters.properties.limit.type, 'integer')
   assert.equal(inspectTool.isConcurrencySafe?.({}), true)
   assert.equal(groupTool.isConcurrencySafe?.({}), true)
   assert.equal(frontmatterTool.isConcurrencySafe?.({ path: '.', apply: false }), true)
   assert.notEqual(frontmatterTool.isConcurrencySafe?.({ path: '.', apply: true }), true)
+  assert.equal(repairRunTool.isConcurrencySafe?.({ dryRun: true }), true)
+  assert.notEqual(repairRunTool.isConcurrencySafe?.({}), true)
 
   const vault = join(tmpRoot, 'vault')
   mkdirSync(vault, { recursive: true })
@@ -159,6 +166,32 @@ try {
   const fullGrouped = await execute(ctx, 'student_os_group_changes', { vault, compact: false })
   assert.equal(fullGrouped.isError, false)
   assert.deepEqual(fullGrouped.value.payload.artifact_grouping.ops, ['中文 note.md'])
+
+  const repairDir = join(vault, 'reviews')
+  mkdirSync(repairDir, { recursive: true })
+  const repairTarget = join(repairDir, '线代.pdf.md')
+  writeFileSync(
+    repairTarget,
+    [
+      '---',
+      'source_file: 线代.pdf',
+      'repair_status: auto-repaired',
+      'verify_status: unverified',
+      '---',
+      '',
+      '一. 由条件得 $ x = A^{-1}b $，求解。',
+      '',
+    ].join('\n'),
+    'utf8',
+  )
+  const repairRun = await execute(ctx, 'student_os_repair_import_run', { vault: repairDir })
+  assert.equal(repairRun.isError, false)
+  assert.equal(repairRun.value.ok, true)
+  assert.equal(repairRun.value.vault, repairDir)
+  assert.equal(repairRun.value.vault_resolution_source, 'argument')
+  assert.equal(repairRun.value.payload.applied, true)
+  assert.equal(repairRun.value.payload.target_modified, true)
+  assert.match(readFileSync(repairTarget, 'utf8'), /\$x = A\^{-1}b\$/)
 
   const workspaceCtx = await setupHarnessContext({ vaultRoot: vault })
   const defaultGrouped = await execute(workspaceCtx, 'student_os_group_changes', {})

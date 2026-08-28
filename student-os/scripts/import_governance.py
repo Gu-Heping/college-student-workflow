@@ -286,6 +286,50 @@ def inline_array_render_risk_lines(text: str, *, max_items: int = 8) -> list[dic
     return items
 
 
+def inline_math_delimiter_space_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        stripped = raw_line.rstrip("\r\n")
+        fence = re.match(r"^[ \t]{0,3}([`~]{3,})", stripped)
+        if fence:
+            marker = fence.group(1)
+            if in_fence and marker[0] == fence_char and len(marker) >= fence_len:
+                in_fence = False
+                fence_char = ""
+                fence_len = 0
+            elif not in_fence:
+                in_fence = True
+                fence_char = marker[0]
+                fence_len = len(marker)
+            continue
+        if in_fence:
+            continue
+        line = re.sub(r"(?s)(`+).*?\1", "", stripped)
+        for match in re.finditer(r"(?<!\\)(?<!\$)\$(?!\$)(?P<body>[^$\n]+?)(?<!\\)(?<!\$)\$(?!\$)", line):
+            body = match.group("body")
+            if not body or not (body[0].isspace() or body[-1].isspace()):
+                continue
+            compact = body.strip()
+            if not compact or re.fullmatch(r"\d[\d,]*(?:\.\d+)?(?:\s+\w+)?", compact):
+                continue
+            if not re.search(r"\\|[_^=+\-*/]|\b(?:alpha|beta|lambda|mu|det|rank|sin|cos|log)\b|[\u4e00-\u9fff]", compact):
+                continue
+            items.append(
+                {
+                    "line": line_number,
+                    "column": match.start() + 1,
+                    "excerpt": stripped[max(0, match.start() - 40) : min(len(stripped), match.end() + 40)],
+                }
+            )
+            break
+        if len(items) >= max_items:
+            break
+    return items
+
+
 def display_math_delimiter_not_standalone_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     for line_number, line in enumerate(_strip_markdown_code(text).splitlines(), start=1):
@@ -412,6 +456,16 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
                 "code": "display-math-delimiter-not-standalone",
                 "count": len(display_delimiter_lines),
                 "lines": display_delimiter_lines,
+            }
+        )
+
+    delimiter_space_lines = inline_math_delimiter_space_lines(text)
+    if delimiter_space_lines:
+        risks.append(
+            {
+                "code": "inline-math-delimiter-space",
+                "count": len(delimiter_space_lines),
+                "lines": delimiter_space_lines,
             }
         )
 

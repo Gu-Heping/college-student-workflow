@@ -37,6 +37,7 @@ FORMAT_RISKS = {
     "latex-array-column-mismatch",
     "obsidian-inline-array-render-risk",
     "display-math-delimiter-not-standalone",
+    "inline-math-delimiter-space",
     "math-dollar-unbalanced",
 }
 HEURISTIC_RISKS = {"math-dollar-unbalanced", "math-dollar-heuristic-suspect"}
@@ -46,6 +47,7 @@ BLOCKING_RISKS = {
     "latex-array-column-mismatch",
     "obsidian-inline-array-render-risk",
     "display-math-delimiter-not-standalone",
+    "inline-math-delimiter-space",
 }
 SEMANTIC_RISKS = {
     "mojibake-replacement-char",
@@ -294,13 +296,19 @@ def section_id(title: str, line: int) -> str:
     return f"section-{line}-{digest}"
 
 
+QUESTION_SECTION_RE = re.compile(
+    r"^\s*(?:#{1,3}\s*)?"
+    r"(?:(?:第\s*)?(?:[一二三四五六七八九十]+|[0-9]+)\s*(?:[\.、．)]|[（(]\s*\d+\s*分\s*[）)]\s*[\.、．:]?)|"
+    r"[（(]\s*[0-9一二三四五六七八九十]+\s*[）)])"
+)
+
+
 def split_sections(text: str) -> list[dict[str, object]]:
     lines = text.splitlines()
     starts: list[tuple[int, str]] = []
-    pattern = re.compile(r"^\s*(?:#{1,3}\s*)?(?:第?\s*)?(?:[一二三四五六七八九十]+|[0-9]+)[\.、．)]")
     for index, line in enumerate(lines, start=1):
         stripped = line.strip()
-        if re.match(r"^#{1,3}\s+\S", stripped) or pattern.match(stripped):
+        if re.match(r"^#{1,3}\s+\S", stripped) or QUESTION_SECTION_RE.match(stripped):
             starts.append((index, stripped[:120]))
     if not starts:
         return []
@@ -465,6 +473,7 @@ def risk_line_patterns(code: str) -> list[re.Pattern[str]]:
         "latex-array-column-mismatch": [r"\\begin\{array\}"],
         "obsidian-inline-array-render-risk": [r"(?<!\\)\$.*\\begin\{(?:array|matrix|[pbvBV]?matrix)\}.*(?<!\\)\$"],
         "display-math-delimiter-not-standalone": [r"(?<!\\)\$\$"],
+        "inline-math-delimiter-space": [r"(?<!\\)(?<!\$)\$(?!\$)\s|\s(?<!\\)(?<!\$)\$(?!\$)"],
         "math-dollar-unbalanced": [r"\$"],
         "math-dollar-heuristic-suspect": [r"\$"],
         "math-dollar-odd-line": [r"\$"],
@@ -642,6 +651,14 @@ def risk_metadata(code: str) -> dict[str, object]:
             "description": "A display math delimiter is glued to prose, which can leave nearby LaTeX outside a proper display block in Obsidian.",
             "suggestion": "Move each `$$` delimiter to its own line without changing formula content.",
         },
+        "inline-math-delimiter-space": {
+            "severity": "error",
+            "confidence": "high",
+            "actionability": "localized-render-repair",
+            "safe_fix_kind": "trim-inline-math-delimiter-adjacent-space",
+            "description": "Obsidian may render inline math literally when whitespace touches the inside of `$...$` delimiters.",
+            "suggestion": "Remove only the whitespace immediately inside inline `$...$` delimiters; do not rewrite formula content.",
+        },
         "math-dollar-unbalanced": {
             "severity": "warning",
             "confidence": "low",
@@ -708,6 +725,7 @@ def primary_risk(risks: list[dict[str, object]]) -> dict[str, object]:
     code_priority = {
         "obsidian-inline-array-render-risk": 5,
         "display-math-delimiter-not-standalone": 5,
+        "inline-math-delimiter-space": 5,
         "latex-array-column-mismatch": 4,
         "latex-left-right-unbalanced": 3,
         "math-dollar-odd-line": 2,
@@ -887,7 +905,12 @@ def risk_score(item: dict[str, object]) -> int:
             score += 5
         if actionability in {"localized-render-repair", "localized-text-repair"}:
             score += 20
-        if code in {"obsidian-inline-array-render-risk", "latex-array-column-mismatch"}:
+        if code in {
+            "obsidian-inline-array-render-risk",
+            "display-math-delimiter-not-standalone",
+            "inline-math-delimiter-space",
+            "latex-array-column-mismatch",
+        }:
             score += 40
         if code == "unicode-escape":
             score -= 20

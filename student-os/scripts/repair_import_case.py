@@ -20,11 +20,17 @@ PROPOSAL_SCHEMA_VERSION = "import-repair-proposal/v1"
 REPLACEMENT_START = "<!-- student-os-replacement-start -->"
 REPLACEMENT_END = "<!-- student-os-replacement-end -->"
 SECTION_REPLACEMENT_END = "<!-- student-os-section-replacement-end -->"
-EVIDENCE_MODES = {"auto", "text-only", "ocr-assisted", "vision-assisted"}
+LINE_REPLACEMENT_END = "<!-- student-os-line-replacement-end -->"
+EVIDENCE_MODES = {"auto", "text-only", "pdf-text-layer", "ocr-assisted", "vision-assisted"}
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SECTION_REPLACEMENT_RE = re.compile(
     r"<!--\s*student-os-section-replacement-start:\s*(?P<section>.*?)\s*-->\s*\n(?P<body>.*?)\n\s*"
     + re.escape(SECTION_REPLACEMENT_END),
+    flags=re.S,
+)
+LINE_REPLACEMENT_RE = re.compile(
+    r"<!--\s*student-os-line-replacement-start:\s*(?P<start>\d+)(?:\s*-\s*(?P<end>\d+))?(?:\s+sha256=(?P<sha>[0-9a-f]{64}))?\s*-->\s*\n(?P<body>.*?)\n\s*"
+    + re.escape(LINE_REPLACEMENT_END),
     flags=re.S,
 )
 
@@ -289,7 +295,16 @@ def prepare_evidence(root: Path, item: dict[str, object], *, evidence_mode: str,
         "pages": [],
         "state_dir": json_path(state_dir),
     }
-    if selected_mode == "vision-assisted":
+    if selected_mode == "pdf-text-layer":
+        source_pdf = evidence.get("source_pdf") if isinstance(evidence, dict) else None
+        source_path = Path(str(source_pdf.get("path"))) if isinstance(source_pdf, dict) and source_pdf.get("path") else None
+        payload["pdf_text_layer"] = {
+            "ok": bool(source_path and source_path.exists()),
+            "path": json_path(source_path) if source_path and source_path.exists() else "",
+            "candidate_pages": evidence.get("candidate_pages", []) if isinstance(evidence, dict) else [],
+            "note": "PDF text-layer evidence is source text extracted from the original PDF; it is not human verification.",
+        }
+    elif selected_mode == "vision-assisted":
         source_pdf = evidence.get("source_pdf") if isinstance(evidence, dict) else None
         source_path = Path(str(source_pdf.get("path"))) if isinstance(source_pdf, dict) and source_pdf.get("path") else None
         if source_path is None or not source_path.exists():
@@ -391,6 +406,7 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
             "",
             "- Repair exactly one local section from this case before moving to another item.",
             "- If Obsidian/Markdown preview shows literal TeX such as `$ ... \\begin{array} ... $`, treat that as render failure; do not debate byte-level backslash escapes.",
+            "- If Obsidian shows inline math literally because `$` touches an internal space (`$ x$` or `$x $`), remove only that delimiter-adjacent space.",
             "- Do not search for KaTeX/MathJax packages unless the user explicitly asks for renderer debugging.",
             "- For long matrix or array formulas, prefer a display math block and put opening and closing `$$` delimiters alone on their own lines.",
             "- Never write `即 $$`, `设矩阵 $$`, or `$$，则`; move only the delimiter to a standalone line without changing the formula content.",
@@ -456,6 +472,11 @@ def render_case(root: Path, item: dict[str, object], target: Path, evidence_payl
             "<!-- student-os-remaining-risks: human-review-required -->",
             "",
             "Preferred for one-section repairs:",
+            "<!-- student-os-line-replacement-start: START-END sha256=<span-sha256> -->",
+            "<replacement markdown for only those lines>",
+            LINE_REPLACEMENT_END,
+            "",
+            "Fallback when line ranges are not enough:",
             "<!-- student-os-section-replacement-start: section-id-or-lines-START-END -->",
             "<replacement markdown for only that section>",
             SECTION_REPLACEMENT_END,
@@ -482,6 +503,8 @@ def write_case(root: Path, item: dict[str, object], markdown: str) -> Path:
 
 def proposal_replacement_kind(proposal_path: Path) -> str:
     text = proposal_path.read_text(encoding="utf-8")
+    if LINE_REPLACEMENT_RE.search(text):
+        return "line"
     if SECTION_REPLACEMENT_RE.search(text):
         return "section"
     return "full"
@@ -499,6 +522,25 @@ def section_replacements(proposal_path: Path) -> list[tuple[str, str]]:
             raise SystemExit(f"Section replacement block is empty: {section}")
         replacements.append((section, body + "\n"))
     return replacements
+
+
+def line_replacements(proposal_path: Path) -> list[tuple[int, int, str | None, str]]:
+    text = proposal_path.read_text(encoding="utf-8")
+    replacements: list[tuple[int, int, str | None, str]] = []
+    for match in LINE_REPLACEMENT_RE.finditer(text):
+        start = int(match.group("start"))
+        end = int(match.group("end") or start)
+        if start < 1 or end < start:
+            raise SystemExit(f"Line replacement range is invalid: {start}-{end}")
+        body = match.group("body").strip("\n")
+        if not body.strip():
+            raise SystemExit(f"Line replacement block is empty: {start}-{end}")
+        replacements.append((start, end, match.group("sha"), body + "\n"))
+    return replacements
+
+
+def span_sha256(lines: list[str]) -> str:
+    return hashlib.sha256(("\n".join(lines) + ("\n" if lines else "")).encode("utf-8")).hexdigest()
 
 
 def resolve_section_span(text: str, selector: str) -> tuple[int, int]:
@@ -542,7 +584,38 @@ def apply_section_replacements(original: str, replacements: list[tuple[str, str]
     return result + "\n" if had_final_newline or result else result
 
 
+def apply_line_replacements(original: str, replacements: list[tuple[int, int, str | None, str]]) -> str:
+    normalized = original.replace("\r\n", "\n").replace("\r", "\n")
+    had_final_newline = normalized.endswith("\n")
+    lines = normalized.splitlines()
+    spans: list[tuple[int, int, str | None, str]] = []
+    for start_line, end_line, expected_sha, body in replacements:
+        if end_line > len(lines):
+            raise SystemExit(f"Line replacement range is outside the target: {start_line}-{end_line}")
+        spans.append((start_line - 1, end_line, expected_sha, body))
+    spans.sort(key=lambda item: item[0], reverse=True)
+    previous_start = len(lines) + 1
+    for start, end, expected_sha, body in spans:
+        if end > previous_start:
+            raise SystemExit(f"Line replacement ranges overlap: {start + 1}-{end}")
+        original_span = lines[start:end]
+        if expected_sha and span_sha256(original_span) != expected_sha:
+            raise SystemExit(f"Line replacement span hash is stale: {start + 1}-{end}")
+        replacement_lines = body.rstrip("\n").split("\n")
+        if original_span and original_span[-1].strip() == "" and (not replacement_lines or replacement_lines[-1].strip() != ""):
+            replacement_lines.append("")
+        lines[start:end] = replacement_lines
+        previous_start = start
+    result = "\n".join(lines)
+    return result + "\n" if had_final_newline or result else result
+
+
 def extract_replacement(proposal_path: Path, target: Path | None = None) -> str:
+    line_blocks = line_replacements(proposal_path)
+    if line_blocks:
+        if target is None:
+            raise SystemExit("Line replacement proposals require a resolved target sidecar.")
+        return apply_line_replacements(target.read_text(encoding="utf-8", errors="replace"), line_blocks)
     replacements = section_replacements(proposal_path)
     if replacements:
         if target is None:

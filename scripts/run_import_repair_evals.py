@@ -225,6 +225,20 @@ def build_fixture(vault: Path) -> dict[str, Path]:
     page_lines.append("Broken late-page math $x")
     write_text(many_pages, "\n".join(page_lines) + "\n")
 
+    inline_space = imports / "inline-space.pdf.md"
+    write_text(
+        inline_space,
+        "---\n"
+        "source_file: inline-space.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "一. 由(ii)得(I)的通解为 $ x = A^{-1}b $，且 $ y=C $。\n"
+        "\n"
+        "二. 不应被第一题的局部修复影响。\n",
+    )
+
     low_cjk_source = imports / "low-cjk.pdf"
     low_cjk_source.write_bytes(b"%PDF-1.4\n% low cjk placeholder\n")
     low_cjk = imports / "low-cjk.pdf.md"
@@ -287,6 +301,7 @@ def build_fixture(vault: Path) -> dict[str, Path]:
         "derived_note": derived_note,
         "numbered_long": numbered_long,
         "many_pages": many_pages,
+        "inline_space": inline_space,
         "low_cjk": low_cjk,
         "long_verified": long_verified,
         "verified": verified,
@@ -487,6 +502,15 @@ def main() -> int:
         low_cjk_item = by_name["low-cjk.pdf.md"]
         if low_cjk_item["evidence"]["candidate_pages"] != [3]:  # type: ignore[index]
             raise AssertionError(f"Low-CJK risk should be localized to imported body pages: {low_cjk_item}")
+        inline_item = by_name["inline-space.pdf.md"]
+        if "inline-math-delimiter-space" not in set(inline_item["risk_codes"]):
+            raise AssertionError(f"Inline math delimiter spaces should enter the queue: {inline_item}")
+        inline_risk = next(risk for risk in inline_item["risks"] if risk["code"] == "inline-math-delimiter-space")
+        if inline_risk.get("severity") != "error" or inline_risk.get("safe_fix_kind") != "trim-inline-math-delimiter-adjacent-space":
+            raise AssertionError(f"Inline delimiter risk should be a high-confidence localized render fix: {inline_risk}")
+        if inline_item.get("single_section_candidate") is not True or inline_item.get("repair_scope_required") != "single-section":
+            raise AssertionError(f"Inline delimiter risk should be single-section repairable: {inline_item}")
+
         direct_case = run_json(
             "repair_import_case.py",
             "--queue-item",
@@ -1205,6 +1229,35 @@ def main() -> int:
         fake_vision_review = run_json("repair_import_review.py", "--proposal", str(fake_vision_proposal), "--json", cwd=vault, expect_ok=False)
         if not any(issue["code"] == "vision-evidence-page-missing" for issue in fake_vision_review["issues"]):  # type: ignore[index]
             raise AssertionError(f"Vision page paths outside the case pages directory should fail review: {fake_vision_review}")
+
+        direct_vault = Path(tmp) / "direct-inline-vault"
+        direct_imports = direct_vault / "reviews"
+        direct_imports.mkdir(parents=True)
+        (direct_vault / ".student-os").mkdir()
+        direct_inline = direct_imports / "中文 inline.pdf.md"
+        write_text(
+            direct_inline,
+            "---\n"
+            "source_file: 中文 inline.pdf\n"
+            "repair_status: auto-repaired\n"
+            "verify_status: unverified\n"
+            "---\n"
+            "\n"
+            "一. 由(ii)得(I)的通解为 $ x = A^{-1}b $，且 $ y=C $。\n"
+            "\n"
+            "二. 不应被第一题局部修复影响。\n",
+        )
+        inline_run = run_json("repair_import_run.py", str(direct_vault), "--json", cwd=direct_vault)
+        if inline_run.get("ok") is not True or inline_run.get("applied") is not True or inline_run.get("target_modified") is not True:
+            raise AssertionError(f"Direct run should apply inline delimiter-space fixes: {inline_run}")
+        inline_text = direct_inline.read_text(encoding="utf-8")
+        if "$ x = A^{-1}b $" in inline_text or "$ y=C $" in inline_text:
+            raise AssertionError(f"Direct run should remove only delimiter-adjacent inline math spaces:\n{inline_text}")
+        if "$x = A^{-1}b$" not in inline_text or "$y=C$" not in inline_text:
+            raise AssertionError(f"Direct run should preserve inline formula content:\n{inline_text}")
+        inline_proposal = Path(str(inline_run["proposal"]))
+        if "student-os-line-replacement-start" not in inline_proposal.read_text(encoding="utf-8"):
+            raise AssertionError(f"Direct run should use line-span replacement artifacts: {inline_proposal}")
 
     print("OK import-repair-evals")
     return 0

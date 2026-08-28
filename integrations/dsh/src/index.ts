@@ -306,7 +306,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     order: 118,
     text: [
       'Before modifying a Student OS managed vault, run a compact preflight appropriate to the task.',
-      'For imported markdown repair, prefer student_os_group_changes or the repair queue instead of a full-vault inspect.',
+      'For imported markdown repair, prefer student_os_repair_import_run for one Obsidian-visible local fix; use student_os_group_changes only as a compact preflight.',
       'After a Student OS repair proposal is applied, do not directly edit the target sidecar; create a follow-up proposal/review/apply if another defect appears.',
       'Do not automatically commit or push Student OS vault changes.',
       'External publication must use the Student OS privacy flow.',
@@ -375,6 +375,41 @@ export function apply(ctx: Context, config: Config = {}): void {
       const scriptArgs = [vault.path]
       if (compact) scriptArgs.push('--compact-json', '--limit', String(limit))
       return runStudentOsScript('group_git_changes.py', scriptArgs, {
+        ...config,
+        timeoutMs,
+        vault: vault.path,
+        vaultResolutionSource: vault.source,
+        signal: exec.signal,
+      })
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'student_os_repair_import_run',
+    description: 'Run one guarded Student OS import markdown repair using repair_import_run.py, with review and rollback.',
+    parameters: {
+      vault: { type: 'string', description: 'Vault, folder, or markdown sidecar to repair. Defaults to the DSH workspace cwd when available.' },
+      dryRun: { type: 'boolean', description: 'Prepare and review the repair without modifying the target.' },
+      limit: { type: 'integer', description: 'Maximum repairs. Defaults to 1; the Python runner currently supports only 1.' },
+      timeout_ms: { type: 'integer', description: 'Timeout in milliseconds. Defaults to 45000.' },
+    },
+    output: {
+      schema: toolResultSchema,
+      render: (_args, value) => renderResult('student_os_repair_import_run', value),
+    },
+    isConcurrencySafe(args) {
+      return args.dryRun === true
+    },
+    execute(args, exec) {
+      const vault = resolveVaultArg(args.vault, exec, config)
+      if ('ok' in vault) return Promise.resolve(vault)
+      const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? Math.max(1, Math.trunc(args.limit)) : 1
+      const timeoutMs = typeof args.timeout_ms === 'number' && Number.isFinite(args.timeout_ms)
+        ? Math.max(1, Math.trunc(args.timeout_ms))
+        : config.timeoutMs
+      const scriptArgs = [vault.path, '--limit', String(limit), '--json']
+      if (args.dryRun === true) scriptArgs.push('--dry-run')
+      return runStudentOsScript('repair_import_run.py', scriptArgs, {
         ...config,
         timeoutMs,
         vault: vault.path,
