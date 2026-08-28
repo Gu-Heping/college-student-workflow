@@ -172,6 +172,51 @@ function parsePayload(stdout: string): JsonValue | undefined {
   }
 }
 
+function payloadField(payload: JsonValue | undefined, key: string): JsonValue | undefined {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return undefined
+  return (payload as Record<string, JsonValue>)[key]
+}
+
+function summarizePayload(payload: JsonValue | undefined): string[] {
+  if (payload === undefined) return []
+  const lines: string[] = []
+  const ok = payloadField(payload, 'ok')
+  const reviewLabel = payloadField(payload, 'review_label')
+  const blockingCount = payloadField(payload, 'blocking_error_count')
+  const warningCount = payloadField(payload, 'warning_count')
+  if (typeof ok === 'boolean') lines.push(`payload.ok: ${ok}`)
+  if (typeof reviewLabel === 'string') lines.push(`review: ${reviewLabel}`)
+  if (typeof blockingCount === 'number') lines.push(`blocking_errors: ${blockingCount}`)
+  if (typeof warningCount === 'number') lines.push(`warnings: ${warningCount}`)
+
+  const recommended = payloadField(payload, 'recommended_file') ?? payloadField(payload, 'recommended_item')
+  if (recommended !== null && typeof recommended === 'object' && !Array.isArray(recommended)) {
+    const record = recommended as Record<string, JsonValue>
+    const path = typeof record.relative_path === 'string' && record.relative_path !== ''
+      ? record.relative_path
+      : typeof record.path === 'string'
+        ? record.path
+        : ''
+    const errors = typeof record.blocking_error_count === 'number'
+      ? record.blocking_error_count
+      : typeof record.blocking_risk_count === 'number'
+        ? record.blocking_risk_count
+        : undefined
+    if (path) lines.push(`recommended: ${path}${errors === undefined ? '' : ` (${errors} blocking)`}`)
+    const primary = record.primary_risk
+    if (primary !== null && typeof primary === 'object' && !Array.isArray(primary)) {
+      const code = (primary as Record<string, JsonValue>).code
+      if (typeof code === 'string' && code !== '') lines.push(`primary_risk: ${code}`)
+    }
+  }
+
+  const next = payloadField(payload, 'recommended_next_action')
+  if (typeof next === 'string' && next !== '') lines.push(`next: ${next}`)
+  const report = payloadField(payload, 'full_report_path') ?? payloadField(payload, 'report_path') ?? payloadField(payload, 'baseline_path')
+  if (typeof report === 'string' && report !== '') lines.push(`report: ${report}`)
+  return lines
+}
+
 function pythonCommand(configured?: string): string {
   if (configured !== undefined && configured.trim() !== '') return configured
   if (process.env.PYTHON !== undefined && process.env.PYTHON.trim() !== '') return process.env.PYTHON
@@ -294,7 +339,12 @@ function renderResult(toolName: string, value: StudentOsToolResult): { type: 'te
       `command: ${value.command.join(' ')}`,
       value.stage === 'missing-vault' ? 'next: pass vault explicitly or restart DSH from the vault workspace with the Student OS overlay.' : '',
       value.stage === 'timeout' ? 'next: rerun with a narrower vault/folder or compact task-specific command.' : '',
-      value.stdout.trim() === '' ? '' : `stdout:\n${value.stdout.trim()}`,
+      ...summarizePayload(value.payload),
+      value.payload !== undefined
+        ? ''
+        : value.stdout.trim() === ''
+          ? ''
+          : `stdout:\n${value.stdout.trim().slice(0, 4000)}${value.stdout.trim().length > 4000 ? '\n...[truncated by Student OS DSH render]...' : ''}`,
       value.stderr.trim() === '' ? '' : `stderr:\n${value.stderr.trim()}`,
     ].filter(Boolean).join('\n\n'),
   }]
@@ -306,8 +356,9 @@ export function apply(ctx: Context, config: Config = {}): void {
     order: 118,
     text: [
       'Before modifying a Student OS managed vault, run a compact preflight appropriate to the task.',
-      'For imported markdown repair, you may directly edit the local Markdown section that the user points to; after editing, run student_os_repair_import_check and fix any blocking errors.',
+      'For imported markdown repair, choose one valuable file, directly edit the smallest local Markdown section, then run student_os_repair_import_check; use focus/baseline checks so old unrelated risks become backlog.',
       'Use student_os_repair_import_run only for deterministic one-step render cleanup; use queue/case/proposal only for optional audit records or very broad repairs.',
+      'Student OS managed Obsidian Markdown should be UTF-8 with LF line endings; do not convert repaired notes back to CRLF.',
       'Never describe AI/script import repair as verified; only say review passed unless the user confirms human source verification.',
       'Do not automatically commit or push Student OS vault changes.',
       'External publication must use the Student OS privacy flow.',
@@ -425,6 +476,9 @@ export function apply(ctx: Context, config: Config = {}): void {
     description: 'Check directly edited imported markdown for Student OS mechanical repair safety using repair_import_check.py.',
     parameters: {
       vault: { type: 'string', description: 'Vault, folder, or markdown sidecar to check. Defaults to the DSH workspace cwd when available.' },
+      compact: { type: 'boolean', description: 'Use compact agent-facing output. Defaults to true.' },
+      limit: { type: 'integer', description: 'Maximum files/errors in compact output. Defaults to 5.' },
+      fullJson: { type: 'boolean', description: 'Return full per-file diagnostics when true.' },
       includeVerified: { type: 'boolean', description: 'Check files marked verify_status: verified. Defaults to false.' },
       markAutoRepaired: { type: 'boolean', description: 'Write auto-repaired/unverified governance frontmatter before checking.' },
       timeout_ms: { type: 'integer', description: 'Timeout in milliseconds. Defaults to 45000.' },
@@ -443,6 +497,9 @@ export function apply(ctx: Context, config: Config = {}): void {
         ? Math.max(1, Math.trunc(args.timeout_ms))
         : config.timeoutMs
       const scriptArgs = [vault.path, '--json']
+      const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? Math.max(1, Math.trunc(args.limit)) : 5
+      scriptArgs.push('--limit', String(limit))
+      if (args.fullJson === true || args.compact === false) scriptArgs.push('--full-json')
       if (args.includeVerified === true) scriptArgs.push('--include-verified')
       if (args.markAutoRepaired === true) scriptArgs.push('--mark-auto-repaired')
       return runStudentOsScript('repair_import_check.py', scriptArgs, {

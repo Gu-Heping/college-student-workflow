@@ -78,7 +78,7 @@ For a no-network patch composition check when DSH is installed:
 dsh web --patch /path/to/vault/.dsh/student-os.cordis.yml --dump-config
 ```
 
-`--dump-config` confirms that the overlay composes into the selected profile; it does not boot the plugin. Runtime loading is covered by `npm run test` at the package/API layer. Windows acceptance has also verified project Skill discovery, plugin mount, and all three `student_os_*` tools in a real installed DSH runtime using the project-local `--patch` overlay. Other OSes should still run the same acceptance path when validating this local checkout.
+`--dump-config` confirms that the overlay composes into the selected profile; it does not boot the plugin. Runtime loading is covered by `npm run test` at the package/API layer. When validating a local checkout in an installed DSH runtime, verify project Skill discovery, plugin mount, and the available `student_os_*` tools through the project-local `--patch` overlay.
 
 ## Manual Troubleshooting
 
@@ -111,8 +111,8 @@ npm run test
 cd ../..
 ```
 
-The plugin is a local Cordis plugin at `integrations/dsh/dist/index.js`. It registers three native tools and delegates all business logic to the existing Python scripts.
-The test command boots a real Cordis `Context` with DSH `ToolRuntime`, registers the plugin through the official `defineTool()` path, and executes all three tools against a temporary vault.
+The plugin is a local Cordis plugin at `integrations/dsh/dist/index.js`. It registers native tools for compact inspect, Git grouping, frontmatter, direct import repair, and import repair checks; all business logic stays in the existing Python scripts.
+The test command boots a real Cordis `Context` with DSH `ToolRuntime`, registers the plugin through the official `defineTool()` path, and executes the tools against a temporary vault.
 
 If you hand-write an overlay, keep it project-local during testing and use a `file://` URL for the built plugin entry. **On Windows the plugin `name` must be a `file://` URL** (Node's ESM loader rejects bare absolute paths like `D:/...` with `ERR_UNSUPPORTED_ESM_URL_SCHEME`); macOS/Linux also accept the generated `file:///...` form:
 
@@ -124,6 +124,8 @@ cat > /path/to/vault/.dsh/student-os.cordis.yml <<EOF
 - insert:
     - id: student-os-native
       name: 'file:///absolute/path/to/college-student-workflow/integrations/dsh/dist/index.js'
+      config:
+        vaultRoot: '/absolute/path/to/your/learning-vault'
       # Windows example:
       # name: 'file:///D:/repos/college-student-workflow/integrations/dsh/dist/index.js'
 EOF
@@ -145,4 +147,4 @@ Avoid running destructive npm maintenance commands concurrently against the same
 
 ## Fallback
 
-To return to pure Skill mode, start DSH without the Student OS patch overlay. The installed Skill still works through the same portable Python core; only the three native tools are disabled.
+To return to pure Skill mode, start DSH without the Student OS patch overlay. The installed Skill still works through the same portable Python core; only the native DSH tools are disabled.

@@ -237,7 +237,15 @@ python student-os/scripts/group_git_changes.py /path/to/vault --compact-json
 python student-os/scripts/repair_import_check.py /path/to/file-or-folder --json
 ```
 
-`repair_import_check.py` 只做机械底线检查，例如 Obsidian 会露出的 `$ x $`、`$$` 粘连、奇数 `$`、`\left/\right` 不配平、破损 `array`、明显括号结构错误、控制字符和题号段落粘连。复杂语义由 agent 基于可见文本、raw import、PDF/OCR/截图证据直接修；脚本不证明语义正确。
+`repair_import_check.py` 默认输出 compact JSON：推荐一个文件、列出 top blocking risks、小片段和下一步；需要完整报告时显式加 `--full-json` 或 `--write-report`。它只做机械底线检查，例如 Obsidian 会露出的 `$ x $`、`$$` 粘连、奇数 `$`、`\left/\right` 不配平、破损 `array`、明显括号结构错误、控制字符和题号段落粘连。复杂语义由 agent 基于可见文本、raw import、PDF/OCR/截图证据直接修；脚本不证明语义正确。
+
+修一个局部问题前，可以写 baseline 或指定 focus，避免历史遗留错误拖死本轮验收：
+
+```bash
+python student-os/scripts/repair_import_check.py /path/to/file.pdf.md --write-baseline --json
+python student-os/scripts/repair_import_check.py /path/to/file.pdf.md --baseline /path/to/baseline.json --json
+python student-os/scripts/repair_import_check.py /path/to/file.pdf.md --focus-lines 143,174-180 --json
+```
 
 可选：需要工具自动处理一个低风险渲染问题时，用 direct run：
 
@@ -258,7 +266,7 @@ python student-os/scripts/repair_import_apply.py --proposal <proposal.md> --json
 
 AI 可以根据当前 Markdown、case、raw import、repair summary、同目录试卷/答案和原 PDF 路径直接修复；文本模型默认 `text-only`，多模态模型可用 `vision-assisted` 渲染候选 PDF 页作为证据。输出仍保持 `verify_status: unverified`，直到人工对照原文确认。
 
-Agent 默认一次只处理一个局部问题；编辑后必须跑 `repair_import_check.py`，检查失败就继续修或回滚。不要在 vault 中写 `.fixed`、debug、trace 或临时修复脚本。`unicode-escape` 是可读性问题；`math-dollar-unbalanced` 是低置信启发式，优先处理 `math-dollar-odd-line`、`latex-left-right-unbalanced`、`latex-math-span-brace-unbalanced` 和 `latex-array-wrapper-malformed` 等局部可执行风险。
+Agent 默认选择一个文件，修该文件内一个局部/同类 Obsidian 可见问题；编辑后必须跑 `repair_import_check.py`，检查失败就继续修或回滚。Student OS 写入 Obsidian Markdown 时使用 UTF-8 + LF；不要为了匹配旧历史把修过的 `.md` 转回 CRLF。不要在 vault 中写 `.fixed`、debug、trace 或临时修复脚本。`unicode-escape` 是可读性问题；`math-dollar-unbalanced` 是低置信启发式，优先处理 `math-dollar-odd-line`、`latex-left-right-unbalanced`、`latex-math-span-brace-unbalanced` 和 `latex-array-wrapper-malformed` 等局部可执行风险。
 
 `ocr-assisted` 需要先通过导入/OCR 工具生成 vault 内的 `.md` 或 `.txt` 文本证据，再用 `repair_import_case.py --evidence-mode ocr-assisted --ocr-evidence <path>` 绑定；它不会直接覆盖已修复 sidecar。
 

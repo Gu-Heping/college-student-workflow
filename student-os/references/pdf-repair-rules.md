@@ -29,14 +29,14 @@ Use this reference after a PDF has been converted into markdown and needs cleanu
 Use this loop when the user asks for flexible cleanup or semantic reconstruction from imported sidecars:
 
 1. Inspect Git in the learning vault with compact, task-specific preflight before changing files. For import repair, prefer `group_git_changes.py --compact-json` over a full-vault hygiene inspect.
-2. For low-risk Obsidian-visible render fixes, run one guarded direct repair first: `python student-os/scripts/repair_import_run.py <vault-or-folder> --json`. In DSH, prefer `student_os_repair_import_run` when available.
-3. If direct run succeeds, inspect the returned target/diff summary and stop. If another defect appears, run a follow-up direct repair or proposal; do not edit the target sidecar by hand.
-4. If direct run says the item is blocked, widened, semantic, or evidence-dependent, build the evidence queue with compact agent output: `python student-os/scripts/repair_import_queue.py <vault-or-folder> --write-queue --classify-evidence --compact-json --json`.
-5. Generate a case for exactly one unverified `recommended_item` with `single_section_candidate: true`: `python student-os/scripts/repair_import_case.py --queue <queue.json> --queue-item <id> --evidence-mode auto --write-case --json`.
-6. Compare the current sidecar, raw import excerpt, repair summary, paired paper/answer sidecar, and original source path. If the source evidence is unavailable, say so and keep the result unverified.
-7. Write a proposal that explains the evidence, the intended section replacement, and remaining human-review risks.
-8. Run `repair_import_review.py --proposal <proposal.md> --json`; fix the proposal when review reports blocking structural or Markdown/KaTeX issues.
-9. Apply with `repair_import_apply.py --proposal <proposal.md> --require-review-pass --json`.
+2. For vague batch requests, pick one valuable problem file and repair that file's local Obsidian-visible issues instead of chasing one global risk code across the vault.
+3. For low-risk Obsidian-visible render fixes, run one guarded direct repair first: `python student-os/scripts/repair_import_run.py <vault-or-folder> --json`. In DSH, prefer `student_os_repair_import_run` when available.
+4. If direct run succeeds, inspect the returned target/diff summary and stop. If another defect appears, directly edit the smallest affected local section and immediately run `repair_import_check.py` with `--focus-lines` or a baseline comparison.
+5. If direct run says the item is blocked, widened, semantic, or evidence-dependent, build the evidence queue with compact agent output: `python student-os/scripts/repair_import_queue.py <vault-or-folder> --write-queue --classify-evidence --compact-json --json`.
+6. Generate a case for exactly one unverified `recommended_item` with `single_section_candidate: true`: `python student-os/scripts/repair_import_case.py --queue <queue.json> --queue-item <id> --evidence-mode auto --write-case --json`.
+7. Compare the current sidecar, raw import excerpt, repair summary, paired paper/answer sidecar, and original source path. If the source evidence is unavailable, say so and keep the result unverified.
+8. Write a proposal only when the user wants an audit artifact or when the edit is broad enough to need a preserved review trail.
+9. Run `repair_import_review.py --proposal <proposal.md> --json`; fix the proposal when review reports blocking structural or Markdown/KaTeX issues, then apply with `repair_import_apply.py --proposal <proposal.md> --require-review-pass --json`.
 
 Operational guardrails:
 - Do not generate cases in parallel.
@@ -45,7 +45,8 @@ Operational guardrails:
 - Use compact queue `recommended_item.case_argv` as the default next step. If `top_blocked_item` is present, use `next_repairable_item` or narrow the target folder instead of reading the full queue.
 - For manual local render proposals, write a section replacement block with `student-os-section-replacement-start/end`; reserve full-file replacement for explicitly widened repairs.
 - Do not write `.fixed` files or vault-local debug/trace/repair scripts.
-- After apply, do not directly edit the target sidecar. If another defect appears, create a follow-up proposal, review it, and apply it.
+- After any direct edit or apply, run `repair_import_check.py`; use `--focus-lines`, `--focus-range`, or baseline comparison so pre-existing unrelated defects are reported as backlog rather than blamed on the current edit.
+- Student OS managed Obsidian Markdown is UTF-8 with LF line endings. Do not convert repaired notes back to CRLF to match old history.
 - Do not read Student OS script source to interpret risk labels unless the script itself fails.
 - When review fails, follow `failure_reason` and `recommended_next_action` from the JSON.
 - Treat `unicode-escape` as readability-only and `math-dollar-unbalanced` as a low-confidence heuristic; prioritize localized `math-dollar-odd-line` and render-blocking `latex-left-right-unbalanced` items.

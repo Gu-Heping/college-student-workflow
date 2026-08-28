@@ -1280,23 +1280,64 @@ def main() -> int:
             "\n"
             "$\\begin{array}{r}{1 & 0 \\\\ 0 & 1}\\end{array}$\n",
         )
-        broken_payload = run_json("repair_import_check.py", str(broken_check), "--json", cwd=check_vault, expect_ok=False)
+        broken_payload = run_json("repair_import_check.py", str(broken_check), "--limit", "10", "--json", cwd=check_vault, expect_ok=False)
         broken_codes = {
             issue["code"]
-            for file_result in broken_payload["files"]  # type: ignore[index]
+            for file_result in [broken_payload["recommended_file"]]  # type: ignore[index]
             for issue in file_result["blocking_errors"]  # type: ignore[index]
         }
         for expected in {
             "inline-math-delimiter-space",
             "display-math-delimiter-not-standalone",
             "latex-math-span-brace-unbalanced",
-            "latex-dangling-close-before-dollar",
             "latex-array-wrapper-malformed",
         }:
             if expected not in broken_codes:
                 raise AssertionError(f"repair_import_check.py should report {expected}: {broken_payload}")
+        if "files" in broken_payload:
+            raise AssertionError(f"repair_import_check.py default JSON should be compact: {broken_payload}")
         if "线性代数" not in json.dumps(broken_payload, ensure_ascii=False):
             raise AssertionError(f"repair_import_check.py should preserve readable Chinese paths: {broken_payload}")
+
+        focused_payload = run_json(
+            "repair_import_check.py",
+            str(broken_check),
+            "--focus-lines",
+            "11",
+            "--json",
+            cwd=check_vault,
+            expect_ok=False,
+        )
+        focused_file = focused_payload["recommended_file"]  # type: ignore[index]
+        focused_codes = {issue["code"] for issue in focused_file["blocking_errors"]}  # type: ignore[index]
+        if focused_codes != {"latex-math-span-brace-unbalanced"}:
+            raise AssertionError(f"Focused check should gate only the requested local line: {focused_payload}")
+        if focused_file.get("out_of_focus_blocking_count", 0) < 1:
+            raise AssertionError(f"Focused check should keep unrelated existing errors as backlog: {focused_payload}")
+
+        baseline_payload = run_json(
+            "repair_import_check.py",
+            str(broken_check),
+            "--write-baseline",
+            "--json",
+            cwd=check_vault,
+            expect_ok=False,
+        )
+        baseline_path = baseline_payload.get("baseline_path")
+        if not baseline_path:
+            raise AssertionError(f"Baseline check should write a baseline path: {baseline_payload}")
+        unchanged_compare = run_json(
+            "repair_import_check.py",
+            str(broken_check),
+            "--baseline",
+            str(baseline_path),
+            "--json",
+            cwd=check_vault,
+            expect_ok=False,
+        )
+        comparison = unchanged_compare.get("baseline_comparison", {})
+        if not isinstance(comparison, dict) or comparison.get("new_error_count") != 0:
+            raise AssertionError(f"Baseline comparison should distinguish no newly introduced errors: {unchanged_compare}")
 
         fixed_check = check_imports / "机械通过.pdf.md"
         write_text(
@@ -1320,6 +1361,21 @@ def main() -> int:
         fixed_payload = run_json("repair_import_check.py", str(fixed_check), "--json", cwd=check_vault)
         if fixed_payload.get("ok") is not True or fixed_payload.get("review_label") != "review passed":
             raise AssertionError(f"Fixed direct-edit markdown should pass mechanical review: {fixed_payload}")
+
+        valid_tail = check_imports / "合法行尾.pdf.md"
+        write_text(
+            valid_tail,
+            "---\n"
+            "source_file: 合法行尾.pdf\n"
+            "repair_status: auto-repaired\n"
+            "verify_status: unverified\n"
+            "---\n"
+            "\n"
+            "合法公式 $\\left(A^{-1}\\right)^{T}$ 与 $x^{2}$ 不应因 close-brace-before-dollar 被误报。\n",
+        )
+        valid_tail_payload = run_json("repair_import_check.py", str(valid_tail), "--json", cwd=check_vault)
+        if valid_tail_payload.get("ok") is not True:
+            raise AssertionError(f"Valid formulas ending with braces should pass mechanical review: {valid_tail_payload}")
 
     print("OK import-repair-evals")
     return 0

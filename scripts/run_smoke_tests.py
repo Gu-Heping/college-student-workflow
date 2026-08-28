@@ -2460,10 +2460,10 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
             cwd=vault,
         )
     )
-    if crlf_apply.get("line_ending_preserved") is not True or crlf_apply.get("line_ending_after") != "crlf":
-        raise AssertionError(f"Apply should preserve CRLF line endings: {crlf_apply}")
-    if b"\r\n" not in crlf_target.read_bytes():
-        raise AssertionError("CRLF target should remain CRLF after apply")
+    if crlf_apply.get("line_ending_preserved") is not False or crlf_apply.get("line_ending_after") != "lf":
+        raise AssertionError(f"Apply should normalize Student OS Markdown to LF: {crlf_apply}")
+    if b"\r\n" in crlf_target.read_bytes():
+        raise AssertionError("CRLF target should be normalized to LF after Student OS apply")
 
     direct_vault = tmp_root / "direct-vault"
     direct_imports = direct_vault / "references" / "imports"
@@ -2554,7 +2554,7 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         newline="\n",
     )
     check_result = subprocess.run(
-        [sys.executable, "-B", str(STUDENT_OS_SCRIPTS / "repair_import_check.py"), str(check_target), "--json"],
+        [sys.executable, "-B", str(STUDENT_OS_SCRIPTS / "repair_import_check.py"), str(check_target), "--limit", "10", "--json"],
         check=False,
         capture_output=True,
         text=True,
@@ -2567,20 +2567,37 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     check_payload = json.loads(check_result.stdout)
     check_codes = {
         issue["code"]
-        for file_result in check_payload["files"]
+        for file_result in [check_payload["recommended_file"]]
         for issue in file_result["blocking_errors"]
     }
     for expected in {
         "inline-math-delimiter-space",
         "display-math-delimiter-not-standalone",
         "latex-math-span-brace-unbalanced",
-        "latex-dangling-close-before-dollar",
         "latex-array-wrapper-malformed",
     }:
         if expected not in check_codes:
             raise AssertionError(f"repair_import_check.py should report {expected}: {check_payload}")
+    if "files" in check_payload:
+        raise AssertionError(f"repair_import_check.py default JSON should be compact, not full files output: {check_payload}")
     if "线性代数" not in check_result.stdout:
         raise AssertionError(f"repair_import_check.py should preserve readable Chinese paths:\n{check_result.stdout}")
+
+    valid_tail = check_imports / "valid-tail.pdf.md"
+    valid_tail.write_text(
+        "---\n"
+        "source_file: valid-tail.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "合法公式 $\\left(A^{-1}\\right)^{T}$ 和 $x^{2}$ 不应被行尾 close-brace 误报。\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    valid_payload = json.loads(run_script("repair_import_check.py", str(valid_tail), "--json", cwd=check_vault))
+    if valid_payload.get("ok") is not True:
+        raise AssertionError(f"Valid close-brace-before-dollar math should not hard-fail: {valid_payload}")
 
 
 def verify_local_pdf_risk_forwarding(tmp_root: Path) -> None:
@@ -9145,6 +9162,8 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
     expected_entry = plugin_entry.resolve().as_uri()
     if expected_entry not in overlay:
         raise AssertionError("DSH bootstrap overlay should reference the absolute plugin entry as a file:// URL")
+    if "vaultRoot:" not in overlay or str(vault.resolve()) not in overlay:
+        raise AssertionError(f"DSH bootstrap overlay should bind the project vaultRoot:\n{overlay}")
     if str(plugin_entry) in overlay and "\\" in str(plugin_entry):
         raise AssertionError("DSH bootstrap overlay should not use backslash-escaped Windows paths")
     if len(list((vault / ".dsh").glob("student-os*.cordis.yml"))) != 1:

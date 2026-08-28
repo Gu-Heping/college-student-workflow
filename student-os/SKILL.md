@@ -192,9 +192,11 @@ Import repair governance:
 
 AI-assisted import repair:
 - Inspect Git with a compact, task-specific preflight; for import repair prefer `scripts/group_git_changes.py <vault> --compact-json` or the DSH `student_os_group_changes` tool. Do not run a full-vault hygiene scan or `glob **/*.pdf.md` unless the user asked for broad inventory.
-- If the user points to a file, screenshot, line, or course folder, start there. Read the smallest useful local section, edit the target `.md` directly, then run `scripts/repair_import_check.py <file-or-folder> --json` or DSH `student_os_repair_import_check`.
+- If the user points to a file, screenshot, line, or course folder, start there. For vague “repair this batch” requests, select one valuable problem file and repair that file's localized Obsidian-visible issues until focused mechanical check passes or the remaining issues are evidence-blocked.
+- Read the smallest useful local section, edit the target `.md` directly, then run `scripts/repair_import_check.py <file-or-folder> --json` or DSH `student_os_repair_import_check`. For one local edit, take a baseline first or use `--focus-lines`/`--focus-range` so old unrelated file risks become backlog, not this turn's failure.
 - Complex semantic fixes are agent work: you may directly repair missing stems, answer/order mismatches, broken explanations, matrix formulas, and Obsidian reading structure when grounded in visible markdown, raw import text, PDF text, OCR evidence, or a user-provided screenshot. The scripts do not prove semantic correctness.
 - Mechanical checks are mandatory after edits. Fix every `blocking_errors` item before reporting success. If the check cannot pass, revert the local edit or leave a clear risk note.
+- Student OS managed Markdown is UTF-8 with LF line endings. Do not convert repaired Obsidian notes back to CRLF just to match old git history; treat EOL-only diffs as their own cleanup category.
 - Treat Obsidian preview showing literal TeX as a real failure. Do not debug KaTeX/MathJax packages or byte-level escapes unless the user explicitly asks for renderer debugging.
 - Inline math must be `$x$`, not `$ x $`; display math delimiters must each be alone on their own line. Long `array`/matrix formulas should be display blocks, and array column specs must match row cells, e.g. `{ccc|cc}` for a 3+2 augmented matrix.
 - Do not write `.fixed` files, debug scripts, trace scripts, or vault-local temporary repair scripts. Use focused edits and the mechanical check output.

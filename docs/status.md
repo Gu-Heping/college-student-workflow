@@ -8,14 +8,14 @@
 | --- | --- |
 | **install** | `install.sh` / `install.ps1` / `scripts/install_student_os.py`；支持 Codex / Claude Code / OpenCode / DeepSeek Harness (DSH)，写入 `.student-os-install.json` |
 | **self-update** | `student-os/scripts/update_student_os.py`：`--check` / `--apply`、备份与 rollback 指引；不碰用户 vault |
-| **DSH native tools** | `integrations/dsh/`：本地 Cordis plugin，提供 `student_os_inspect` / `student_os_group_changes` / `student_os_frontmatter`，复用 Python core；`scripts/bootstrap_dsh.py` 可生成 project-local overlay；官方 API/package/bootstrap smoke 已通过，Windows 真实 DSH 已验证 project Skill discovery、plugin mount 与三个 native tools |
+| **DSH native tools** | `integrations/dsh/`：本地 Cordis plugin，提供 `student_os_inspect` / `student_os_group_changes` / `student_os_frontmatter` / `student_os_repair_import_run` / `student_os_repair_import_check`，复用 Python core；`scripts/bootstrap_dsh.py` 可生成带 `vaultRoot` 的 project-local overlay；官方 API/package/bootstrap smoke 已通过 |
 | **Git safety** | `inspect_repo.py`、`group_git_changes.py`：脏工作区分组、hold-back（冲突/缓存/大文件/venv 等）；默认不自动提交 |
 | **feedback lifecycle** | `log` → `triage` → `resolve` → `summarize`；稳定 `feedback_id` |
 | **GitHub issue publishing** | `prepare_github_issue.py` + `publish_github_issue.py`；需 `gh` 认证，否则 draft 降级 |
 | **privacy redaction** | `--stdin` / `--check-stdin` / `--check-only`；`sanitize_and_post.py` 包装 `gh`；有 warning 默认拦截 |
 | **materials_convert** | 批量 PDF/DOCX/PPTX/XLSX/图片/旧 Office → markdown sidecar；positional 为 source，非 vault |
 | **MinerU API** | `--method auto` / `--method api`；有 token 时走 v4 精准 API；`auto` 无 token 时 ≤10MB 文件可走 v1 Agent 免登录 API；PDF 按 ≤20 页/片限制自动拆分合并 |
-| **markdown repair** | `repair_markdown_import.py`；`materials_convert --repair` / `--repair-only`；AI 导入修复队列/case/proposal/review/apply 闭环可生成证据包并阻止未审查 proposal 直接落盘 |
+| **markdown repair** | `repair_markdown_import.py`；`materials_convert --repair` / `--repair-only`；AI 默认可直接编辑一个文件的局部 Obsidian 可见问题，再用 `repair_import_check.py` 做 compact/focused 机械审查；queue/case/proposal/review/apply 保留为审计与大范围修复 fallback |
 | **exam-census** | Init → taxonomy → annotate → aggregate；Phase A–E（fill / quality / multi-dim / deep-dive / cross-val）；备考包模板；多平台 adapters |
 | **smoke tests / CI** | `scripts/run_smoke_tests.py`、`scripts/run_import_repair_evals.py`；`.github/workflows/smoke.yml` |
 

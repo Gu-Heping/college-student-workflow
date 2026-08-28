@@ -33,7 +33,6 @@ BLOCKING_RISK_CODES = {
     "latex-left-right-unbalanced",
     "latex-array-column-mismatch",
     "latex-math-span-brace-unbalanced",
-    "latex-dangling-close-before-dollar",
     "latex-array-wrapper-malformed",
     "obsidian-inline-array-render-risk",
     "display-math-delimiter-not-standalone",

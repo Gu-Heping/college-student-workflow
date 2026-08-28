@@ -44,7 +44,7 @@ def yaml_single_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def overlay_text(plugin_entry: Path) -> str:
+def overlay_text(plugin_entry: Path, *, project_root: Path) -> str:
     # Windows 下 Node ESM loader 要求 file:// URL（普通绝对路径会被当成 scheme 为
     # "d:" 的 URL 而报 ERR_UNSUPPORTED_ESM_URL_SCHEME）；as_uri() 跨平台生成
     # file:///D:/...（Windows）或 file:///...（POSIX），二者都是合法 ESM 入口。
@@ -54,6 +54,8 @@ def overlay_text(plugin_entry: Path) -> str:
         "- insert:\n"
         "    - id: student-os-native\n"
         f"      name: {yaml_single_quote(plugin_url)}\n"
+        "      config:\n"
+        f"        vaultRoot: {yaml_single_quote(json_safe_path(project_root))}\n"
     )
 
 
@@ -288,7 +290,7 @@ def write_overlay(project_root: Path, *, force_overlay: bool) -> dict[str, Any]:
     if not path_is_relative_to(overlay, project_root):
         raise RuntimeError(f"Refusing to write overlay outside project root: {overlay}")
     overlay.parent.mkdir(parents=True, exist_ok=True)
-    desired = overlay_text(PLUGIN_ENTRY)
+    desired = overlay_text(PLUGIN_ENTRY, project_root=project_root)
     backup_path: Path | None = None
     if overlay.exists():
         reject_existing_symlink_components(project_root, OVERLAY_RELATIVE)

@@ -171,6 +171,7 @@ def main() -> int:
         "line_ending_before": line_ending_name(before_line_ending),
         "line_ending_after": line_ending_name(after_line_ending),
         "line_ending_preserved": before_line_ending == after_line_ending,
+        "eol_policy": "student-os-markdown-lf",
         "paragraph_boundaries_preserved": bool(review_payload.get("paragraph_boundaries_preserved", True)),
         "post_apply_direct_edit_allowed": True,
         "next_action_on_post_apply_issue": "direct-local-edit-then-repair-import-check",

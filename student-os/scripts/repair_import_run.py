@@ -19,7 +19,6 @@ from repair_import_case import (
     file_sha256,
     json_path,
     line_ending_name,
-    normalize_line_endings,
     prepare_evidence,
     render_case,
     span_sha256,
@@ -369,16 +368,17 @@ def run_one(target_root: Path, *, dry_run: bool, allow_widened: bool) -> dict[st
     try:
         written = apply_proposal(proposal_path, target, None, evidence_mode="text-only")
         after_text = written.read_text(encoding="utf-8", errors="replace")
+        before_blocking = blocking_codes(original)
         remaining_blocking = blocking_codes(after_text)
-        if remaining_blocking:
+        new_blocking = sorted(remaining_blocking - before_blocking)
+        if new_blocking:
             shutil.copyfile(before_path, target)
-            normalized = normalize_line_endings(target.read_text(encoding="utf-8", errors="replace"), before_line_ending)
-            target.write_text(normalized, encoding="utf-8", newline="")
             payload.update(
                 {
                     "ok": False,
                     "stage": "post-review",
-                    "error": "Direct repair left blocking diagnostics after apply; restored the original file.",
+                    "error": "Direct repair introduced new blocking diagnostics after apply; restored the original file.",
+                    "new_blocking": new_blocking,
                     "remaining_blocking": sorted(remaining_blocking),
                     "rolled_back": True,
                     "recommended_next_action": "Use the case/proposal flow or narrow the target section.",
@@ -396,9 +396,11 @@ def run_one(target_root: Path, *, dry_run: bool, allow_widened: bool) -> dict[st
                     "output": json_path(written),
                     "rolled_back": False,
                     "repair_status": "auto-repaired",
+                    "remaining_existing_blocking": sorted(remaining_blocking & before_blocking),
                     "line_ending_before": line_ending_name(before_line_ending),
                     "line_ending_after": line_ending_name(after_line_ending),
                     "line_ending_preserved": before_line_ending == after_line_ending,
+                    "eol_policy": "student-os-markdown-lf",
                     "paragraph_boundaries_preserved": bool(review.get("paragraph_boundaries_preserved", True)),
                     "post_apply_direct_edit_allowed": True,
                     "recommended_next_action": "Inspect the rendered Markdown. If another defect appears, make a focused local edit and run repair_import_check.py before reporting success.",

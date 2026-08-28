@@ -659,8 +659,7 @@ def apply_proposal(proposal_path: Path, target: Path, output: Path | None, *, ev
     governed = ensure_field(governed, "repair_evidence_mode", evidence_mode)
     governed = ensure_field(governed, "repair_ai_confidence", "unverified")
     destination = (output or target).resolve()
-    source_for_newline = destination if destination.exists() else target
-    governed = normalize_line_endings(governed, detect_line_ending(source_for_newline))
+    governed = normalize_line_endings(governed, "\n")
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=str(destination.parent))
     try:

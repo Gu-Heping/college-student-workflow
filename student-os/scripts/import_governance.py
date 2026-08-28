@@ -446,22 +446,6 @@ def latex_math_span_brace_unbalanced_lines(text: str, *, max_items: int = 8) -> 
     return items
 
 
-def latex_dangling_close_before_dollar_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
-    items: list[dict[str, object]] = []
-    for line_number, line in _iter_plain_lines(text):
-        if re.search(r"}\s*(?<!\\)\$\s*$", line):
-            items.append(
-                {
-                    "line": line_number,
-                    "excerpt": line.strip()[:160],
-                    "reason": "dangling-close-brace-before-dollar",
-                }
-            )
-            if len(items) >= max_items:
-                break
-    return items
-
-
 def latex_array_wrapper_malformed_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     pattern = re.compile(r"\\begin\{array\}\s*\{(?P<spec>[^}]*)\}\s*\{")
@@ -595,10 +579,6 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
     brace_lines = latex_math_span_brace_unbalanced_lines(text)
     if brace_lines:
         risks.append({"code": "latex-math-span-brace-unbalanced", "count": len(brace_lines), "lines": brace_lines})
-
-    dangling_lines = latex_dangling_close_before_dollar_lines(text)
-    if dangling_lines:
-        risks.append({"code": "latex-dangling-close-before-dollar", "count": len(dangling_lines), "lines": dangling_lines})
 
     wrapper_lines = latex_array_wrapper_malformed_lines(text)
     if wrapper_lines:

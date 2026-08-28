@@ -66,7 +66,7 @@ function runOptionalDshCliOverlayCheck(vault) {
   const pluginUrl = pathToFileURL(resolve(pluginRoot, 'dist', 'index.js')).href
   writeFileSync(
     overlay,
-    `- insert:\n    - id: student-os-native\n      name: '${pluginUrl}'\n`,
+    `- insert:\n    - id: student-os-native\n      name: '${pluginUrl}'\n      config:\n        vaultRoot: '${vault}'\n`,
     'utf8',
   )
   assert.match(readFileSync(overlay, 'utf8'), /name: 'file:\/\//)
@@ -110,6 +110,9 @@ try {
   assert.equal(frontmatterTool.parameters.required.includes('path'), true)
   assert.equal(frontmatterTool.parameters.properties.apply.type, 'boolean')
   assert.equal(repairCheckTool.parameters.properties.vault.type, 'string')
+  assert.equal(repairCheckTool.parameters.properties.compact.type, 'boolean')
+  assert.equal(repairCheckTool.parameters.properties.limit.type, 'integer')
+  assert.equal(repairCheckTool.parameters.properties.fullJson.type, 'boolean')
   assert.equal(repairCheckTool.parameters.properties.includeVerified.type, 'boolean')
   assert.equal(repairCheckTool.parameters.properties.markAutoRepaired.type, 'boolean')
   assert.equal(repairRunTool.parameters.properties.vault.type, 'string')
@@ -207,6 +210,9 @@ try {
   assert.equal(repairCheck.value.vault_resolution_source, 'argument')
   assert.equal(repairCheck.value.payload.review_label, 'review passed')
   assert.equal(repairCheck.value.command[1], resolve(repoRoot, 'student-os', 'scripts', 'repair_import_check.py'))
+  assert.equal(repairCheck.value.command.includes('--limit'), true)
+  assert.equal(repairCheck.value.payload.compact, true)
+  assert.equal(repairCheck.content[0].text.includes('stdout:'), false)
 
   const workspaceCtx = await setupHarnessContext({ vaultRoot: vault })
   const defaultGrouped = await execute(workspaceCtx, 'student_os_group_changes', {})

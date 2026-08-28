@@ -4,3 +4,5 @@
 - insert:
     - id: student-os-native
       name: 'file:///absolute/path/to/college-student-workflow/integrations/dsh/dist/index.js'
+      config:
+        vaultRoot: '/absolute/path/to/your/learning-vault'
