@@ -92,12 +92,14 @@ try {
     'student_os_frontmatter',
     'student_os_group_changes',
     'student_os_inspect',
+    'student_os_repair_import_check',
     'student_os_repair_import_run',
   ])
 
   const inspectTool = requireTool(ctx, 'student_os_inspect')
   const groupTool = requireTool(ctx, 'student_os_group_changes')
   const frontmatterTool = requireTool(ctx, 'student_os_frontmatter')
+  const repairCheckTool = requireTool(ctx, 'student_os_repair_import_check')
   const repairRunTool = requireTool(ctx, 'student_os_repair_import_run')
   assert.equal(inspectTool.parameters.properties.vault.type, 'string')
   assert.equal(inspectTool.parameters.properties.compact.type, 'boolean')
@@ -107,6 +109,9 @@ try {
   assert.equal(groupTool.parameters.properties.timeout_ms.type, 'integer')
   assert.equal(frontmatterTool.parameters.required.includes('path'), true)
   assert.equal(frontmatterTool.parameters.properties.apply.type, 'boolean')
+  assert.equal(repairCheckTool.parameters.properties.vault.type, 'string')
+  assert.equal(repairCheckTool.parameters.properties.includeVerified.type, 'boolean')
+  assert.equal(repairCheckTool.parameters.properties.markAutoRepaired.type, 'boolean')
   assert.equal(repairRunTool.parameters.properties.vault.type, 'string')
   assert.equal(repairRunTool.parameters.properties.dryRun.type, 'boolean')
   assert.equal(repairRunTool.parameters.properties.limit.type, 'integer')
@@ -114,6 +119,8 @@ try {
   assert.equal(groupTool.isConcurrencySafe?.({}), true)
   assert.equal(frontmatterTool.isConcurrencySafe?.({ path: '.', apply: false }), true)
   assert.notEqual(frontmatterTool.isConcurrencySafe?.({ path: '.', apply: true }), true)
+  assert.equal(repairCheckTool.isConcurrencySafe?.({}), true)
+  assert.notEqual(repairCheckTool.isConcurrencySafe?.({ markAutoRepaired: true }), true)
   assert.equal(repairRunTool.isConcurrencySafe?.({ dryRun: true }), true)
   assert.notEqual(repairRunTool.isConcurrencySafe?.({}), true)
 
@@ -192,6 +199,14 @@ try {
   assert.equal(repairRun.value.payload.applied, true)
   assert.equal(repairRun.value.payload.target_modified, true)
   assert.match(readFileSync(repairTarget, 'utf8'), /\$x = A\^{-1}b\$/)
+
+  const repairCheck = await execute(ctx, 'student_os_repair_import_check', { vault: repairTarget })
+  assert.equal(repairCheck.isError, false)
+  assert.equal(repairCheck.value.ok, true)
+  assert.equal(repairCheck.value.vault, repairTarget)
+  assert.equal(repairCheck.value.vault_resolution_source, 'argument')
+  assert.equal(repairCheck.value.payload.review_label, 'review passed')
+  assert.equal(repairCheck.value.command[1], resolve(repoRoot, 'student-os', 'scripts', 'repair_import_check.py'))
 
   const workspaceCtx = await setupHarnessContext({ vaultRoot: vault })
   const defaultGrouped = await execute(workspaceCtx, 'student_os_group_changes', {})

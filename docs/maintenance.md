@@ -40,7 +40,7 @@
 - 合并前至少本地跑：
 
 ```bash
-python -m py_compile scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_import_repair_evals.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py student-os/scripts/repair_import_queue.py student-os/scripts/repair_import_case.py student-os/scripts/repair_import_review.py student-os/scripts/repair_import_apply.py
+python -m py_compile scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_import_repair_evals.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py student-os/scripts/repair_import_queue.py student-os/scripts/repair_import_case.py student-os/scripts/repair_import_review.py student-os/scripts/repair_import_apply.py student-os/scripts/repair_import_run.py student-os/scripts/repair_import_check.py
 python scripts/run_smoke_tests.py
 python scripts/run_import_repair_evals.py
 ```

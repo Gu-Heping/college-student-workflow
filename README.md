@@ -229,17 +229,23 @@ python student-os/scripts/init_exam_census.py /path/to/vault --course <course> -
 
 导入修复只表示机器清理：`repair_status: auto-repaired` 仍需要人工核对来源后才能改为 `verify_status: verified`。
 
-需要 AI 协助修复导入 sidecar 时，先让工具尝试一个局部、可回滚的直接修复：
+需要 AI 协助修复导入 sidecar 时，优先让 agent 直接修局部 Markdown，然后跑机械检查：
 
 ```bash
 python student-os/scripts/inspect_repo.py /path/to/vault --compact-json --scope git
 python student-os/scripts/group_git_changes.py /path/to/vault --compact-json
+python student-os/scripts/repair_import_check.py /path/to/file-or-folder --json
+```
+
+`repair_import_check.py` 只做机械底线检查，例如 Obsidian 会露出的 `$ x $`、`$$` 粘连、奇数 `$`、`\left/\right` 不配平、破损 `array`、明显括号结构错误、控制字符和题号段落粘连。复杂语义由 agent 基于可见文本、raw import、PDF/OCR/截图证据直接修；脚本不证明语义正确。
+
+可选：需要工具自动处理一个低风险渲染问题时，用 direct run：
+
+```bash
 python student-os/scripts/repair_import_run.py /path/to/vault --json
 ```
 
-`repair_import_run.py` 默认只处理 1 个低风险 Obsidian 可见渲染/结构问题，写入 run artifact，自动 review；review 或 post-review 失败会回滚目标文件。语义重建、缺题干、需要 OCR/PDF/视觉证据的内容不会被直接改。
-
-如果 direct run 返回 blocked/plan，再生成治理队列和 case bundle：
+如果需要批量规划、保留审计 artifact 或处理大范围重构，再生成治理队列和 case bundle：
 
 ```bash
 python student-os/scripts/repair_import_queue.py /path/to/vault --write-queue --classify-evidence --compact-json --json
@@ -250,9 +256,9 @@ python student-os/scripts/repair_import_apply.py --proposal <proposal.md> --json
 
 如果 Git preflight 显示目标文件已有无关未提交修改，先暂停并向用户确认边界；不要把已有脏文件当成本次 AI 修复产物覆盖。
 
-AI 可以根据 case、raw import、repair summary、同目录试卷/答案和原 PDF 路径提出修复；文本模型默认 `text-only`，多模态模型可用 `vision-assisted` 渲染候选 PDF 页作为证据。输出仍保持 `verify_status: unverified`，直到人工对照原文确认。
+AI 可以根据当前 Markdown、case、raw import、repair summary、同目录试卷/答案和原 PDF 路径直接修复；文本模型默认 `text-only`，多模态模型可用 `vision-assisted` 渲染候选 PDF 页作为证据。输出仍保持 `verify_status: unverified`，直到人工对照原文确认。
 
-Agent 默认一次只处理一个局部问题；direct run 可直接落盘，但必须依赖工具 review/rollback。fallback queue/case 路线仍只处理一个 `single_section_candidate: true` 的 queue item，不并行生成多个 case，不在 vault 中写 `.fixed`、debug、trace 或临时修复脚本。`single_section_candidate: false` 表示应拆小或生成 blocked case。`unicode-escape` 是可读性问题；`math-dollar-unbalanced` 是低置信启发式，优先处理 `math-dollar-odd-line` 和 `latex-left-right-unbalanced` 等局部可执行风险。
+Agent 默认一次只处理一个局部问题；编辑后必须跑 `repair_import_check.py`，检查失败就继续修或回滚。不要在 vault 中写 `.fixed`、debug、trace 或临时修复脚本。`unicode-escape` 是可读性问题；`math-dollar-unbalanced` 是低置信启发式，优先处理 `math-dollar-odd-line`、`latex-left-right-unbalanced`、`latex-math-span-brace-unbalanced` 和 `latex-array-wrapper-malformed` 等局部可执行风险。
 
 `ocr-assisted` 需要先通过导入/OCR 工具生成 vault 内的 `.md` 或 `.txt` 文本证据，再用 `repair_import_case.py --evidence-mode ocr-assisted --ocr-evidence <path>` 绑定；它不会直接覆盖已修复 sidecar。
 
@@ -369,7 +375,7 @@ docs/           # 维护记录文档
 ## 测试
 
 ```bash
-python -m py_compile scripts/bootstrap_dsh.py scripts/dsh_plugin_build.py scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_import_repair_evals.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py student-os/scripts/repair_import_queue.py student-os/scripts/repair_import_case.py student-os/scripts/repair_import_review.py student-os/scripts/repair_import_apply.py student-os/scripts/repair_import_run.py
+python -m py_compile scripts/bootstrap_dsh.py scripts/dsh_plugin_build.py scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_import_repair_evals.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py student-os/scripts/repair_import_queue.py student-os/scripts/repair_import_case.py student-os/scripts/repair_import_review.py student-os/scripts/repair_import_apply.py student-os/scripts/repair_import_run.py student-os/scripts/repair_import_check.py
 python scripts/run_smoke_tests.py
 python scripts/run_import_repair_evals.py
 ```

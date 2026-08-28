@@ -24,7 +24,7 @@ def run_student_script(name: str, *args: str, cwd: Path) -> subprocess.Completed
         text=True,
         encoding="utf-8",
         cwd=cwd,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
     )
 
 
@@ -1258,6 +1258,68 @@ def main() -> int:
         inline_proposal = Path(str(inline_run["proposal"]))
         if "student-os-line-replacement-start" not in inline_proposal.read_text(encoding="utf-8"):
             raise AssertionError(f"Direct run should use line-span replacement artifacts: {inline_proposal}")
+
+        check_vault = Path(tmp) / "direct-check-vault"
+        check_imports = check_vault / "reviews" / "线性代数"
+        check_imports.mkdir(parents=True)
+        (check_vault / ".student-os").mkdir()
+        broken_check = check_imports / "明显没渲染.pdf.md"
+        write_text(
+            broken_check,
+            "---\n"
+            "source_file: 明显没渲染.pdf\n"
+            "repair_status: auto-repaired\n"
+            "verify_status: unverified\n"
+            "---\n"
+            "\n"
+            "二. 由条件得 $ x = A^{-1}b $，并有即 $$ A = B $$，继续。\n"
+            "\n"
+            "解矩阵方程 }$\n"
+            "\n"
+            "局部公式 $x^{2}}$ 也会坏。\n"
+            "\n"
+            "$\\begin{array}{r}{1 & 0 \\\\ 0 & 1}\\end{array}$\n",
+        )
+        broken_payload = run_json("repair_import_check.py", str(broken_check), "--json", cwd=check_vault, expect_ok=False)
+        broken_codes = {
+            issue["code"]
+            for file_result in broken_payload["files"]  # type: ignore[index]
+            for issue in file_result["blocking_errors"]  # type: ignore[index]
+        }
+        for expected in {
+            "inline-math-delimiter-space",
+            "display-math-delimiter-not-standalone",
+            "latex-math-span-brace-unbalanced",
+            "latex-dangling-close-before-dollar",
+            "latex-array-wrapper-malformed",
+        }:
+            if expected not in broken_codes:
+                raise AssertionError(f"repair_import_check.py should report {expected}: {broken_payload}")
+        if "线性代数" not in json.dumps(broken_payload, ensure_ascii=False):
+            raise AssertionError(f"repair_import_check.py should preserve readable Chinese paths: {broken_payload}")
+
+        fixed_check = check_imports / "机械通过.pdf.md"
+        write_text(
+            fixed_check,
+            "---\n"
+            "source_file: 机械通过.pdf\n"
+            "repair_status: auto-repaired\n"
+            "verify_status: unverified\n"
+            "---\n"
+            "\n"
+            "二. 由条件得 $x = A^{-1}b$，并有\n"
+            "\n"
+            "$$\n"
+            "A = B\n"
+            "$$\n"
+            "\n"
+            "$$\n"
+            "\\begin{array}{cc}1 & 0 \\\\ 0 & 1\\end{array}\n"
+            "$$\n",
+        )
+        fixed_payload = run_json("repair_import_check.py", str(fixed_check), "--json", cwd=check_vault)
+        if fixed_payload.get("ok") is not True or fixed_payload.get("review_label") != "review passed":
+            raise AssertionError(f"Fixed direct-edit markdown should pass mechanical review: {fixed_payload}")
 
     print("OK import-repair-evals")
     return 0

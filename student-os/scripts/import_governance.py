@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import string
+from collections.abc import Iterator
 from pathlib import Path
 
 
@@ -358,6 +359,128 @@ def display_math_delimiter_not_standalone_lines(text: str, *, max_items: int = 8
     return items
 
 
+def _iter_plain_lines(text: str) -> Iterator[tuple[int, str]]:
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        stripped = raw_line.rstrip("\r\n")
+        fence = re.match(r"^[ \t]{0,3}([`~]{3,})", stripped)
+        if fence:
+            marker = fence.group(1)
+            if in_fence and marker[0] == fence_char and len(marker) >= fence_len:
+                in_fence = False
+                fence_char = ""
+                fence_len = 0
+            elif not in_fence:
+                in_fence = True
+                fence_char = marker[0]
+                fence_len = len(marker)
+            continue
+        if not in_fence:
+            yield line_number, re.sub(r"(?s)(`+).*?\1", "", stripped)
+
+
+def _brace_balance_issue(body: str) -> tuple[int, int, str] | None:
+    depth = 0
+    opens = 0
+    closes = 0
+    for index, char in enumerate(body):
+        if char in "{}" and (index == 0 or body[index - 1] != "\\"):
+            if char == "{":
+                opens += 1
+                depth += 1
+            else:
+                closes += 1
+                depth -= 1
+                if depth < 0:
+                    return opens, closes, "extra-close-brace"
+    if depth > 0:
+        return opens, closes, "missing-close-brace"
+    return None
+
+
+def latex_math_span_brace_unbalanced_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    for line_number, line in _iter_plain_lines(text):
+        cursor = 0
+        while cursor < len(line):
+            start = line.find("$", cursor)
+            if start == -1:
+                break
+            if start > 0 and line[start - 1] == "\\":
+                cursor = start + 1
+                continue
+            if start + 1 < len(line) and line[start + 1] == "$":
+                cursor = start + 2
+                continue
+            end = start + 1
+            while True:
+                end = line.find("$", end)
+                if end == -1 or not (end > 0 and line[end - 1] == "\\"):
+                    break
+                end += 1
+            if end == -1:
+                break
+            if end + 1 < len(line) and line[end + 1] == "$":
+                cursor = end + 2
+                continue
+            body = line[start + 1 : end]
+            issue = _brace_balance_issue(body)
+            if issue is not None:
+                opens, closes, reason = issue
+                items.append(
+                    {
+                        "line": line_number,
+                        "column": start + 1,
+                        "reason": reason,
+                        "open_braces": opens,
+                        "close_braces": closes,
+                        "excerpt": line[max(0, start - 40) : min(len(line), end + 41)],
+                    }
+                )
+                break
+            cursor = end + 1
+        if len(items) >= max_items:
+            break
+    return items
+
+
+def latex_dangling_close_before_dollar_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    for line_number, line in _iter_plain_lines(text):
+        if re.search(r"}\s*(?<!\\)\$\s*$", line):
+            items.append(
+                {
+                    "line": line_number,
+                    "excerpt": line.strip()[:160],
+                    "reason": "dangling-close-brace-before-dollar",
+                }
+            )
+            if len(items) >= max_items:
+                break
+    return items
+
+
+def latex_array_wrapper_malformed_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    pattern = re.compile(r"\\begin\{array\}\s*\{(?P<spec>[^}]*)\}\s*\{")
+    for line_number, line in _iter_plain_lines(text):
+        for match in pattern.finditer(line):
+            items.append(
+                {
+                    "line": line_number,
+                    "column": match.start() + 1,
+                    "spec": match.group("spec").strip(),
+                    "excerpt": line[max(0, match.start() - 40) : min(len(line), match.end() + 80)],
+                }
+            )
+            break
+        if len(items) >= max_items:
+            break
+    return items
+
+
 def array_column_mismatches(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     array_re = re.compile(r"\\begin\{array\}\s*\{(?P<spec>[^}]*)\}(?P<body>.*?)\\end\{array\}")
@@ -468,6 +591,18 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
                 "lines": delimiter_space_lines,
             }
         )
+
+    brace_lines = latex_math_span_brace_unbalanced_lines(text)
+    if brace_lines:
+        risks.append({"code": "latex-math-span-brace-unbalanced", "count": len(brace_lines), "lines": brace_lines})
+
+    dangling_lines = latex_dangling_close_before_dollar_lines(text)
+    if dangling_lines:
+        risks.append({"code": "latex-dangling-close-before-dollar", "count": len(dangling_lines), "lines": dangling_lines})
+
+    wrapper_lines = latex_array_wrapper_malformed_lines(text)
+    if wrapper_lines:
+        risks.append({"code": "latex-array-wrapper-malformed", "count": len(wrapper_lines), "lines": wrapper_lines})
 
     inline_dollars = count_likely_math_dollars(text)
     if inline_dollars % 2 == 1:

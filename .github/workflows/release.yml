@@ -62,6 +62,7 @@ jobs:
           scripts/run_smoke_tests.py
           student-os/scripts/update_student_os.py
           student-os/scripts/repair_import_run.py
+          student-os/scripts/repair_import_check.py
 
       - name: Run smoke tests
         run: python scripts/run_smoke_tests.py

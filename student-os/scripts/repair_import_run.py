@@ -400,8 +400,8 @@ def run_one(target_root: Path, *, dry_run: bool, allow_widened: bool) -> dict[st
                     "line_ending_after": line_ending_name(after_line_ending),
                     "line_ending_preserved": before_line_ending == after_line_ending,
                     "paragraph_boundaries_preserved": bool(review.get("paragraph_boundaries_preserved", True)),
-                    "post_apply_direct_edit_allowed": False,
-                    "recommended_next_action": "Inspect the rendered Markdown. If another defect appears, rerun repair_import_run.py or create a follow-up proposal.",
+                    "post_apply_direct_edit_allowed": True,
+                    "recommended_next_action": "Inspect the rendered Markdown. If another defect appears, make a focused local edit and run repair_import_check.py before reporting success.",
                 }
             )
     except Exception as exc:

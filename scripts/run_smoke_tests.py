@@ -53,6 +53,7 @@ def run_script(name: str, *args: str, cwd: Path = ROOT, env: dict[str, str] | No
             **os.environ,
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONIOENCODING": "utf-8",
+            "PYTHONUTF8": "1",
             **(env or {}),
         },
     )
@@ -129,7 +130,7 @@ def run_script_failure(name: str, *args: str, cwd: Path = ROOT) -> str:
         text=True,
         encoding="utf-8",
         cwd=cwd,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
     )
     if result.returncode == 0:
         raise AssertionError(f"Expected {name} to fail for args {args!r}")
@@ -1974,8 +1975,8 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Section patch proposal should pass review: {section_review}")
     if section_review.get("paragraph_boundaries_preserved") is not True:
         raise AssertionError(f"Section review should report preserved paragraph boundaries: {section_review}")
-    if section_review.get("post_apply_direct_edit_allowed") is not False:
-        raise AssertionError(f"Review should not permit direct target edits after apply: {section_review}")
+    if section_review.get("post_apply_direct_edit_allowed") is not True:
+        raise AssertionError(f"Review should permit focused direct follow-up edits gated by repair_import_check.py: {section_review}")
     if section_review.get("scope_pass") is not True or len(section_review.get("actual_changed_sections", [])) != 1:
         raise AssertionError(f"Section patch review should report one changed section: {section_review}")
     if "obsidian-inline-array-render-risk" not in section_review.get("render_risks_cleared", []):
@@ -1995,8 +1996,8 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     section_text = section_output.read_text(encoding="utf-8")
     if section_apply.get("ok") is not True or "2. 保持不变的题目。" not in section_text:
         raise AssertionError(f"Section apply should only replace the target section: {section_apply}\n{section_text}")
-    if section_apply.get("paragraph_boundaries_preserved") is not True or section_apply.get("post_apply_direct_edit_allowed") is not False:
-        raise AssertionError(f"Section apply should report boundary preservation and no direct-edit permission: {section_apply}")
+    if section_apply.get("paragraph_boundaries_preserved") is not True or section_apply.get("post_apply_direct_edit_allowed") is not True:
+        raise AssertionError(f"Section apply should report boundary preservation and check-gated direct-edit permission: {section_apply}")
     if "\n，求A。\n2. 保持不变的题目。" in section_text:
         raise AssertionError(f"Section apply should preserve the blank separator before the next question:\n{section_text}")
 
@@ -2487,8 +2488,8 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Direct import repair should review and apply one local render fix: {direct_run}")
     if direct_run.get("rolled_back") is not False or direct_run.get("verify_status") != "unverified":
         raise AssertionError(f"Direct import repair should keep unverified state and avoid rollback on success: {direct_run}")
-    if direct_run.get("post_apply_direct_edit_allowed") is not False:
-        raise AssertionError(f"Direct repair should still forbid follow-up naked edits: {direct_run}")
+    if direct_run.get("post_apply_direct_edit_allowed") is not True:
+        raise AssertionError(f"Direct repair should allow focused follow-up edits gated by repair_import_check.py: {direct_run}")
     direct_text = direct_target.read_text(encoding="utf-8")
     if "$$" not in direct_text or "$A = \\left(" in direct_text:
         raise AssertionError(f"Direct repair should convert inline array to standalone display math:\n{direct_text}")
@@ -2529,6 +2530,57 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Trimmed inline formulas should remain inline math:\n{inline_text}")
     if "二. 相邻题不能被粘连。" not in inline_text:
         raise AssertionError(f"Direct inline repair should preserve neighboring question text:\n{inline_text}")
+
+    check_vault = tmp_root / "direct-check-vault"
+    check_imports = check_vault / "references" / "imports" / "线性代数"
+    check_imports.mkdir(parents=True)
+    (check_vault / ".student-os").mkdir()
+    check_target = check_imports / "visible-render-fail.pdf.md"
+    check_target.write_text(
+        "---\n"
+        "source_file: visible-render-fail.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "二. 由条件得 $ x=A^{-1}b $，即 $$ A=B $$。\n"
+        "\n"
+        "解矩阵方程 }$\n"
+        "\n"
+        "局部公式 $x^{2}}$ 也会坏。\n"
+        "\n"
+        "$\\begin{array}{r}{1 & 0 \\\\ 0 & 1}\\end{array}$\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    check_result = subprocess.run(
+        [sys.executable, "-B", str(STUDENT_OS_SCRIPTS / "repair_import_check.py"), str(check_target), "--json"],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=check_vault,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    if check_result.returncode == 0:
+        raise AssertionError(f"repair_import_check.py should fail on visible render problems:\n{check_result.stdout}")
+    check_payload = json.loads(check_result.stdout)
+    check_codes = {
+        issue["code"]
+        for file_result in check_payload["files"]
+        for issue in file_result["blocking_errors"]
+    }
+    for expected in {
+        "inline-math-delimiter-space",
+        "display-math-delimiter-not-standalone",
+        "latex-math-span-brace-unbalanced",
+        "latex-dangling-close-before-dollar",
+        "latex-array-wrapper-malformed",
+    }:
+        if expected not in check_codes:
+            raise AssertionError(f"repair_import_check.py should report {expected}: {check_payload}")
+    if "线性代数" not in check_result.stdout:
+        raise AssertionError(f"repair_import_check.py should preserve readable Chinese paths:\n{check_result.stdout}")
 
 
 def verify_local_pdf_risk_forwarding(tmp_root: Path) -> None:

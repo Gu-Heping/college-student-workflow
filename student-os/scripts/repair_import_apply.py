@@ -172,10 +172,10 @@ def main() -> int:
         "line_ending_after": line_ending_name(after_line_ending),
         "line_ending_preserved": before_line_ending == after_line_ending,
         "paragraph_boundaries_preserved": bool(review_payload.get("paragraph_boundaries_preserved", True)),
-        "post_apply_direct_edit_allowed": False,
-        "next_action_on_post_apply_issue": "create-follow-up-proposal",
+        "post_apply_direct_edit_allowed": True,
+        "next_action_on_post_apply_issue": "direct-local-edit-then-repair-import-check",
         "recommended_next_action": (
-            "If another defect is found after apply, create a follow-up proposal, review it, then apply it; do not edit the target sidecar directly."
+            "If another defect is found after apply, make a focused local edit and run repair_import_check.py before reporting success."
         ),
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
