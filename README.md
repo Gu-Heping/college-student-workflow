@@ -229,11 +229,19 @@ python student-os/scripts/init_exam_census.py /path/to/vault --course <course> -
 
 导入修复只表示机器清理：`repair_status: auto-repaired` 仍需要人工核对来源后才能改为 `verify_status: verified`。
 
-需要 AI 协助逐题/逐段重建导入 sidecar 时，先生成治理队列和 case bundle：
+需要 AI 协助修复导入 sidecar 时，先让工具尝试一个局部、可回滚的直接修复：
 
 ```bash
 python student-os/scripts/inspect_repo.py /path/to/vault --compact-json --scope git
 python student-os/scripts/group_git_changes.py /path/to/vault --compact-json
+python student-os/scripts/repair_import_run.py /path/to/vault --json
+```
+
+`repair_import_run.py` 默认只处理 1 个低风险 Obsidian 可见渲染/结构问题，写入 run artifact，自动 review；review 或 post-review 失败会回滚目标文件。语义重建、缺题干、需要 OCR/PDF/视觉证据的内容不会被直接改。
+
+如果 direct run 返回 blocked/plan，再生成治理队列和 case bundle：
+
+```bash
 python student-os/scripts/repair_import_queue.py /path/to/vault --write-queue --classify-evidence --compact-json --json
 python student-os/scripts/repair_import_case.py --queue /path/to/vault/.student-os/import-repair/queue.json --queue-item <id> --evidence-mode auto --write-case --json
 python student-os/scripts/repair_import_review.py --proposal <proposal.md> --json
@@ -244,7 +252,7 @@ python student-os/scripts/repair_import_apply.py --proposal <proposal.md> --json
 
 AI 可以根据 case、raw import、repair summary、同目录试卷/答案和原 PDF 路径提出修复；文本模型默认 `text-only`，多模态模型可用 `vision-assisted` 渲染候选 PDF 页作为证据。输出仍保持 `verify_status: unverified`，直到人工对照原文确认。
 
-Agent 默认一次只处理一个 `single_section_candidate: true` 的 queue item，不并行生成多个 case，不在 vault 中写 `.fixed`、debug、trace 或临时修复脚本。`single_section_candidate: false` 表示应拆小或生成 blocked case。`unicode-escape` 是可读性问题；`math-dollar-unbalanced` 是低置信启发式，优先处理 `math-dollar-odd-line` 和 `latex-left-right-unbalanced` 等局部可执行风险。
+Agent 默认一次只处理一个局部问题；direct run 可直接落盘，但必须依赖工具 review/rollback。fallback queue/case 路线仍只处理一个 `single_section_candidate: true` 的 queue item，不并行生成多个 case，不在 vault 中写 `.fixed`、debug、trace 或临时修复脚本。`single_section_candidate: false` 表示应拆小或生成 blocked case。`unicode-escape` 是可读性问题；`math-dollar-unbalanced` 是低置信启发式，优先处理 `math-dollar-odd-line` 和 `latex-left-right-unbalanced` 等局部可执行风险。
 
 `ocr-assisted` 需要先通过导入/OCR 工具生成 vault 内的 `.md` 或 `.txt` 文本证据，再用 `repair_import_case.py --evidence-mode ocr-assisted --ocr-evidence <path>` 绑定；它不会直接覆盖已修复 sidecar。
 
@@ -361,7 +369,7 @@ docs/           # 维护记录文档
 ## 测试
 
 ```bash
-python -m py_compile scripts/bootstrap_dsh.py scripts/dsh_plugin_build.py scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_import_repair_evals.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py student-os/scripts/repair_import_queue.py student-os/scripts/repair_import_case.py student-os/scripts/repair_import_review.py student-os/scripts/repair_import_apply.py
+python -m py_compile scripts/bootstrap_dsh.py scripts/dsh_plugin_build.py scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_import_repair_evals.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py student-os/scripts/repair_import_queue.py student-os/scripts/repair_import_case.py student-os/scripts/repair_import_review.py student-os/scripts/repair_import_apply.py student-os/scripts/repair_import_run.py
 python scripts/run_smoke_tests.py
 python scripts/run_import_repair_evals.py
 ```

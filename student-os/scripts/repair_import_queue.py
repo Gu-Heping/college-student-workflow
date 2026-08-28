@@ -24,6 +24,7 @@ from import_governance import (
 
 STATE_DIR = Path(".student-os") / "import-repair"
 QUEUE_NAME = "queue.json"
+COMPACT_QUEUE_NAME = "queue.compact.json"
 SCHEMA_VERSION = "import-repair-queue/v1"
 SKIP_DIRS = {".git", ".student-os", "node_modules", "__pycache__"}
 FORMAT_RISKS = {
@@ -755,10 +756,44 @@ def blocking_risk_count(risks: list[dict[str, object]]) -> int:
     return total
 
 
-def review_strategy_for(blocking_count: int, lines: list[int]) -> str:
+def section_for_line(sections: list[dict[str, object]], line: int) -> dict[str, object] | None:
+    for section in sections:
+        start = section.get("start_line")
+        end = section.get("end_line")
+        if isinstance(start, int) and isinstance(end, int) and start <= line <= end:
+            return section
+    return None
+
+
+def target_section_for_blocking_lines(sections: list[dict[str, object]], lines: list[int]) -> dict[str, object] | None:
+    if not lines:
+        return None
+    matched = [section_for_line(sections, line) for line in lines]
+    if any(section is None for section in matched):
+        return None
+    first = matched[0]
+    if first is None:
+        return None
+    first_id = str(first.get("id", ""))
+    if first_id and all(str(section.get("id", "")) == first_id for section in matched if section is not None):
+        return first
+    return None
+
+
+def repair_scope_required_for(blocking_count: int, lines: list[int], target_section: dict[str, object] | None) -> str:
+    if blocking_count == 0:
+        return "metadata-or-nonblocking"
+    if target_section is not None:
+        return "single-section"
+    if len(lines) > 1:
+        return "widened"
+    return "blocked"
+
+
+def review_strategy_for(blocking_count: int, lines: list[int], target_section: dict[str, object] | None) -> str:
     if blocking_count == 0:
         return "metadata-or-nonblocking-review"
-    if blocking_count <= 2 and len(lines) <= 2:
+    if target_section is not None:
         return "single-local-section"
     return "blocked-or-split-into-smaller-cases"
 
@@ -798,7 +833,9 @@ def build_queue_item(root: Path, path: Path, *, text: str | None = None, decode_
     suspect_sections = sections_for_snippets(sections, snippets)
     blocking_lines = blocking_risk_lines(risks, snippets)
     blocking_count = blocking_risk_count(risks)
-    review_strategy = review_strategy_for(blocking_count, blocking_lines)
+    target_section = target_section_for_blocking_lines(sections, blocking_lines)
+    repair_scope_required = repair_scope_required_for(blocking_count, blocking_lines, target_section)
+    review_strategy = review_strategy_for(blocking_count, blocking_lines, target_section)
     item = {
         "schema_version": SCHEMA_VERSION,
         "id": stable_id(root, path),
@@ -821,6 +858,8 @@ def build_queue_item(root: Path, path: Path, *, text: str | None = None, decode_
         "suspect_sections": suspect_sections,
         "blocking_risk_count": blocking_count,
         "blocking_risk_lines": blocking_lines,
+        "target_section": target_section or {},
+        "repair_scope_required": repair_scope_required,
         "single_section_candidate": review_strategy == "single-local-section",
         "review_strategy": review_strategy,
         "evidence": evidence,
@@ -884,6 +923,8 @@ def compact_item(item: dict[str, object], *, queue_path: str) -> dict[str, objec
         "risk_codes": item.get("risk_codes", []),
         "blocking_risk_count": item.get("blocking_risk_count", 0),
         "blocking_risk_lines": item.get("blocking_risk_lines", []),
+        "target_section": item.get("target_section", {}),
+        "repair_scope_required": item.get("repair_scope_required", ""),
         "single_section_candidate": item.get("single_section_candidate", False),
         "review_strategy": item.get("review_strategy", ""),
         "primary_snippet": {
@@ -961,17 +1002,18 @@ def compact_queue_payload(payload: dict[str, object], *, limit: int) -> dict[str
     return {
         "schema_version": payload.get("schema_version"),
         "ok": payload.get("ok"),
+        "recommended_item": recommended_item,
+        "recommended_reason": recommended_reason,
+        "next_repairable_item": next_repairable_item,
+        "top_blocked_item": top_blocked_item,
+        "top_item": top_item,
         "target_root": payload.get("target_root"),
         "queue_path": queue_path,
+        "compact_queue_path": json_path(Path(queue_path).with_name(COMPACT_QUEUE_NAME)) if queue_path else "",
         "counts": payload.get("counts", {}),
         "compact": True,
         "items_returned": min(limit, len(ranked)),
         "items_total": len(ranked),
-        "top_item": top_item,
-        "top_blocked_item": top_blocked_item,
-        "next_repairable_item": next_repairable_item,
-        "recommended_item": recommended_item,
-        "recommended_reason": recommended_reason,
         "items": compact_items,
         "agent_rules": [
             "Process one queue item at a time.",
@@ -1022,6 +1064,14 @@ def write_queue(payload: dict[str, object]) -> Path:
     queue_path.parent.mkdir(parents=True, exist_ok=True)
     queue_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     return queue_path
+
+
+def write_compact_queue(payload: dict[str, object]) -> Path:
+    queue_path = Path(str(payload["queue_path"]))
+    compact_path = queue_path.with_name(COMPACT_QUEUE_NAME)
+    compact_path.parent.mkdir(parents=True, exist_ok=True)
+    compact_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    return compact_path
 
 
 def main() -> int:
@@ -1079,6 +1129,8 @@ def main() -> int:
         if args.compact_json and not args.full_json:
             limit = max(1, args.limit)
             payload = compact_queue_payload(payload, limit=limit)
+            if args.write_queue:
+                payload["compact_queue_path"] = json_path(write_compact_queue(payload))
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         print(payload["queue_path"])

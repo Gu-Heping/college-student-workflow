@@ -1635,7 +1635,9 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         "Broken math $x\n"
         "Formula \\left( x + 1\n"
         "解： $( A , C ) \\to \\left( \\begin{array} { c c c c } { { 1 } } & { { 0 } } & { { 0 } } \\\\ { { 0 } } & { { 1 } } & { { 0 } } \\\\ { { 0 } } & { { 0 } } & { { 1 } } \\end{array} \\middle| \\begin{array} { c c } { { 1 5 } } & { { - 7 } } \\\\ { { 2 } } & { { - 2 } } \\\\ { { - 1 0 } } & { { 6 } } \\end{array} \\right) $，则：\n"
-        "Placeholder □\n",
+        "Placeholder □\n"
+        "## 二. Second broken section\n"
+        "Later broken math $y\n",
         encoding="utf-8",
         newline="\n",
     )
@@ -1753,6 +1755,10 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Metadata-only legacy item should not look like broad content repair: {paths['legacy.pdf.md']}")
     if paths["single-section.pdf.md"].get("single_section_candidate") is not True:
         raise AssertionError(f"Single local render issue should be a section repair candidate: {paths['single-section.pdf.md']}")
+    if paths["single-section.pdf.md"].get("repair_scope_required") != "single-section":
+        raise AssertionError(f"Single local render issue should expose single-section scope: {paths['single-section.pdf.md']}")
+    if not paths["single-section.pdf.md"].get("target_section"):
+        raise AssertionError(f"Single local render issue should expose a target section: {paths['single-section.pdf.md']}")
 
     include_verified_payload = json.loads(run_script("repair_import_queue.py", str(vault), "--include-verified", "--json"))
     include_paths = {Path(item["path"]).name for item in include_verified_payload["items"]}
@@ -1764,6 +1770,11 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     )
     if compact_queue.get("compact") is not True or compact_queue.get("items_returned") != 3:
         raise AssertionError(f"Expected compact queue output with three items: {compact_queue}")
+    compact_queue_path = Path(compact_queue.get("compact_queue_path", ""))
+    if not compact_queue_path.exists():
+        raise AssertionError(f"--write-queue --compact-json should write queue.compact.json: {compact_queue}")
+    if b"\r\n" in compact_queue_path.read_bytes():
+        raise AssertionError("queue.compact.json should be written with LF newlines")
     if not compact_queue.get("top_item") or compact_queue["top_item"] != compact_queue["items"][0]:
         raise AssertionError(f"Compact queue should expose exactly one top recommended item: {compact_queue}")
     if not compact_queue.get("top_blocked_item"):
@@ -1890,6 +1901,12 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
             cwd=vault,
         )
     )
+    if single_case_payload.get("target_section", {}).get("id") != paths["single-section.pdf.md"]["target_section"]["id"]:
+        raise AssertionError(f"Case JSON should expose target_section at top level: {single_case_payload}")
+    if single_case_payload.get("repair_scope_required") != "single-section":
+        raise AssertionError(f"Case JSON should expose repair scope at top level: {single_case_payload}")
+    if not single_case_payload.get("blocking_risk_lines"):
+        raise AssertionError(f"Case JSON should expose blocking risk lines at top level: {single_case_payload}")
     single_case_json = Path(single_case_payload["case_json"])
     single_case_state = json.loads(single_case_json.read_text(encoding="utf-8"))
     single_section_id = single_case_state["queue_item"]["suspect_sections"][0]["id"]
@@ -2243,24 +2260,52 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
     if not any(issue.get("code") == "proposal-derived-from-scratch-fix" for issue in fixed_review.get("issues", [])):
         raise AssertionError(f"Review should reject .fixed/scratch-derived proposals: {fixed_review}")
 
+    clean_md = imports / "clean-source.pdf.md"
+    clean_md.write_text(
+        "---\n"
+        "source_file: clean-source.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "Broken math $x\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    clean_queue = json.loads(run_script("repair_import_queue.py", str(clean_md), "--write-queue", "--json", cwd=vault))
+    clean_item = clean_queue["items"][0]
+    clean_case = json.loads(
+        run_script(
+            "repair_import_case.py",
+            "--queue",
+            clean_queue["queue_path"],
+            "--queue-item",
+            clean_item["id"],
+            "--write-case",
+            "--evidence-mode",
+            "text-only",
+            "--json",
+            cwd=vault,
+        )
+    )
+    clean_case_state = json.loads(Path(clean_case["case_json"]).read_text(encoding="utf-8"))
     proposal = vault / ".student-os" / "import-repair" / "proposals" / "source-proposal.md"
     proposal.write_text(
         "# Proposal\n\n"
         "Evidence: source path exists, but human PDF review is still required.\n\n"
         "<!-- student-os-proposal-schema: import-repair-proposal/v1 -->\n"
-        f"<!-- student-os-target: {risky_md} -->\n\n"
-        f"<!-- student-os-target-sha256: {paths['source.pdf.md']['content_sha256']} -->\n"
-        f"<!-- student-os-case-json: {case_json} -->\n"
-        f"<!-- student-os-case-sha256: {case_digest} -->\n"
-        f"<!-- student-os-evidence-sha256: {evidence_sha256} -->\n"
+        f"<!-- student-os-target: {clean_md} -->\n\n"
+        f"<!-- student-os-target-sha256: {clean_item['content_sha256']} -->\n"
+        f"<!-- student-os-case-json: {clean_case['case_json']} -->\n"
+        f"<!-- student-os-case-sha256: {clean_case_state['case_sha256']} -->\n"
+        f"<!-- student-os-evidence-sha256: {clean_case_state['evidence_sha256']} -->\n"
         "<!-- student-os-evidence-mode: text-only -->\n"
         "<!-- student-os-model-capability: text-only -->\n"
         "<!-- student-os-changed-sections: section-test -->\n"
         "<!-- student-os-remaining-risks: human-review-required -->\n\n"
         "<!-- student-os-replacement-start -->\n"
         "---\n"
-        "source_file: source.pdf\n"
-        "derived_from_import: source.pdf.raw.md\n"
+        "source_file: clean-source.pdf\n"
         "import_method: mineru-agent-v1\n"
         "language: ch\n"
         "repair_status: human-verified\n"
@@ -2297,7 +2342,7 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Review should warn when AI claims verification: {review_payload}")
     ensure_exists(Path(review_payload["review_path"]))
 
-    applied = imports / "source.applied.pdf.md"
+    applied = imports / "clean-source.applied.pdf.md"
     apply_payload = json.loads(
         run_script(
             "repair_import_apply.py",
@@ -2396,6 +2441,41 @@ def verify_import_repair_ai_loop(tmp_root: Path) -> None:
         raise AssertionError(f"Apply should preserve CRLF line endings: {crlf_apply}")
     if b"\r\n" not in crlf_target.read_bytes():
         raise AssertionError("CRLF target should remain CRLF after apply")
+
+    direct_vault = tmp_root / "direct-vault"
+    direct_imports = direct_vault / "references" / "imports"
+    direct_imports.mkdir(parents=True)
+    (direct_vault / ".student-os").mkdir()
+    direct_target = direct_imports / "direct.pdf.md"
+    direct_target.write_text(
+        "---\n"
+        "source_file: direct.pdf\n"
+        "repair_status: auto-repaired\n"
+        "verify_status: unverified\n"
+        "---\n"
+        "\n"
+        "1. 设矩阵 $A = \\left( \\begin{array} { c c } 1 & 0 \\\\ 0 & 1 \\end{array} \\right)$，求A。\n"
+        "\n"
+        "2. 保持不变的题目。\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    direct_run = json.loads(run_script("repair_import_run.py", str(direct_vault), "--json", cwd=direct_vault))
+    if direct_run.get("ok") is not True or direct_run.get("review_pass") is not True:
+        raise AssertionError(f"Direct import repair should review and apply one local render fix: {direct_run}")
+    if direct_run.get("rolled_back") is not False or direct_run.get("verify_status") != "unverified":
+        raise AssertionError(f"Direct import repair should keep unverified state and avoid rollback on success: {direct_run}")
+    if direct_run.get("post_apply_direct_edit_allowed") is not False:
+        raise AssertionError(f"Direct repair should still forbid follow-up naked edits: {direct_run}")
+    direct_text = direct_target.read_text(encoding="utf-8")
+    if "$$" not in direct_text or "$A = \\left(" in direct_text:
+        raise AssertionError(f"Direct repair should convert inline array to standalone display math:\n{direct_text}")
+    if "verify_status: unverified" not in direct_text or "2. 保持不变的题目。" not in direct_text:
+        raise AssertionError(f"Direct repair should preserve governance and untouched neighboring section:\n{direct_text}")
+    run_dir = Path(str(direct_run.get("run_dir", "")))
+    for expected in ("before.md", "proposal.md", "review.json", "run.json"):
+        if not (run_dir / expected).exists():
+            raise AssertionError(f"Direct repair should leave auditable run artifact {expected}: {direct_run}")
 
 
 def verify_local_pdf_risk_forwarding(tmp_root: Path) -> None:
