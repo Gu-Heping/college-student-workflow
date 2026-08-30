@@ -9533,6 +9533,23 @@ def verify_extract_release_notes(tmp_root: Path) -> None:
         raise AssertionError("extract_release_notes.py should refuse Unreleased as release notes")
 
 
+def verify_exam_prep_ai_first_eval() -> None:
+    result = subprocess.run(
+        [sys.executable, "-B", str(ROOT_SCRIPTS / "run_exam_prep_evals.py")],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=ROOT,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            "run_exam_prep_evals.py failed:\n"
+            f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run smoke tests for student-os scaffolding workflows.")
     parser.add_argument(
@@ -9575,6 +9592,7 @@ def main() -> int:
         verify_scaffold_gitattributes(tmp_root / "scaffold-gitattributes-demo")
         verify_ensure_frontmatter(tmp_root / "ensure-frontmatter-demo")
         verify_import_repair_ai_loop(tmp_root / "import-repair-ai-loop-demo")
+        verify_exam_prep_ai_first_eval()
         verify_extract_release_notes(tmp_root / "extract-release-notes-demo")
 
         if args.refresh_examples:
@@ -9610,6 +9628,7 @@ def main() -> int:
     print("OK scaffold-gitattributes-demo")
     print("OK ensure-frontmatter-demo")
     print("OK import-repair-ai-loop-demo")
+    print("OK exam-prep-ai-first-evals")
     print("OK extract-release-notes-demo")
     if args.refresh_examples:
         print(f"REFRESHED {EXAMPLES_ROOT}")

@@ -32,7 +32,8 @@
 - 整理周计划、deadline、考试倒计时
 - 把 PDF / DOCX / PPTX / XLSX 转成可读的 Markdown 资料（有 MinerU token 时走 v4 精准 API；`auto` 无 token 的小文件可走 MinerU v1 Agent 免登录 API，超限时会提示配置 token；本地 fallback 仍会保留索引占位）
 - 对导入后的 markdown 做保守修复（repair）
-- 对历年试卷做 **exam-census**（题型普查 → 频率统计 → 题型解析 → 备考资料包）
+- 从格式混乱的历年试卷构建 **AI-first 备考资料包**（逐卷精析 → 题目卡 → 题型备课卡 → 题型解析 → 公式卡/模板/清单）
+- 对格式较稳定的历年试卷做 **exam-census**（题型普查 → 频率统计 → 题型解析 → 备考资料包）
 - 把使用中的问题记到 `feedback/`，并准备/发布隐私检查后的 GitHub Issue
 - 安全更新已安装的 `student-os`，**不碰**你的学习 vault 内容
 
@@ -88,7 +89,39 @@ Git 安全检查：
 请检查这个目录下的 .pdf.md 文件是否缺少 YAML frontmatter。先 dry-run 列出会修改哪些文件，确认后再用 ensure_frontmatter.py 补齐；不要覆盖已有 frontmatter，必须使用 UTF-8。
 ```
 
-考试题型普查：
+考试资料构建（AI 主导，适合真实历年卷格式不统一的情况）：
+
+```text
+请用 student-os 为这门课构建期末复习资料包。不要只做机械题型统计；采用两轮流程：第一轮逐卷阅读历年试卷和答案，只写本卷内可确认的试卷精析 v0 与题目卡，原题复现先标为待跨卷分析；第二轮读取全部题目卡做跨卷题型/原题复现/趋势分析，回填试卷精析 v1，再生成备考指南、公式总卡、答题模板速查和考前1小时清单。脚本只用于初始化任务、保存证据索引和做机械验收。
+```
+
+题型解析质量要求：
+
+```text
+写题型解析前必须先完成对应 type dossier / 题型备课卡。例题和自测题必须全部选自往年卷 paper-card 引用（例如 2024-final.json#一），例题区和自测区不能重复同一道题；真题不足时标 quality: needs-review 并写清“证据不足，需人工补充”，不要自编题、模拟题或改编题。
+```
+
+对应脚本入口：
+
+```bash
+python student-os/scripts/exam_prep_build.py /path/to/vault \
+  --course linear-algebra \
+  --exam-scope 期末 \
+  --papers-dir courses/linear-algebra/references/exams \
+  --json
+```
+
+验收：
+
+```bash
+python student-os/scripts/exam_prep_check.py /path/to/vault \
+  --course linear-algebra \
+  --exam-scope 期末 \
+  --stage final \
+  --json --write-report
+```
+
+考试题型普查（统计辅助，适合 sidecar 较干净且题号结构稳定的情况）：
 
 ```text
 请用 student-os 对这门课的历年试卷做 exam-census：先扫描试卷 markdown sidecar，建立题型 taxonomy，再统计高频题型，生成题型解析和备考资料包。每一步都先说明产物位置。

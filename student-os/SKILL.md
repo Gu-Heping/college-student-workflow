@@ -24,7 +24,8 @@ Run this skill as the single entry point for a university knowledge repository. 
 | Import PDF/DOCX/PPTX/XLSX/images/legacy Office | File-handler → `references/file-handler.md` + `commands/import-file.md` / `materials-convert.md` |
 | Repair imported markdown | File-handler repair → `scripts/repair_markdown_import.py` or `materials_convert.py --repair`; automatic repair means `repair_status: auto-repaired`, not human verified |
 | Fill missing `.pdf.md` YAML frontmatter | File-handler → `scripts/ensure_frontmatter.py` (dry-run first, then `--apply`) |
-| Exam type census / past-paper analysis / 题型普查 | Exam-census → `references/exam-census-workflow.md` (Phases 0–5 + A–E) + `commands/exam-census.md` |
+| Build exam prep material / 整理历年卷 / 构建期中期末备考包 | AI-first exam prep → `commands/exam-prep-build.md` |
+| Exam type census / frequency statistics / 题型普查 / 题型频率 | Exam-census → `references/exam-census-workflow.md` (Phases 0–5 + A–E) + `commands/exam-census.md` |
 | Record a local problem about student-os | Feedback → `references/feedback-ops.md` + `commands/feedback.md` |
 | Publish to GitHub Issue | GitHub feedback → `references/github-feedback.md` + `commands/report-issue.md` |
 | Sanitize text before any public post | `scripts/prepare_github_issue.py --stdin` / `--check-only` (+ `sanitize_and_post.py`) |
@@ -81,6 +82,8 @@ Use these scripts when helpful:
 - `scripts/build_multi_dim_stats.py` for Phase C multi-dimensional analysis drafts.
 - `scripts/init_exam_deep_dive.py` for Phase D representative paper deep-dive scaffolds.
 - `scripts/cross_validate_exam_census.py` for Phase E coverage / traceability checks.
+- `scripts/exam_prep_build.py` for initializing AI-first exam prep workspaces from messy past papers.
+- `scripts/exam_prep_check.py` for mechanical evidence/structure/render checks on AI-first exam prep packages.
 - `scripts/install_exam_census_adapters.py` for copying Claude/Cursor/OpenCode/GitHub exam-census adapters into a vault.
 - `scripts/group_git_changes.py` for student-task change grouping and commit prefix suggestions.
 - `scripts/rebuild_indexes.py` for regenerating course/project/task/activity indexes.
@@ -135,6 +138,7 @@ Handle:
 - course dashboards
 - review artifacts
 - weekly review digests
+- high-quality exam prep packs from messy past papers — use **AI-first exam prep** below and `commands/exam-prep-build.md`
 - exam census packs (type frequency, type analyses, prep guide) — for the full Phase A–E census pipeline use the **Exam census** section below and `references/exam-census-workflow.md`
 - progress-linked course updates
 
@@ -207,6 +211,16 @@ When the request involves scanned PDFs, image-heavy materials, or legacy `.doc` 
 - check whether `MINERU_TOKEN` or `MINERU_API_TOKEN` is configured before defaulting to local conversion
 - if no token is configured, tell the user that `materials_convert.py --method auto` will fall back locally and that adding a MinerU token enables higher-fidelity API parsing
 
+### AI-first exam prep
+
+Use `commands/exam-prep-build.md` when the user wants a real study package from past papers: 真题精析、题型解析、公式总卡、答题模板、考前清单、期末/期中备考指南.
+
+Default to this route for messy or inconsistent paper sidecars. Do not begin by forcing the papers through keyword statistics. Initialize with `scripts/exam_prep_build.py`, then run the staged loop: first write v0 paper deep dives plus paper-card JSONs with `repeat_status: unknown-pending-cross-paper-analysis`; after `exam_prep_check.py --stage paper-v0` passes, synthesize cross-paper type/repeat/trend analysis and backfill each paper deep dive with cross-paper relationships; then create type-dossier JSONs plus `题型备课卡/` before writing `题型解析/` lecture pages and the prep pack. Scripts only manage state and mechanical checks; AI owns semantic understanding, type clustering, teaching explanations, and prep strategy.
+
+For `题型解析`, do not fill a blank template. Open the matching type dossier and its past-paper refs first. Every worked example and self-test must cite a real paper-card ref such as `2024-final.json#一`; examples and self-tests must be disjoint. Choose them to cover the dossier's method cards and common variants so a student can learn the method from examples and then self-test the same coverage. This coverage judgment is AI work; the checker only enforces source refs, de-duplication, required sections, and mechanical render safety. If the past-paper pool is too small, mark the page `quality: needs-review` and write `证据不足，需人工补充` instead of inventing 自编题、模拟题、改编题.
+
+After AI writes artifacts, run `scripts/exam_prep_check.py --stage synthesis` before backfill, `--stage type-dossier` before type pages, then `--stage final --json --write-report`. Passing means structure/evidence/render checks passed; it does not mean mathematical content is human verified.
+
 ### Exam census
 
 Use `references/exam-census-workflow.md` and `references/exam-census-quality.md`.
@@ -278,6 +292,7 @@ When a request targets one of the seed courses, read the matching course pack be
 - `references/docx-workflow.md`
 - `references/xlsx-workflow.md`
 - `references/pptx-workflow.md`
+- `commands/exam-prep-build.md`
 - `references/exam-census-workflow.md`
 - `references/exam-census-quality.md`
 - `integrations/claude/skills/exam-census/SKILL.md` (Claude Code skill entry; recommended)
@@ -302,6 +317,7 @@ Use the command templates to expose common entry points:
 - `commands/study.md`
 - `commands/project.md`
 - `commands/review.md`
+- `commands/exam-prep-build.md`
 - `commands/exam-census.md`
 - `commands/plan-week.md`
 - `commands/inbox.md`
