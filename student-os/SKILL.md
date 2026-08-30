@@ -83,7 +83,7 @@ Use these scripts when helpful:
 - `scripts/init_exam_deep_dive.py` for Phase D representative paper deep-dive scaffolds.
 - `scripts/cross_validate_exam_census.py` for Phase E coverage / traceability checks.
 - `scripts/exam_prep_build.py` for initializing AI-first exam prep workspaces from messy past papers.
-- `scripts/exam_prep_check.py` for mechanical evidence/structure/render checks on AI-first exam prep packages.
+- `scripts/exam_prep_check.py` for tripwire-only mechanical evidence/structure/render checks on AI-written exam prep packages; passing does not mean the material is readable or complete.
 - `scripts/install_exam_census_adapters.py` for copying Claude/Cursor/OpenCode/GitHub exam-census adapters into a vault.
 - `scripts/group_git_changes.py` for student-task change grouping and commit prefix suggestions.
 - `scripts/rebuild_indexes.py` for regenerating course/project/task/activity indexes.
@@ -215,11 +215,15 @@ When the request involves scanned PDFs, image-heavy materials, or legacy `.doc` 
 
 Use `commands/exam-prep-build.md` when the user wants a real study package from past papers: 真题精析、题型解析、公式总卡、答题模板、考前清单、期末/期中备考指南.
 
-Default to this route for messy or inconsistent paper sidecars. Do not begin by forcing the papers through keyword statistics. Initialize with `scripts/exam_prep_build.py`, then first read sources and create/check the local quality standard, source map, and one gold sample: one representative `试卷精析` plus one representative `题型解析`. Broad requests must not immediately bulk-generate a complete pack; expand only after `exam_prep_check.py --stage gold-sample` passes. Then run the staged loop: v0 paper deep dives plus paper-card JSONs with `repeat_status: unknown-pending-cross-paper-analysis`; after `--stage paper-v0` passes, synthesize cross-paper type/repeat/trend analysis and backfill each paper deep dive with cross-paper relationships; then create type-dossier JSONs plus `题型备课卡/` before writing `题型解析/` lecture pages and the prep pack. Scripts only manage state and mechanical checks; AI owns semantic understanding, type clustering, teaching explanations, and prep strategy.
+Default to this route for messy or inconsistent paper sidecars. Before writing, read `references/exam-prep-gold-standard.md`. Enter editing-teacher mode, not batch-executor mode: the agent must personally open sources, understand the questions, write Markdown body text, read its own output as a student, and edit again. Scripts only initialize directories, list sources, record state, and run tripwire checks. They must not generate lecture body text, worked solutions, self-test answers, or type explanations.
+
+Broad requests must not immediately bulk-generate a complete pack. First initialize with `scripts/exam_prep_build.py`, then create/check the local quality standard, source map, and exactly one gold loop: one representative `试卷精析` plus one representative `题型解析` that the agent wrote by hand after reading actual paper/textbook/answer evidence. Run `exam_prep_check.py --stage gold-sample`, then perform a reader audit. Expand only after both pass. Then run the staged loop in small batches: v0 paper deep dives plus paper-card JSONs with `repeat_status: unknown-pending-cross-paper-analysis`; after `--stage paper-v0` passes, synthesize cross-paper type/repeat/trend analysis and backfill each paper deep dive with cross-paper relationships; then create type-dossier JSONs plus `题型备课卡/` before writing `题型解析/` lecture pages and the prep pack. AI owns semantic understanding, type clustering, teaching explanations, readability, and prep strategy.
 
 The target reader may have skipped lectures and homework and needs short-term catch-up. For `题型解析`, do not fill a blank template. Open the matching type dossier and its past-paper refs first, then write a tutoring handout: teach the textbook/lecture concepts before using them, include a symbol/concept table, give a 30-second memory card, a 2-minute writing template, method-choice rules, variants, full past-paper problem text, full worked solutions, self-tests, answers, checks, and pitfalls. Every worked example and self-test must cite a real paper-card ref such as `2024-final.json#一`; examples and self-tests must be disjoint. Choose them to cover the dossier's method cards and common variants so a student can learn the method from examples and then self-test the same coverage. This coverage judgment is AI work; the checker only enforces source refs, de-duplication, required sections, problem/answer presence, textbook grounding, and mechanical render safety. If the past-paper pool is too small, mark the page `quality: needs-review` and write `证据不足，需人工补充` instead of inventing 自编题、模拟题、改编题.
 
-After AI writes artifacts, run `scripts/exam_prep_check.py --stage gold-sample` before bulk generation, `--stage synthesis` before backfill, `--stage type-dossier` before type pages, `--stage type-analysis-sample` when drafting the first type page, then `--stage final --json --write-report`. Passing means structure/evidence/render checks passed; it does not mean mathematical content is human verified, and `issue_count: 0` is not proof that the material is useful to study.
+After AI writes artifacts, run `scripts/exam_prep_check.py --stage gold-sample` before expansion, `--stage synthesis` before backfill, `--stage type-dossier` before type pages, `--stage type-analysis-sample` when drafting the first type page, then `--stage final --json --write-report`. Passing means only that tripwire structure/evidence/render checks passed. It does not mean mathematical content is human verified, and `issue_count: 0` is not proof that the material is useful to study.
+
+Reader audit is mandatory before any "completed" report. Open and read the entry page, one type-analysis page, one paper deep dive, one worked example, and one self-test answer. Report concrete findings: which paragraphs were unreadable, which problem statements were incomplete, which solution failed to answer the problem, which self-test answer was generic, which textbook grounding was empty, and what you edited. If a blocker remains, keep editing or report blocked; do not claim completion.
 
 ### Exam census
 
@@ -289,6 +293,7 @@ When a request targets one of the seed courses, read the matching course pack be
 - `references/pdf-workflow.md`
 - `references/pdf-repair-rules.md`
 - `references/import-repair-examples.md`
+- `references/exam-prep-gold-standard.md`
 - `references/docx-workflow.md`
 - `references/xlsx-workflow.md`
 - `references/pptx-workflow.md`

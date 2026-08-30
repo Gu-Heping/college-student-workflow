@@ -178,9 +178,9 @@ def _analysis_text(filename: str, course: str, exam_scope: str) -> str:
 def _readme_text(course: str, exam_scope: str) -> str:
     return (
         f"# {course} · {exam_scope} · AI-first exam prep workspace\n\n"
-        "默认顺序：资料盘点 → 课程质量规范 → 样板页 → 逐卷精析 → 跨卷分析 → 题型备课卡 → 题型解析 → 备考包 → 机械验收。\n\n"
-        "脚本只管理任务、路径、证据索引和机械检查；不要把脚本统计当成最终考试分析。\n\n"
-        "宽泛构建请求先做一份试卷精析样板和一份题型解析样板。样板没通过前，不要批量铺开整套资料。\n"
+        "默认顺序：读取 gold standard → 资料盘点 → 课程质量规范 → 样板页 → reader audit → 逐批扩展 → tripwire 检查。\n\n"
+        "脚本只管理任务、路径、证据索引和机械 tripwire；不要把脚本统计、state JSON 或 paper-card 拼成正文。\n\n"
+        "正文必须由 AI 亲自打开来源、理解题目、编辑 Markdown、读回自审。宽泛构建请求先做一份试卷精析样板和一份题型解析 gold page。样板没通过 reader audit 前，不要批量铺开整套资料。\n"
     )
 
 
@@ -198,6 +198,9 @@ def _quality_standard_text(course: str, exam_scope: str) -> str:
         "- 例题负责教方法，自测负责检查同一方法或常见变式；两者不能重复。\n"
         "- 出现在题目、例题、自测中的概念、符号、公式、图形或电路，前文必须先讲清。\n"
         "- 解答使用动作句、算式、短注：先判什么、再列什么、如何代入、如何验算、最后答什么。\n"
+        "- 每次交付前必须做 reader audit：亲自抽读入口页、题型页、试卷精析、例题和自测答案，并写出具体修改。\n"
+        "- `issue_count: 0` 只代表 tripwire 通过，不代表资料可读或数学正确。\n"
+        "- 参考 `student-os/references/exam-prep-gold-standard.md` 的写作标准；不要复制私人 vault 内容。\n"
         "- 禁止占位话术、口语化废话、自问自答式标题、只给来源不放题目、只给结论不写过程。\n"
         "- Markdown 和 LaTeX 必须能在 Obsidian 中正常阅读。\n\n"
         "## 样板门禁\n\n"
@@ -361,11 +364,14 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
         "papers": paper_entries,
         "agent_contract": {
             "semantic_owner": "ai-agent",
-            "script_role": "task-state-and-mechanical-validation",
+            "script_role": "workspace-initialization-state-and-tripwire-only",
+            "content_authoring_rule": "AI must personally read sources and edit Markdown body text; scripts must not generate lecture prose, worked solutions, self-test answers, or guide content.",
             "default_order": [
+                "read_exam_prep_gold_standard",
                 "source_inventory",
                 "quality_standard",
                 "gold_sample",
+                "reader_audit",
                 "paper_deep_dive_v0",
                 "paper_card",
                 "cross_paper_synthesis",
@@ -373,10 +379,12 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
                 "type_dossier",
                 "type_analysis",
                 "prep_pack",
-                "quality_check",
+                "tripwire_check",
+                "reader_audit",
             ],
             "repeat_analysis_rule": "Original-repeat, close-variant, same-type, and trends are written after cross-paper synthesis, then backfilled into paper deep dives.",
-            "bulk_generation_rule": "Do not generate the full pack before one paper deep-dive sample and one type-analysis sample pass the gold-sample check.",
+            "bulk_generation_rule": "Do not generate the full pack before one paper-deep-dive sample and one type-analysis gold page pass tripwire checks and reader audit.",
+            "delivery_rule": "Do not report completed from issue_count:0. Final delivery requires a concrete reader audit describing sampled files, blockers, edits, and remaining risks.",
             "target_reader": "Student may have skipped lectures and homework; write for short-term exam catch-up.",
         },
     }
@@ -583,7 +591,7 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             str(output_root / "题型解析"),
             str(output_root / "分析"),
         ],
-        "next_action": "AI should first create/check one gold sample; after the sample passes, fill v0 paper deep dives and paper-card JSONs, then synthesize/backfill and write type dossiers before type-analysis pages.",
+        "next_action": "AI should read student-os/references/exam-prep-gold-standard.md, write one gold sample by hand from real sources, run gold-sample tripwire, then perform reader audit before expanding.",
         "check_argv": [
             "python",
             "student-os/scripts/exam_prep_check.py",
@@ -593,7 +601,7 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             "--exam-scope",
             scope,
             "--stage",
-            "paper-v0",
+            "gold-sample",
             "--json",
         ],
     }

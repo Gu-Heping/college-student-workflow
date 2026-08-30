@@ -9,19 +9,24 @@ Use when the user asks to:
 
 Default route:
 - primary role: `review-coach`
-- scripts manage workspace/state/mechanical checks only
-- AI owns paper reading, question understanding, type clustering, method writing, and prep strategy
+- work mode: editing teacher, not batch executor
+- scripts initialize workspace/state and run tripwire checks only
+- AI personally reads sources, writes Markdown body text, judges readability, revises, and reports reader audit
 
-Do **not** start with mechanical statistics or keyword parsing. For messy papers, the default order is:
+Do **not** start with mechanical statistics, keyword parsing, or full-package generation. For messy papers, the default order is:
 
 ```text
-阶段 0：资料盘点 → quality-standard.md → source-map.json
-阶段 1：一份试卷精析样板 + 一份题型解析样板 → gold-sample check
+阶段 0：读取 gold standard → 资料盘点 → quality-standard.md → source-map.json
+阶段 1：AI 亲自写一份试卷精析样板 + 一份题型解析 gold page → tripwire check → reader audit
 第一轮：逐卷精析 v0 → 题目卡
 第二轮：跨卷聚类/复现分析 → 回填精析 v1
 备课轮：type-dossiers 题型备课卡 → 题型解析讲义页
-收束轮：分析报告 → 四层备考包 → 机械验收
+收束轮：分析报告 → 四层备考包 → tripwire check → reader audit
 ```
+
+Before any content work, read `references/exam-prep-gold-standard.md`. Treat it as the writing standard.
+
+The core rule is simple: every explanation, worked solution, self-test answer, guide route, and type page paragraph must be written by the agent after reading source material. Do not use scripts, loops, state JSON, paper-cards, or dossiers to assemble body prose.
 
 ## Start
 
@@ -35,7 +40,7 @@ python student-os/scripts/exam_prep_build.py /path/to/vault \
   --json
 ```
 
-This creates task/state files under `.student-os/state/exam-prep/...` and readable artifacts under `courses/<course>/reviews/<scope>/`.
+This creates task/state files under `.student-os/state/exam-prep/...` and starter artifact locations under `courses/<course>/reviews/<scope>/`. These files are scaffolding and evidence/state holders, not finished study material.
 
 ## Stage 0 And Gold Sample
 
@@ -45,7 +50,7 @@ Before bulk generation, read the course sources and create a concrete local stan
 - `.student-os/state/exam-prep/<course>/<scope>/source-map.json`: papers, textbook/lecture/homework sources, answer sources, and known high-quality references.
 - `.student-os/state/exam-prep/<course>/<scope>/gold-sample-task.json`: the first representative sample task.
 
-Then write exactly one representative `试卷精析` sample and one representative `题型解析` sample. The default student has not attended lectures or done homework, so the sample must teach concepts before using them, include full past-paper problem text, and show full reasoning.
+Then write exactly one representative `试卷精析` sample and one representative `题型解析` gold page. The default student has not attended lectures or done homework, so the sample must teach concepts before using them, include full past-paper problem text, and show full reasoning. The agent must open the actual paper, answer evidence, and textbook/lecture source before writing.
 
 Check the sample before expanding:
 
@@ -57,7 +62,16 @@ python student-os/scripts/exam_prep_check.py /path/to/vault \
   --json
 ```
 
-If this fails, revise the sample. Do not generate dozens of files to hide a weak sample.
+If this fails, revise the sample. If it passes, perform reader audit before expanding. Do not generate dozens of files to hide a weak sample.
+
+Reader audit for the gold sample must answer:
+
+- Can a student tell what to open first?
+- Is the worked example a complete, usable problem?
+- Does the solution respond to that exact problem?
+- Is the textbook concept explained as an exam action?
+- Is the self-test answer concrete enough to check?
+- What did the agent edit after noticing weak spots?
 
 ## Round 1: Paper v0
 
@@ -117,9 +131,10 @@ python student-os/scripts/exam_prep_check.py /path/to/vault \
   --json
 ```
 
-Then write `题型解析/*.md` as tutoring handout pages from the dossier:
+Then write `题型解析/*.md` as tutoring handout pages from the dossier. The dossier is preparation, not page prose:
 
 - Open the dossier and the referenced past-paper questions first.
+- Open the relevant textbook/lecture material before explaining concepts.
 - Start with cross-paper value: frequency, score band, difficulty, repeat/variant status, representative years, and review priority.
 - Include 30 秒速记、符号和概念表、课本知识点与精确依据、2 分钟下笔模板、方法选择、核心概念、核心方法、例题精讲、自测题、自测答案、抢分技巧、易错点.
 - Put the actual past-paper problem text in the page. Source links alone are not enough.
@@ -128,6 +143,7 @@ Then write `题型解析/*.md` as tutoring handout pages from the dossier:
 - Default target: at least 5 worked examples and 4 self-tests. If past-paper evidence is insufficient, write `quality: needs-review` and explain `证据不足，需人工补充`.
 - Every example/self-test must cite a machine-readable past-paper ref such as `2024-final.json#一`; example refs and self-test refs must not overlap.
 - Choose examples and self-tests to cover the method cards and common variants in the dossier, not just to fill a count. This coverage judgment is AI work: each worked example should name the method/variant it teaches, explain what to notice first, and include a transfer cue; each self-test should state which method/variant it trains. The checker only verifies source refs, de-duplication, required sections, and whether training targets are labeled.
+- Do not copy a universal worked-solution paragraph across examples. Each solution must name the exact givens, the exact first relation, the exact computation, and the exact check for that problem.
 
 ## Check
 
@@ -141,12 +157,14 @@ python student-os/scripts/exam_prep_check.py /path/to/vault \
   --json --write-report
 ```
 
-Passing means the package meets mechanical evidence/structure/render checks. It does **not** prove all math is semantically correct.
+Passing means the package passed tripwire evidence/structure/render checks. It does **not** prove readability, teaching quality, or mathematical correctness. Before reporting completion, run reader audit from `references/exam-prep-gold-standard.md` and include the audit in your final message.
 
 ## Hard Rules
 
 - Do not deliver only `题型频率统计.md`.
 - Do not treat `issue_count: 0` as proof of teaching quality; it is only mechanical acceptance.
+- Do not report a broad exam-prep request as complete without a concrete reader audit.
+- Do not use batch scripts or loops to generate lecture body text, example explanations, self-test answers, or guide prose.
 - Do not bulk-generate the whole pack before a gold sample passes.
 - Do not invent examples or self-tests; all examples and self-tests must come from past papers.
 - Do not cite only paper-card refs without including usable problem text.
@@ -156,3 +174,4 @@ Passing means the package meets mechanical evidence/structure/render checks. It 
 - Do not mark AI output as human verified.
 - Do not let scripts decide complex semantics.
 - If source format is chaotic, spend effort on `试卷精析` and `paper-cards` first.
+- If a generated page feels unreadable, fix the prose and examples directly; do not hide behind a passing tripwire report.

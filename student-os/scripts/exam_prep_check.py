@@ -50,9 +50,23 @@ REQUIRED_DOSSIER_FIELDS = (
 SOURCE_RE = re.compile(r"来源\s*[：:]")
 PLACEHOLDER_RE = re.compile(r"\{\{[^}]+\}\}|TODO|TBD|待 AI|待整理|^\|\s*\|\s*\|", re.I | re.M)
 LOW_QUALITY_PHRASE_RE = re.compile(
-    r"答案以.*为准|调用对应方法卡|矩阵或公式|先圈出对象|不要急着代数展开|自测答案?以.*来源|同型变式通常只换|详见来源|见原题答案",
+    r"答案以.*为准|调用对应方法卡|矩阵或公式|先圈出对象|不要急着代数展开|自测答案?以.*来源|同型变式通常只换|详见来源|见原题答案|复核时对照\s*paper-card|题目较长.*关键条件",
     re.I,
 )
+UNIVERSAL_SOLUTION_RE = re.compile(
+    r"看到题干后先判入口|根据关键词确定本题属于本题型|使用本页核心方法中最匹配的一条|把题目给出的矩阵、向量或参数代入|按本页模板核算|同卷答案区核算",
+    re.I,
+)
+GENERIC_SELF_TEST_ANSWER_RE = re.compile(
+    r"答案\s*[：:].{0,80}(?:按本页模板|同卷答案区|核算最终数值|以来源为准|对照\s*paper-card|自行计算)",
+    re.I | re.S,
+)
+HEADING_ONLY_PROBLEM_RE = re.compile(
+    r"(?:\*\*)?题目(?:\*\*)?\s*[：:]\s*(?:\n\s*){0,2}#{1,6}\s*[一二三四五六七八九十\d]+[.、．][^\n]{0,40}(?:题|分|共|简答|计算)",
+    re.I,
+)
+RAW_OCR_DUMP_LINE_RE = re.compile(r"(?:\*\*)?题目(?:\*\*)?\s*[：:].{240,}(?:解\s*[：:：]|答案\s*[：:：]|\\\\begin\{array\})")
+GUIDE_ROUTE_MARKERS = ("我现在", "先读", "先看", "1 小时", "1天", "1 天", "3天", "3 天", "P0", "P1")
 SELF_QUESTION_TITLE_RE = re.compile(r"^#{1,6}\s*\d+(?:\.\d+)*\s*为什么", re.M)
 TEXTBOOK_GROUNDING_RE = re.compile(r"(?:课本|教材|讲义).{0,24}(?:§\s*\d+(?:\.\d+)+|图\s*\d+(?:\.\d+)+|题图\s*\d+(?:\.\d+)+|第\s*\d+\s*章)")
 OVERBROAD_SECTION_RE = re.compile(r"(?:课本|教材|讲义).{0,16}§\s*\d+(?:\.\d+)?(?:\s|[，,、。；;]|$)")
@@ -91,7 +105,7 @@ CROSS_PAPER_MARKERS = ("跨卷关系", "原题复现", "同型变式", "相似�
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Mechanical quality check for AI-first exam prep artifacts."
+        description="Tripwire-only mechanical check for AI-written exam prep artifacts."
     )
     parser.add_argument("repo", help="Target learning vault root")
     parser.add_argument("--course", required=True, help="Course slug or path under courses/")
@@ -322,6 +336,70 @@ def _validate_type_analysis_learning_quality(path: Path, refs_by_type: dict[str,
     examples_text = _section_text(text, "例题", stop_titles=("自测题", "自测答案", "快速得分", "易错点", "来源校对"))
     self_test_text = _section_text(text, "自测题", stop_titles=("自测答案", "快速得分", "易错点", "来源校对"))
     answers_text = _section_text(text, "自测答案", stop_titles=("快速得分", "易错点", "来源校对"))
+    if UNIVERSAL_SOLUTION_RE.search(examples_text):
+        issues.append(
+            _issue(
+                "type-analysis-template-worked-solution",
+                path,
+                "Worked examples use generic reusable prose instead of responding to the exact problem",
+            )
+        )
+    if GENERIC_SELF_TEST_ANSWER_RE.search(answers_text):
+        issues.append(
+            _issue(
+                "type-analysis-template-self-test-answer",
+                path,
+                "Self-test answers must give concrete results or key steps, not generic template instructions",
+            )
+        )
+        if len(GENERIC_SELF_TEST_ANSWER_RE.findall(answers_text)) > 1 or answers_text.count("按本页模板") > 1:
+            issues.append(
+                _issue(
+                    "type-analysis-repeated-self-test-answer",
+                    path,
+                    "Multiple self-test answers reuse generic template instructions instead of concrete answers",
+                )
+            )
+    if HEADING_ONLY_PROBLEM_RE.search(examples_text) or HEADING_ONLY_PROBLEM_RE.search(self_test_text):
+        issues.append(
+            _issue(
+                "type-analysis-heading-only-problem",
+                path,
+                "Problem statements cannot be only a promoted heading or broad paper section title",
+            )
+        )
+    if any(RAW_OCR_DUMP_LINE_RE.search(line) for line in examples_text.splitlines() + self_test_text.splitlines()):
+        issues.append(
+            _issue(
+                "type-analysis-raw-ocr-dump",
+                path,
+                "Problem text appears to paste raw OCR with solution/answer glued in; rewrite it into a usable stem",
+            )
+        )
+    solution_blocks = _normalized_blocks(
+        re.compile(r"完整解析\s*[：:]\s*(.+?)(?=\n\s*(?:验算|举一反三|易错|###|##)|\Z)", re.S),
+        examples_text,
+    )
+    answer_blocks = _normalized_blocks(
+        re.compile(r"答案\s*[：:]\s*(.+?)(?=\n\s*(?:###|##)|\Z)", re.S),
+        answers_text,
+    )
+    if _duplicate_blocks(solution_blocks):
+        issues.append(
+            _issue(
+                "type-analysis-repeated-worked-solution",
+                path,
+                "Multiple worked examples reuse the same explanation block; each example needs problem-specific reasoning",
+            )
+        )
+    if _duplicate_blocks(answer_blocks):
+        issues.append(
+            _issue(
+                "type-analysis-repeated-self-test-answer",
+                path,
+                "Multiple self-test answers reuse the same answer block; each self-test needs its own concrete answer",
+            )
+        )
     if not FULL_PROBLEM_RE.search(examples_text) or WEAK_PROBLEM_RE.search(examples_text):
         issues.append(_issue("type-analysis-missing-full-worked-problem", path, "Worked examples must include full past-paper problem statements, not only source links or summaries"))
     if not FULL_PROBLEM_RE.search(self_test_text) or WEAK_PROBLEM_RE.search(self_test_text):
@@ -603,6 +681,25 @@ def _section_text(text: str, title: str, *, stop_titles: tuple[str, ...] = ()) -
     return tail[: stop.start()] if stop else tail
 
 
+def _normalized_blocks(pattern: re.Pattern[str], text: str) -> list[str]:
+    blocks: list[str] = []
+    for match in pattern.finditer(text):
+        block = re.sub(r"\s+", " ", match.group(1)).strip()
+        if len(block) >= 60:
+            blocks.append(block)
+    return blocks
+
+
+def _duplicate_blocks(blocks: list[str]) -> set[str]:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for block in blocks:
+        if block in seen:
+            duplicates.add(block)
+        seen.add(block)
+    return duplicates
+
+
 def _has_insufficient_evidence_note(text: str) -> bool:
     return "证据不足" in text or "需人工补充" in text or "needs-review" in text
 
@@ -698,6 +795,34 @@ def _validate_cross_paper_markdown(path: Path, card_paths: list[Path], message: 
         issues.append(_issue("analysis-missing-paper-card-ref", path, message))
     if ("原题" in text or "重复" in text or "相似" in text or "变式" in text) and not SOURCE_RE.search(text):
         issues.append(_issue("analysis-repeat-claim-missing-source", path, "Repeat/variant claims must cite source refs"))
+    return issues
+
+
+def _validate_guide(path: Path) -> list[dict[str, str]]:
+    issues = _validate_markdown(path, required_type="exam-prep-guide")
+    if not path.exists():
+        return issues
+    text = _read(path)
+    if not any(marker in text for marker in GUIDE_ROUTE_MARKERS):
+        issues.append(
+            _issue(
+                "guide-missing-start-route",
+                path,
+                "Entry page must tell the student what to open first, not only list artifacts",
+            )
+        )
+    for marker in ("1 小时", "1 天", "3 天"):
+        compact = marker.replace(" ", "")
+        if marker not in text and compact not in text:
+            issues.append(_issue("guide-missing-study-route", path, f"Entry page should include a {marker} route"))
+    if ("文件" in text or "统计" in text or "产物" in text) and not any(marker in text for marker in ("先读", "第一步", "从这里开始")):
+        issues.append(
+            _issue(
+                "guide-artifact-list-only",
+                path,
+                "Entry page appears to be an artifact list; it must explain how to study from the pack",
+            )
+        )
     return issues
 
 
@@ -800,7 +925,10 @@ def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
     }
     if args.stage == "final":
         for key, filename in PREP_PACK_FILES.items():
-            issues.extend(_validate_markdown(output_root / filename, required_type=expected_types[key]))
+            if key == "guide":
+                issues.extend(_validate_guide(output_root / filename))
+            else:
+                issues.extend(_validate_markdown(output_root / filename, required_type=expected_types[key]))
 
     ok = not any(issue["severity"] == "error" for issue in issues)
     error_codes = {issue["code"] for issue in issues if issue["severity"] == "error"}
@@ -811,6 +939,10 @@ def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
     example_markers = ("example", "self-test", "worked")
     payload = {
         "ok": ok,
+        "tripwire_ok": ok,
+        "tripwire_only": True,
+        "reader_audit_required": True,
+        "delivery_allowed_by_script": False,
         "schema_version": SCHEMA_VERSION,
         "workflow": WORKFLOW,
         "course": course_key,
@@ -836,7 +968,10 @@ def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             {**issue, "path": relative_posix(Path(issue["path"]), repo) if issue["path"] else issue["path"]}
             for issue in issues
         ],
-        "next_action": "Fix the listed mechanical/evidence gaps; AI remains responsible for semantic quality.",
+        "next_action": (
+            "Fix listed tripwire issues, then run a concrete reader audit before delivery; "
+            "this script cannot certify readability, teaching quality, or math correctness."
+        ),
     }
     if args.write_report:
         write_json(report_path, payload)

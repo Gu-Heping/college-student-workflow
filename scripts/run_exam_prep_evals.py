@@ -248,6 +248,7 @@ def write_ai_outputs(vault: Path) -> None:
     )
     self_answers = "\n\n".join(
         f"### 自测 {index} 答案（来源：{ref}）\n\n答案：$X=C^{{-1}}D$。先判定乘法方向，再写对应公式并代入；最后代回原式验算。"
+        f" 本题 $C^{{-1}}=\\begin{{pmatrix}}1&0\\\\0&\\frac13\\end{{pmatrix}}$，所以 $X=\\begin{{pmatrix}}{index + 5}&0\\\\1&2\\end{{pmatrix}}$。"
         for index, ref in enumerate(self_refs, start=1)
     )
     write_text(
@@ -287,7 +288,7 @@ def write_ai_outputs(vault: Path) -> None:
         "---\ntype: exam-prep-guide\ncourse: linear-algebra\nexam_scope: 期末\nstatus: active\nreview_scope: exam-prep\n---\n\n"
         "# 线性代数期末考试备考指南\n\n## 怎么使用这套资料\n\n先看 [题型解析/01-matrix-equation.md](题型解析/01-matrix-equation.md)，再看 [期末公式总卡.md](期末公式总卡.md)、[期末答题模板速查.md](期末答题模板速查.md)、[考前1小时清单.md](考前1小时清单.md)。\n\n"
         "## 题型优先级\n\n| 优先级 | 题型 | 来源 |\n| --- | --- | --- |\n| P0 | 矩阵方程 | 2024-final 第 一 题 |\n\n"
-        "## 复习时间分配\n\n1 小时先掌握矩阵方程的下笔模板。\n",
+        "## 复习时间分配\n\n1 小时先掌握矩阵方程的下笔模板。1 天路线是先读题型页，再做自测并核对答案。3 天路线是第一天补核心概念，第二天刷例题，第三天限时做往年题。\n",
     )
     write_text(
         reviews / "期末公式总卡.md",
@@ -304,6 +305,19 @@ def write_ai_outputs(vault: Path) -> None:
         "---\ntype: pre-exam-one-hour-checklist\ncourse: linear-algebra\nexam_scope: 期末\nstatus: active\nreview_scope: exam-prep\n---\n\n"
         "# 考前1小时清单\n\n| 时间 | 做什么 | 文件 |\n| --- | --- | --- |\n| 60-45 分钟 | 看矩阵方程 | [题型解析/01-matrix-equation.md](题型解析/01-matrix-equation.md) |\n| 45-30 分钟 | 背公式 | [期末公式总卡.md](期末公式总卡.md) |\n| 30-15 分钟 | 背模板 | [期末答题模板速查.md](期末答题模板速查.md) |\n| 15-5 分钟 | 查易错点 | [期末考试备考指南.md](期末考试备考指南.md) |\n| 5-0 分钟 | 停止刷新题 | 本文件 |\n",
     )
+
+
+def add_cross_paper_backfill(vault: Path) -> None:
+    for path in (vault / "courses" / "linear-algebra" / "reviews" / "期末" / "试卷精析").glob("*.md"):
+        text = path.read_text(encoding="utf-8")
+        if "## 跨卷关系" not in text:
+            path.write_text(
+                text
+                + "\n## 跨卷关系\n\n"
+                + "原题复现：当前未发现完全原题；同型变式和复习优先级依据 2024-final.json#一、2025-final.json#一 标注。\n",
+                encoding="utf-8",
+                newline="\n",
+            )
 
 
 def verify_quality_pass_and_render_fail(tmp_root: Path) -> None:
@@ -355,15 +369,7 @@ def verify_quality_pass_and_render_fail(tmp_root: Path) -> None:
     if "paper-deep-dive-missing-cross-paper-backfill" not in codes:
         raise AssertionError(f"Final stage should fail before cross-paper backfill: {final_before_backfill}")
 
-    for path in (vault / "courses" / "linear-algebra" / "reviews" / "期末" / "试卷精析").glob("*.md"):
-        text = path.read_text(encoding="utf-8")
-        path.write_text(
-            text
-            + "\n## 跨卷关系\n\n"
-            + "原题复现：当前未发现完全原题；同型变式和复习优先级依据 2024-final.json#一、2025-final.json#一 标注。\n",
-            encoding="utf-8",
-            newline="\n",
-        )
+    add_cross_paper_backfill(vault)
 
     synthesis = run_student_script(
         "exam_prep_check.py",
@@ -410,6 +416,8 @@ def verify_quality_pass_and_render_fail(tmp_root: Path) -> None:
     )
     if ok.get("ok") is not True:
         raise AssertionError(f"Expected completed AI artifacts to pass mechanical check: {ok}")
+    if ok.get("tripwire_only") is not True or ok.get("reader_audit_required") is not True or ok.get("delivery_allowed_by_script") is not False:
+        raise AssertionError(f"Final check must identify itself as a tripwire-only check requiring reader audit: {ok}")
     report = vault / ".student-os" / "state" / "exam-prep" / "linear-algebra" / "期末" / "quality-report.json"
     if not report.exists():
         raise AssertionError("exam_prep_check.py --write-report should write quality-report.json")
@@ -540,6 +548,99 @@ def verify_type_analysis_rejects_unlearnable_shell(tmp_root: Path) -> None:
         raise AssertionError(f"Unlearnable source-link shell should fail: {fail}")
 
 
+def verify_type_analysis_rejects_batch_generated_garbage(tmp_root: Path) -> None:
+    vault, _ = verify_init_and_initial_failure(tmp_root)
+    write_ai_outputs(vault)
+    add_cross_paper_backfill(vault)
+    type_page = vault / "courses" / "linear-algebra" / "reviews" / "期末" / "题型解析" / "01-matrix-equation.md"
+    repeated_solution = (
+        "完整解析：看到题干后先判入口，根据关键词确定本题属于本题型。"
+        "使用本页核心方法中最匹配的一条，把题目给出的矩阵、向量或参数代入，按本页模板核算最终数值。"
+    )
+    type_page.write_text(
+        "---\ntype: exam-type-analysis\ncourse: linear-algebra\nexam_scope: 期末\nexam_type_id: matrix-equation\nexam_type_name: 矩阵方程\nquality: ready\nstatus: active\nreview_scope: exam-prep\n---\n\n"
+        "# 题型一：矩阵方程\n\n"
+        "频率：9 道；代表年份：2024、2025；复习优先级：P0；原题复现暂未确认，同型变式集中。\n\n"
+        "## 考前速记\n\n看到 $AX=B$，先判断未知矩阵的位置。\n\n"
+        "## 符号\n\n| 符号 | 意思 | 课本依据 |\n| --- | --- | --- |\n| $A^{-1}$ | 逆矩阵 | 课本 §2.3.1 逆矩阵定义 |\n\n"
+        "## 核心概念\n\n课本 §2.3.1 说明逆矩阵可用于消去左侧可逆矩阵。做题时先判断乘法方向。\n\n"
+        "## 2 分钟下笔模板\n\n先判未知矩阵在左还是右，再列消元方向，再代入。\n\n"
+        "## 核心方法\n\n看到矩阵方程就选择左乘或右乘。\n\n"
+        "## 例题精讲\n\n"
+        "### 例题 1（来源：2024-final.json#一）\n\n题目：## 一.计算题（12分）\n\n"
+        f"{repeated_solution}\n\n"
+        "### 例题 2（来源：2024-final.json#二）\n\n题目：设 $A$ 可逆且 $AX=B$，求 $X$。\n\n"
+        f"{repeated_solution}\n\n"
+        "## 自测题\n\n"
+        "### 自测 1（来源：2025-final.json#一）\n\n题目：设 $A$ 可逆且 $AX=B$，求 $X$。提示：训练左乘消元。\n\n"
+        "### 自测 2（来源：2025-final.json#二）\n\n题目：设 $XA=B$，求 $X$。提示：训练右乘消元。\n\n"
+        "## 自测答案\n\n"
+        "### 自测 1 答案\n\n答案：按本页模板核算，最终数值以同卷答案区为准。\n\n"
+        "### 自测 2 答案\n\n答案：按本页模板核算，最终数值以同卷答案区为准。\n\n"
+        "## 快速得分\n\n先写公式。\n\n"
+        "## 易错\n\n注意左右乘顺序。\n\n"
+        "## 来源\n\n来源：2024-final.json#一、2024-final.json#二、2025-final.json#一、2025-final.json#二。\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    fail = run_student_script(
+        "exam_prep_check.py",
+        str(vault),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期末",
+        "--stage",
+        "final",
+        "--json",
+        cwd=ROOT,
+        expect_ok=False,
+    )
+    codes = {issue["code"] for issue in fail.get("issues", []) if isinstance(issue, dict)}
+    required = {
+        "type-analysis-template-worked-solution",
+        "type-analysis-template-self-test-answer",
+        "type-analysis-heading-only-problem",
+        "type-analysis-repeated-worked-solution",
+        "type-analysis-repeated-self-test-answer",
+    }
+    if not required <= codes:
+        raise AssertionError(f"Batch-generated garbage type page should fail: {fail}")
+
+
+def verify_guide_rejects_artifact_list_only(tmp_root: Path) -> None:
+    vault, _ = verify_init_and_initial_failure(tmp_root)
+    write_ai_outputs(vault)
+    add_cross_paper_backfill(vault)
+    guide = vault / "courses" / "linear-algebra" / "reviews" / "期末" / "期末考试备考指南.md"
+    guide.write_text(
+        "---\ntype: exam-prep-guide\ncourse: linear-algebra\nexam_scope: 期末\nstatus: active\nreview_scope: exam-prep\n---\n\n"
+        "# 线性代数期末考试备考指南\n\n"
+        "## 完成内容\n\n"
+        "- 36 份逐卷精析\n- 7 页题型解析\n- 5 份分析统计\n\n"
+        "## 统计\n\n本资料包结构完整，issue_count: 0。\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    fail = run_student_script(
+        "exam_prep_check.py",
+        str(vault),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期末",
+        "--stage",
+        "final",
+        "--json",
+        cwd=ROOT,
+        expect_ok=False,
+    )
+    codes = {issue["code"] for issue in fail.get("issues", []) if isinstance(issue, dict)}
+    required = {"guide-missing-start-route", "guide-missing-study-route", "guide-artifact-list-only"}
+    if not required <= codes:
+        raise AssertionError(f"Artifact-list-only guide should fail: {fail}")
+
+
 def verify_paper_v0_rejects_premature_repeat_claim(tmp_root: Path) -> None:
     vault, _ = verify_init_and_initial_failure(tmp_root)
     write_ai_outputs(vault)
@@ -572,6 +673,8 @@ def main() -> int:
         verify_type_dossier_rejects_bad_refs_and_overlap(tmp_root / "bad-dossier")
         verify_type_analysis_rejects_fabricated_and_duplicate_sources(tmp_root / "bad-type-page")
         verify_type_analysis_rejects_unlearnable_shell(tmp_root / "unlearnable-type-page")
+        verify_type_analysis_rejects_batch_generated_garbage(tmp_root / "batch-garbage")
+        verify_guide_rejects_artifact_list_only(tmp_root / "bad-guide")
         verify_paper_v0_rejects_premature_repeat_claim(tmp_root / "premature")
     print("OK exam-prep-ai-first-evals")
     return 0
