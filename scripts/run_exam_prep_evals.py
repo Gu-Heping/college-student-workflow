@@ -76,16 +76,35 @@ def verify_init_and_initial_failure(tmp_root: Path) -> tuple[Path, dict[str, obj
     if payload.get("workflow") != "ai-first-exam-prep" or payload.get("paper_count") != 2:
         raise AssertionError(f"Unexpected build payload: {payload}")
     for rel in (
+        "courses/linear-algebra/reviews/期末/quality-standard.md",
         "courses/linear-algebra/reviews/期末/试卷精析",
         "courses/linear-algebra/reviews/期末/题目卡",
         "courses/linear-algebra/reviews/期末/题型备课卡",
         "courses/linear-algebra/reviews/期末/题型解析",
         "courses/linear-algebra/reviews/期末/分析",
+        ".student-os/state/exam-prep/linear-algebra/期末/source-map.json",
+        ".student-os/state/exam-prep/linear-algebra/期末/gold-sample-task.json",
         ".student-os/state/exam-prep/linear-algebra/期末/paper-cards",
         ".student-os/state/exam-prep/linear-algebra/期末/type-dossiers",
     ):
         if not (vault / rel).exists():
             raise AssertionError(f"Missing initialized path: {rel}")
+
+    for stage in ("standard", "source-map"):
+        early = run_student_script(
+            "exam_prep_check.py",
+            str(vault),
+            "--course",
+            "linear-algebra",
+            "--exam-scope",
+            "期末",
+            "--stage",
+            stage,
+            "--json",
+            cwd=ROOT,
+        )
+        if early.get("ok") is not True:
+            raise AssertionError(f"Expected initialized {stage} stage to pass: {early}")
 
     check = run_student_script(
         "exam_prep_check.py",
@@ -201,19 +220,21 @@ def write_ai_outputs(vault: Path) -> None:
     write_text(
         reviews / "试卷精析" / "2024-final.md",
         "---\ntype: exam-paper-deep-dive\ncourse: linear-algebra\nexam_scope: 期末\nstatus: active\nreview_scope: exam-prep\n---\n\n"
-        "# 2024 期末试卷精析\n\n## 一、矩阵方程\n\n来源：2024-final 第 一 题。看到 $AX=B$，先判断 $A$ 是否可逆，再选择逆矩阵或增广矩阵法。\n",
+        "# 2024 期末试卷精析\n\n## 一、矩阵方程\n\n题号：一。来源：2024-final 第 一 题。考点：可逆矩阵和矩阵方程。解法入口：看到 $AX=B$，先判断 $A$ 是否可逆，再选择逆矩阵或增广矩阵法。疑点：是否有跨年原题复现，等待第二轮跨卷分析。\n",
     )
     write_text(
         reviews / "试卷精析" / "2025-final.md",
         "---\ntype: exam-paper-deep-dive\ncourse: linear-algebra\nexam_scope: 期末\nstatus: active\nreview_scope: exam-prep\n---\n\n"
-        "# 2025 期末试卷精析\n\n## 一、线性相关性\n\n来源：2025-final 第 一 题。先看向量个数、维数和秩，再判断是否线性相关。\n",
+        "# 2025 期末试卷精析\n\n## 一、线性相关性\n\n题号：一。来源：2025-final 第 一 题。考点：秩与线性相关。解法入口：先看向量个数、维数和秩，再判断是否线性相关。疑点：是否与 2024 年同型，等待第二轮跨卷分析。\n",
     )
     examples = "\n\n".join(
         f"### 例题 {index}（来源：{ref}）\n\n"
-        f"题目摘录：矩阵方程往年题 {index}。\n\n"
+        f"题目：设 $A=\\begin{{pmatrix}}1&0\\\\0&2\\end{{pmatrix}}$，$B=\\begin{{pmatrix}}{index}&1\\\\0&2\\end{{pmatrix}}$，求满足 $AX=B$ 的矩阵 $X$。\n\n"
         "看到题目先判断什么：先看未知矩阵在等式哪一侧、已知矩阵是否可逆、维度是否匹配。\n\n"
         "方法引用：使用备课卡 method_cards 中的左右乘或增广矩阵路线。\n\n"
-        "完整解析：先列出方程结构，再选择乘法方向；若是 $AX=B$，写出 $X=A^{-1}B$，再代入计算并保留矩阵维度检查。\n\n"
+        "完整解析：动作句先判 $A$ 在 $X$ 左边，且 $A$ 可逆；再列 $X=A^{-1}B$；代入 $A^{-1}=\\begin{pmatrix}1&0\\\\0&\\frac12\\end{pmatrix}$，得到 $X=\\begin{pmatrix}"
+        f"{index}&1\\\\0&1"
+        "\\end{pmatrix}$。\n\n"
         "验算或检查：把求出的 $X$ 代回原式，检查行列维度和乘法顺序。\n\n"
         "举一反三与常见变式：若未知矩阵换到右侧，就把左乘路线改为右乘路线；若出现增广矩阵，先看分隔线两边列数。\n\n"
         "易错点：不要把左乘逆矩阵写成右乘，也不要漏写可逆条件。"
@@ -221,12 +242,12 @@ def write_ai_outputs(vault: Path) -> None:
     )
     self_tests = "\n\n".join(
         f"### 自测 {index}（来源：{ref}）\n\n"
-        f"题目：完成往年卷矩阵方程自测 {index}。\n\n"
+        f"题目：设 $C=\\begin{{pmatrix}}1&0\\\\0&3\\end{{pmatrix}}$，$D=\\begin{{pmatrix}}{index + 5}&0\\\\3&6\\end{{pmatrix}}$，求满足 $CX=D$ 的矩阵 $X$。\n\n"
         "提示：本题训练左右乘方法选择和同型变式识别；先写未知矩阵位置和可逆条件，再决定乘法方向。"
         for index, ref in enumerate(self_refs, start=1)
     )
     self_answers = "\n\n".join(
-        f"### 自测 {index} 答案（来源：{ref}）\n\n先判定乘法方向，再写对应公式并代入；最后代回原式验算。"
+        f"### 自测 {index} 答案（来源：{ref}）\n\n答案：$X=C^{{-1}}D$。先判定乘法方向，再写对应公式并代入；最后代回原式验算。"
         for index, ref in enumerate(self_refs, start=1)
     )
     write_text(
@@ -235,7 +256,9 @@ def write_ai_outputs(vault: Path) -> None:
         "# 题型一：矩阵方程\n\n"
         "频率：9 道往年题进入题池；分值通常是中档计算题；难度以基础到中等为主；原题复现暂未确认，但同型变式集中；代表年份：2024、2025；复习优先级：P0。\n\n"
         "## 考前速记\n\n看到 $AX=B$，先问 $A$ 是否可逆。\n\n"
-        "## 核心概念\n\n矩阵方程把未知矩阵当成整体。来源：2024-final.json#一。\n\n"
+        "## 符号和概念表\n\n| 符号 | 意思 | 课本依据 |\n| --- | --- | --- |\n| $A^{-1}$ | 可逆矩阵 $A$ 的逆矩阵 | 课本 §2.3.1 逆矩阵定义 |\n| $AX=B$ | 未知矩阵在右侧的矩阵方程 | 课本 §2.3.1 矩阵乘法与逆矩阵 |\n\n"
+        "## 核心概念\n\n矩阵方程把未知矩阵当成整体。课本 §2.3.1 说明可逆矩阵可以通过左乘逆矩阵消去；讲义图 2.3.1 的箭头顺序提醒乘法不可交换。来源：2024-final.json#一。\n\n"
+        "## 2 分钟下笔模板\n\n动作句：先判未知矩阵在左还是右；再列消元方向；代入逆矩阵或增广矩阵；最后验算维度和原式。\n\n"
         "## 核心方法\n\n| 场景 | 方法 |\n| --- | --- |\n| $AX=B$ | 左乘 $A^{-1}$ 或做增广矩阵 |\n\n"
         "## 例题精讲\n\n"
         f"{examples}\n\n"
@@ -286,6 +309,20 @@ def write_ai_outputs(vault: Path) -> None:
 def verify_quality_pass_and_render_fail(tmp_root: Path) -> None:
     vault, _ = verify_init_and_initial_failure(tmp_root)
     write_ai_outputs(vault)
+    gold_sample = run_student_script(
+        "exam_prep_check.py",
+        str(vault),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期末",
+        "--stage",
+        "gold-sample",
+        "--json",
+        cwd=ROOT,
+    )
+    if gold_sample.get("ok") is not True:
+        raise AssertionError(f"Expected gold sample to pass before bulk generation: {gold_sample}")
     paper_v0 = run_student_script(
         "exam_prep_check.py",
         str(vault),
@@ -455,6 +492,54 @@ def verify_type_analysis_rejects_fabricated_and_duplicate_sources(tmp_root: Path
         raise AssertionError(f"Fabricated or duplicated type-analysis questions should fail: {fail}")
 
 
+def verify_type_analysis_rejects_unlearnable_shell(tmp_root: Path) -> None:
+    vault, _ = verify_init_and_initial_failure(tmp_root)
+    write_ai_outputs(vault)
+    for path in (vault / "courses" / "linear-algebra" / "reviews" / "期末" / "试卷精析").glob("*.md"):
+        text = path.read_text(encoding="utf-8")
+        path.write_text(text + "\n## 跨卷关系\n\n原题复现：依据 2024-final.json#一 和 2025-final.json#一 判断同型变式。\n", encoding="utf-8", newline="\n")
+    type_page = vault / "courses" / "linear-algebra" / "reviews" / "期末" / "题型解析" / "01-matrix-equation.md"
+    type_page.write_text(
+        "---\ntype: exam-type-analysis\ncourse: linear-algebra\nexam_scope: 期末\nexam_type_id: matrix-equation\nquality: ready\nstatus: active\nreview_scope: exam-prep\n---\n\n"
+        "# 题型一：矩阵方程\n\n"
+        "频率：9 道；代表年份：2024、2025；复习优先级：P0；同型变式集中。\n\n"
+        "## 考前速记\n\n先圈出对象，不要急着代数展开。\n\n"
+        "## 符号\n\n$A$、$X$、$B$ 表示矩阵。\n\n"
+        "## 核心概念\n\n参考课本 §2。\n\n"
+        "## 核心方法\n\n调用对应方法卡。\n\n"
+        "## 例题\n\n来源：2024-final.json#一。题目摘录：矩阵方程往年题 1。完整解析：答案以来源为准。\n\n"
+        "## 自测\n\n来源：2025-final.json#一。题目：完成往年卷自测 1。提示：看来源。\n\n"
+        "## 自测答案\n\n答案以来源为准。\n\n"
+        "## 快速得分\n\n写公式。\n\n"
+        "## 易错\n\n注意。\n\n"
+        "## 来源\n\n来源：2024-final.json#一、2025-final.json#一。\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    fail = run_student_script(
+        "exam_prep_check.py",
+        str(vault),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期末",
+        "--stage",
+        "final",
+        "--json",
+        cwd=ROOT,
+        expect_ok=False,
+    )
+    codes = {issue["code"] for issue in fail.get("issues", []) if isinstance(issue, dict)}
+    required = {
+        "type-analysis-low-quality-phrase",
+        "type-analysis-missing-textbook-grounding",
+        "type-analysis-missing-full-worked-problem",
+        "type-analysis-missing-full-self-test-problem",
+    }
+    if not required <= codes:
+        raise AssertionError(f"Unlearnable source-link shell should fail: {fail}")
+
+
 def verify_paper_v0_rejects_premature_repeat_claim(tmp_root: Path) -> None:
     vault, _ = verify_init_and_initial_failure(tmp_root)
     write_ai_outputs(vault)
@@ -486,6 +571,7 @@ def main() -> int:
         verify_quality_pass_and_render_fail(tmp_root / "main")
         verify_type_dossier_rejects_bad_refs_and_overlap(tmp_root / "bad-dossier")
         verify_type_analysis_rejects_fabricated_and_duplicate_sources(tmp_root / "bad-type-page")
+        verify_type_analysis_rejects_unlearnable_shell(tmp_root / "unlearnable-type-page")
         verify_paper_v0_rejects_premature_repeat_claim(tmp_root / "premature")
     print("OK exam-prep-ai-first-evals")
     return 0

@@ -24,6 +24,11 @@ from exam_census_utils import (
 
 SCHEMA_VERSION = 1
 WORKFLOW = "ai-first-exam-prep"
+STANDARD_FILES = {
+    "quality_standard": "quality-standard.md",
+    "source_map": "source-map.json",
+    "gold_sample_task": "gold-sample-task.json",
+}
 CORE_ANALYSIS_FILES = [
     "01-题型频率统计.md",
     "02-跨年原题重复记录.md",
@@ -38,6 +43,9 @@ PREP_PACK_FILES = {
     "one_hour_checklist": "考前1小时清单.md",
 }
 PHASES = [
+    "source_inventory",
+    "quality_standard",
+    "gold_sample",
     "paper_deep_dive_v0",
     "cross_paper_synthesis",
     "paper_deep_dive_v1_backfill",
@@ -170,9 +178,91 @@ def _analysis_text(filename: str, course: str, exam_scope: str) -> str:
 def _readme_text(course: str, exam_scope: str) -> str:
     return (
         f"# {course} · {exam_scope} · AI-first exam prep workspace\n\n"
-        "默认顺序：逐卷精析 → 题目卡 → AI 归纳题型 → 备考资料包 → 机械验收。\n\n"
-        "脚本只管理任务、路径、证据索引和机械检查；不要把脚本统计当成最终考试分析。\n"
+        "默认顺序：资料盘点 → 课程质量规范 → 样板页 → 逐卷精析 → 跨卷分析 → 题型备课卡 → 题型解析 → 备考包 → 机械验收。\n\n"
+        "脚本只管理任务、路径、证据索引和机械检查；不要把脚本统计当成最终考试分析。\n\n"
+        "宽泛构建请求先做一份试卷精析样板和一份题型解析样板。样板没通过前，不要批量铺开整套资料。\n"
     )
+
+
+def _quality_standard_text(course: str, exam_scope: str) -> str:
+    return (
+        _frontmatter("exam-prep-quality-standard", course, exam_scope)
+        + f"# {course} · {exam_scope} · 质量规范\n\n"
+        "## 目标读者\n\n"
+        "默认学生没听过课、没做过作业，需要短时间速成。资料必须能直接学习、直接做题、直接复盘。\n\n"
+        "## 写作规则\n\n"
+        "- 先读课本、讲义、往年卷、答案和已有高质量参考，再写样板。\n"
+        "- 不允许只写“参考某资料风格”；必须提炼成本课程可执行规则。\n"
+        "- 题型解析必须有完整题目、完整解析、课本依据、真题例题、真题自测和自测答案。\n"
+        "- 知识点讲解必须结合课本小节、图号、题图或讲义位置；习题全解只作为答案/解法参考。\n"
+        "- 例题负责教方法，自测负责检查同一方法或常见变式；两者不能重复。\n"
+        "- 出现在题目、例题、自测中的概念、符号、公式、图形或电路，前文必须先讲清。\n"
+        "- 解答使用动作句、算式、短注：先判什么、再列什么、如何代入、如何验算、最后答什么。\n"
+        "- 禁止占位话术、口语化废话、自问自答式标题、只给来源不放题目、只给结论不写过程。\n"
+        "- Markdown 和 LaTeX 必须能在 Obsidian 中正常阅读。\n\n"
+        "## 样板门禁\n\n"
+        "先完成一份 `试卷精析` 样板和一份 `题型解析` 样板。样板通过 `exam_prep_check.py --stage gold-sample` 前，不要批量生成整套资料。\n"
+    )
+
+
+def _source_map_payload(repo: Path, course_dir: Path, papers: list[Path], papers_dir: Path, course: str, exam_scope: str) -> dict[str, Any]:
+    course_refs = course_dir / "references"
+    source_candidates = {
+        "textbook_refs": ["课本/", "textbook/", relative_posix(course_refs / "textbooks", repo)],
+        "lecture_refs": [relative_posix(course_refs / "lectures", repo), relative_posix(course_dir / "notes", repo)],
+        "assignment_refs": [relative_posix(course_dir / "homework", repo), relative_posix(course_refs / "exercises", repo)],
+        "paper_refs": [relative_posix(paper, repo) for paper in papers],
+        "answer_refs": [],
+        "high_quality_examples": [
+            "If available, inspect an existing high-quality prep pack in this vault and extract concrete writing rules before drafting.",
+        ],
+    }
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "workflow": WORKFLOW,
+        "course": course,
+        "exam_scope": exam_scope,
+        "papers_dir": relative_posix(papers_dir, repo),
+        "source_priority": [
+            "course textbook/lecture notes for concepts and symbols",
+            "past papers for examples and self-tests",
+            "answer keys/solution books for checking solutions only",
+            "homework/typical problems for supplementary coverage",
+        ],
+        **source_candidates,
+        "rules": [
+            "Do not treat answer-key text as textbook grounding.",
+            "Prefer original past-paper problems over variants.",
+            "Mark source gaps as needs-review instead of inventing content.",
+        ],
+    }
+
+
+def _gold_sample_task_payload(repo: Path, output_root: Path, state: Path, course: str, exam_scope: str, paper_entries: list[dict[str, Any]]) -> dict[str, Any]:
+    first_paper = paper_entries[0] if paper_entries else {}
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "workflow": WORKFLOW,
+        "phase": "gold_sample",
+        "course": course,
+        "exam_scope": exam_scope,
+        "status": "pending-ai-sample",
+        "inputs": [
+            relative_posix(output_root / STANDARD_FILES["quality_standard"], repo),
+            relative_posix(state / STANDARD_FILES["source_map"], repo),
+            str(first_paper.get("path") or ""),
+        ],
+        "outputs": [
+            str(first_paper.get("deep_dive") or relative_posix(output_root / "试卷精析", repo)),
+            relative_posix(output_root / "题型解析", repo),
+        ],
+        "instructions": [
+            "Before bulk generation, write one representative paper deep-dive sample and one representative type-analysis sample.",
+            "The sample type-analysis must include a full past-paper problem, textbook-grounded concept explanation, full solution, self-test, answer, source refs, and readable short blocks.",
+            "Run exam_prep_check.py --stage gold-sample --json. Do not expand to the full pack until the sample passes.",
+        ],
+        "bulk_generation_locked_until": "gold-sample-pass",
+    }
 
 
 def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
@@ -197,6 +287,9 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
     backfill_tasks_path = state / "backfill-tasks.json"
     type_dossier_tasks_path = state / "type-dossier-tasks.json"
     type_analysis_tasks_path = state / "type-analysis-tasks.json"
+    source_map_path = state / STANDARD_FILES["source_map"]
+    gold_sample_task_path = state / STANDARD_FILES["gold_sample_task"]
+    quality_standard_path = output_root / STANDARD_FILES["quality_standard"]
     taxonomy_path = state / "taxonomy.json"
     status_path = state / "build-status.json"
 
@@ -270,6 +363,9 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             "semantic_owner": "ai-agent",
             "script_role": "task-state-and-mechanical-validation",
             "default_order": [
+                "source_inventory",
+                "quality_standard",
+                "gold_sample",
                 "paper_deep_dive_v0",
                 "paper_card",
                 "cross_paper_synthesis",
@@ -280,6 +376,8 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
                 "quality_check",
             ],
             "repeat_analysis_rule": "Original-repeat, close-variant, same-type, and trends are written after cross-paper synthesis, then backfilled into paper deep dives.",
+            "bulk_generation_rule": "Do not generate the full pack before one paper deep-dive sample and one type-analysis sample pass the gold-sample check.",
+            "target_reader": "Student may have skipped lectures and homework; write for short-term exam catch-up.",
         },
     }
     write_json(manifest_path, manifest)
@@ -291,6 +389,7 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             "phase": "paper_deep_dive_v0",
             "course": course_key,
             "exam_scope": scope,
+            "status": "blocked-until-gold-sample-pass",
             "tasks": tasks,
         },
     )
@@ -302,8 +401,10 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             "phase": "cross_paper_synthesis",
             "course": course_key,
             "exam_scope": scope,
-            "status": "blocked-until-paper-v0-complete",
+            "status": "blocked-until-gold-sample-and-paper-v0-complete",
             "inputs": [
+                relative_posix(quality_standard_path, repo),
+                relative_posix(source_map_path, repo),
                 relative_posix(paper_tasks_path, repo),
                 relative_posix(paper_cards_dir, repo),
                 relative_posix(output_root / "试卷精析", repo),
@@ -356,6 +457,8 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             "exam_scope": scope,
             "status": "blocked-until-cross-paper-synthesis-complete",
             "inputs": [
+                relative_posix(quality_standard_path, repo),
+                relative_posix(source_map_path, repo),
                 relative_posix(taxonomy_path, repo),
                 relative_posix(paper_cards_dir, repo),
                 relative_posix(output_root / "分析", repo),
@@ -381,14 +484,16 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             "phase": "type_analysis",
             "course": course_key,
             "exam_scope": scope,
-            "status": "blocked-until-type-dossier-complete",
+            "status": "blocked-until-type-dossier-and-gold-sample-complete",
             "inputs": [
+                relative_posix(quality_standard_path, repo),
                 relative_posix(type_dossiers_dir, repo),
                 relative_posix(output_root / "题型备课卡", repo),
             ],
             "outputs": [relative_posix(output_root / "题型解析", repo)],
             "instructions": [
                 "Write type-analysis pages from the matching type dossier, not from a blank template.",
+                "Follow the passed gold sample. Do not bulk-fill pages with generic placeholders.",
                 "Every worked example and self-test must cite a past-paper question ref from the dossier.",
                 "Do not reuse the same question ref across examples and self-tests.",
                 "Write a tutoring handout: recognition cues, method choice, worked reasoning, scoring, checks, and pitfalls.",
@@ -417,19 +522,28 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             "schema_version": SCHEMA_VERSION,
             "workflow": WORKFLOW,
             "status": "initialized",
-            "current_phase": "paper_deep_dive_v0",
+            "current_phase": "source_inventory",
             "phases": PHASES,
-            "next_action": "Complete v0 paper deep dives and paper-card JSONs before cross-paper synthesis.",
+            "next_action": "Create the quality standard, source map, and one gold sample before bulk paper/type generation.",
             "ready_for_stage": {
+                "standard": False,
+                "source-map": False,
+                "gold-sample": False,
                 "paper-v0": False,
                 "synthesis": False,
                 "type-dossier": False,
+                "type-analysis-sample": False,
                 "final": False,
             },
         },
     )
 
     _write_if_missing(output_root / "README.md", _readme_text(course_key, scope))
+    _write_if_missing(quality_standard_path, _quality_standard_text(course_key, scope))
+    if not source_map_path.exists() or args.overwrite:
+        write_json(source_map_path, _source_map_payload(repo, course_dir, papers, papers_dir, course_key, scope))
+    if not gold_sample_task_path.exists() or args.overwrite:
+        write_json(gold_sample_task_path, _gold_sample_task_payload(repo, output_root, state, course_key, scope, paper_entries))
     _write_if_missing(output_root / "试卷精析" / "README.md", _readme_text(course_key, scope))
     _write_if_missing(output_root / "题目卡" / "README.md", _readme_text(course_key, scope))
     _write_if_missing(output_root / "题型备课卡" / "README.md", _readme_text(course_key, scope))
@@ -455,6 +569,9 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
         "backfill_tasks": str(backfill_tasks_path),
         "type_dossier_tasks": str(type_dossier_tasks_path),
         "type_analysis_tasks": str(type_analysis_tasks_path),
+        "quality_standard": str(quality_standard_path),
+        "source_map": str(source_map_path),
+        "gold_sample_task": str(gold_sample_task_path),
         "taxonomy": str(taxonomy_path),
         "paper_cards_dir": str(paper_cards_dir),
         "type_dossiers_dir": str(type_dossiers_dir),
@@ -466,7 +583,7 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             str(output_root / "题型解析"),
             str(output_root / "分析"),
         ],
-        "next_action": "AI should fill v0 paper deep dives and paper-card JSONs first; after synthesis/backfill, create type dossiers before writing type-analysis pages.",
+        "next_action": "AI should first create/check one gold sample; after the sample passes, fill v0 paper deep dives and paper-card JSONs, then synthesize/backfill and write type dossiers before type-analysis pages.",
         "check_argv": [
             "python",
             "student-os/scripts/exam_prep_check.py",

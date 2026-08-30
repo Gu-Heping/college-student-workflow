@@ -18,12 +18,13 @@ from exam_census_utils import (
     reviews_dir,
     write_json,
 )
-from exam_prep_build import CORE_ANALYSIS_FILES, PREP_PACK_FILES, SCHEMA_VERSION, WORKFLOW, exam_prep_state_dir
+from exam_prep_build import CORE_ANALYSIS_FILES, PREP_PACK_FILES, SCHEMA_VERSION, STANDARD_FILES, WORKFLOW, exam_prep_state_dir
 from import_governance import diagnose_import_risks
 
 
 REQUIRED_TYPE_BLOCKS = (
     "考前速记",
+    "符号",
     "核心概念",
     "核心方法",
     "例题",
@@ -48,9 +49,33 @@ REQUIRED_DOSSIER_FIELDS = (
 )
 SOURCE_RE = re.compile(r"来源\s*[：:]")
 PLACEHOLDER_RE = re.compile(r"\{\{[^}]+\}\}|TODO|TBD|待 AI|待整理|^\|\s*\|\s*\|", re.I | re.M)
+LOW_QUALITY_PHRASE_RE = re.compile(
+    r"答案以.*为准|调用对应方法卡|矩阵或公式|先圈出对象|不要急着代数展开|自测答案?以.*来源|同型变式通常只换|详见来源|见原题答案",
+    re.I,
+)
+SELF_QUESTION_TITLE_RE = re.compile(r"^#{1,6}\s*\d+(?:\.\d+)*\s*为什么", re.M)
+TEXTBOOK_GROUNDING_RE = re.compile(r"(?:课本|教材|讲义).{0,24}(?:§\s*\d+(?:\.\d+)+|图\s*\d+(?:\.\d+)+|题图\s*\d+(?:\.\d+)+|第\s*\d+\s*章)")
+OVERBROAD_SECTION_RE = re.compile(r"(?:课本|教材|讲义).{0,16}§\s*\d+(?:\.\d+)?(?:\s|[，,、。；;]|$)")
+FULL_PROBLEM_RE = re.compile(r"(?:\*\*)?题目(?:\*\*)?\s*[：:]")
+WEAK_PROBLEM_RE = re.compile(r"题目摘录\s*[：:]|题目摘要\s*[：:]|题目\s*[：:].{0,30}(?:往年题|自测)\s*\d+")
+SOLUTION_STEP_RE = re.compile(r"(?:完整解析|解析|第\s*\d+\s*步|先判|再写|代入|验算|检查)")
+ANSWER_RE = re.compile(r"(?:自测.*答案|(?:\*\*)?答案(?:\*\*)?\s*[：:])", re.M)
 QUESTION_REF_RE = re.compile(r"(?:第?\s*[一二三四五六七八九十\d]+\s*题|Q\d+|一、|二、|三、|四、|五、|六、|七、)")
 QUESTION_REF_TOKEN_RE = re.compile(r"[\w.-]+\.json#[^\s,，;；)）\]}】、。]+")
 FABRICATED_QUESTION_RE = re.compile(r"(自编题|模拟题|改编题|原创题)")
+STANDARD_REQUIRED_MARKERS = (
+    "目标读者",
+    "没听过课",
+    "没做过作业",
+    "短时间速成",
+    "完整题目",
+    "完整解析",
+    "课本",
+    "往年卷",
+    "例题",
+    "自测",
+    "样板",
+)
 CONFIDENCE_ALLOWED = {"high", "medium", "low", "uncertain", "needs-review"}
 REPEAT_STATUS_ALLOWED = {
     "unknown-pending-cross-paper-analysis",
@@ -74,9 +99,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--semester", default="", help="Optional semester slug when resolving course")
     parser.add_argument(
         "--stage",
-        choices=("paper-v0", "synthesis", "type-dossier", "final"),
+        choices=("standard", "source-map", "gold-sample", "paper-v0", "synthesis", "type-dossier", "type-analysis-sample", "final"),
         default="final",
-        help="Validation stage: paper-v0, synthesis, type-dossier, or final.",
+        help="Validation stage: standard, source-map, gold-sample, paper-v0, synthesis, type-dossier, type-analysis-sample, or final.",
     )
     parser.add_argument("--json", action="store_true", help="Print machine-readable result")
     parser.add_argument("--write-report", action="store_true", help="Write quality-report.json to state")
@@ -232,6 +257,106 @@ def _validate_markdown(path: Path, *, required_type: str | None = None) -> list[
     return issues
 
 
+def _validate_quality_standard(path: Path) -> list[dict[str, str]]:
+    issues = _validate_markdown(path, required_type="exam-prep-quality-standard")
+    if not path.exists():
+        return issues
+    text = _read(path)
+    for marker in STANDARD_REQUIRED_MARKERS:
+        if marker not in text:
+            issues.append(_issue("quality-standard-missing-rule", path, f"Quality standard must mention {marker!r}"))
+    return issues
+
+
+def _validate_source_map(path: Path, manifest_sources: set[str]) -> list[dict[str, str]]:
+    issues: list[dict[str, str]] = []
+    if not path.exists():
+        return [_issue("missing-source-map", path, "source-map.json is missing")]
+    try:
+        source_map = load_json(path)
+    except Exception as exc:
+        return [_issue("source-map-invalid-json", path, f"Cannot read source-map JSON: {exc}")]
+    if not isinstance(source_map, dict):
+        return [_issue("source-map-not-object", path, "source-map must be a JSON object")]
+    if source_map.get("workflow") != WORKFLOW:
+        issues.append(_issue("source-map-workflow", path, f"source-map workflow must be {WORKFLOW}"))
+    for field in ("source_priority", "textbook_refs", "lecture_refs", "assignment_refs", "paper_refs", "answer_refs", "high_quality_examples"):
+        if field not in source_map:
+            issues.append(_issue("source-map-missing-field", path, f"source-map missing {field}"))
+    paper_refs = {str(item).replace("\\", "/") for item in source_map.get("paper_refs") or []}
+    if manifest_sources and not manifest_sources <= paper_refs:
+        issues.append(_issue("source-map-missing-paper-ref", path, "source-map paper_refs must include all manifest paper paths"))
+    if not any(str(item).strip() for item in source_map.get("textbook_refs") or []):
+        issues.append(
+            _issue(
+                "source-map-empty-textbook-refs",
+                path,
+                "Textbook/lecture grounding sources should be recorded; mark gaps explicitly if unavailable",
+                severity="warning",
+            )
+        )
+    return issues
+
+
+def _validate_type_analysis_learning_quality(path: Path, refs_by_type: dict[str, set[str]], *, strict_refs: bool) -> list[dict[str, str]]:
+    issues: list[dict[str, str]] = []
+    if not path.exists():
+        return [_issue("missing-type-analysis-sample", path, "Gold sample needs at least one type-analysis page")]
+    text = _read(path)
+    if LOW_QUALITY_PHRASE_RE.search(text):
+        issues.append(_issue("type-analysis-low-quality-phrase", path, "Type analysis contains placeholder or non-teaching phrases"))
+    if SELF_QUESTION_TITLE_RE.search(text):
+        issues.append(_issue("type-analysis-self-question-heading", path, "Avoid self-Q&A headings; write direct teaching sections"))
+    if not TEXTBOOK_GROUNDING_RE.search(text):
+        issues.append(
+            _issue(
+                "type-analysis-missing-textbook-grounding",
+                path,
+                "Concept explanations must cite a precise textbook/lecture section, figure, problem diagram, or chapter anchor",
+            )
+        )
+    if OVERBROAD_SECTION_RE.search(text) and not TEXTBOOK_GROUNDING_RE.search(text):
+        issues.append(_issue("type-analysis-overbroad-textbook-ref", path, "Textbook grounding is too broad; cite a precise subsection, figure, or problem diagram"))
+    if "2 分钟" not in text and "下笔模板" not in text:
+        issues.append(_issue("type-analysis-missing-action-template", path, "Type analysis must include a 2-minute writing/action template"))
+    examples_text = _section_text(text, "例题", stop_titles=("自测题", "自测答案", "快速得分", "易错点", "来源校对"))
+    self_test_text = _section_text(text, "自测题", stop_titles=("自测答案", "快速得分", "易错点", "来源校对"))
+    answers_text = _section_text(text, "自测答案", stop_titles=("快速得分", "易错点", "来源校对"))
+    if not FULL_PROBLEM_RE.search(examples_text) or WEAK_PROBLEM_RE.search(examples_text):
+        issues.append(_issue("type-analysis-missing-full-worked-problem", path, "Worked examples must include full past-paper problem statements, not only source links or summaries"))
+    if not FULL_PROBLEM_RE.search(self_test_text) or WEAK_PROBLEM_RE.search(self_test_text):
+        issues.append(_issue("type-analysis-missing-full-self-test-problem", path, "Self-tests must include full past-paper problem statements, not only source links or summaries"))
+    if not SOLUTION_STEP_RE.search(examples_text):
+        issues.append(_issue("type-analysis-missing-full-solution", path, "Worked examples need full reasoning steps, not only final answers"))
+    if not ANSWER_RE.search(answers_text):
+        issues.append(_issue("type-analysis-missing-self-test-answer-content", path, "Self-tests need an answer section with concrete answers"))
+    if "动作" not in text and "先判" not in text and "再列" not in text:
+        issues.append(_issue("type-analysis-missing-action-sentence-style", path, "Solutions should use action sentence + formula + short note style"))
+    if strict_refs:
+        issues.extend(_validate_type_analysis(path, refs_by_type))
+    return issues
+
+
+def _validate_gold_sample(output_root: Path, refs_by_type: dict[str, set[str]]) -> list[dict[str, str]]:
+    issues: list[dict[str, str]] = []
+    deep_dive_files = _nonempty_md_files(output_root / "试卷精析")
+    type_files = _nonempty_md_files(output_root / "题型解析")
+    if not deep_dive_files:
+        issues.append(_issue("gold-sample-missing-paper-deep-dive", output_root / "试卷精析", "Create one representative paper deep-dive sample before bulk generation"))
+    else:
+        issues.extend(_validate_markdown(deep_dive_files[0], required_type="exam-paper-deep-dive"))
+        text = _read(deep_dive_files[0])
+        for marker in ("题号", "来源", "考点", "解法", "疑点"):
+            if marker not in text:
+                issues.append(_issue("gold-sample-paper-too-thin", deep_dive_files[0], f"Paper sample should include {marker}"))
+    if not type_files:
+        issues.append(_issue("gold-sample-missing-type-analysis", output_root / "题型解析", "Create one representative type-analysis sample before bulk generation"))
+    else:
+        issues.extend(_validate_markdown(type_files[0], required_type="exam-type-analysis"))
+        issues.extend(_validate_type_analysis_learning_quality(type_files[0], refs_by_type, strict_refs=bool(refs_by_type)))
+    return issues
+
+
 def _validate_type_analysis(path: Path, refs_by_type: dict[str, set[str]]) -> list[dict[str, str]]:
     issues = _validate_markdown(path)
     text = _read(path) if path.exists() else ""
@@ -267,7 +392,7 @@ def _validate_type_analysis(path: Path, refs_by_type: dict[str, set[str]]) -> li
 
     examples_text = _section_text(text, "例题", stop_titles=("自测题", "自测答案", "快速得分", "易错点", "来源校对"))
     self_test_text = _section_text(text, "自测题", stop_titles=("自测答案", "快速得分", "易错点", "来源校对"))
-    answers_text = _section_text(text, "自测答案", stop_titles=("快速得分", "易错", "来源"))
+    answers_text = _section_text(text, "自测答案", stop_titles=("快速得分", "易错点", "来源校对"))
     example_refs = _extract_question_refs_list(examples_text)
     self_refs = _extract_question_refs_list(self_test_text)
     if not example_refs:
@@ -323,6 +448,7 @@ def _validate_type_analysis(path: Path, refs_by_type: dict[str, set[str]]) -> li
         )
     if not answers_text:
         issues.append(_issue("type-analysis-missing-self-test-answers", path, "Self-test answers must be separated from self-test prompts"))
+    issues.extend(_validate_type_analysis_learning_quality(path, refs_by_type, strict_refs=False))
     return issues
 
 
@@ -584,6 +710,8 @@ def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
     output_root = reviews_dir(course_dir, scope)
     manifest_path = state / "manifest.json"
     taxonomy_path = state / "taxonomy.json"
+    quality_standard_path = output_root / STANDARD_FILES["quality_standard"]
+    source_map_path = state / STANDARD_FILES["source_map"]
     report_path = state / "quality-report.json"
 
     issues: list[dict[str, str]] = []
@@ -600,30 +728,34 @@ def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
         for item in manifest.get("papers", [])
         if isinstance(item, dict)
     }
+    if args.stage in {"standard", "source-map", "gold-sample", "paper-v0", "synthesis", "type-dossier", "type-analysis-sample", "final"}:
+        issues.extend(_validate_quality_standard(quality_standard_path))
+    if args.stage in {"source-map", "gold-sample", "paper-v0", "synthesis", "type-dossier", "type-analysis-sample", "final"}:
+        issues.extend(_validate_source_map(source_map_path, manifest_sources))
+
     card_dir = state / "paper-cards"
-    manifest_output_issues, manifest_card_paths = (
-        _validate_manifest_paper_outputs(
+    needs_all_papers = args.stage in {"paper-v0", "synthesis", "type-dossier", "final"}
+    manifest_output_issues, manifest_card_paths = ([], [])
+    if needs_all_papers and manifest:
+        manifest_output_issues, manifest_card_paths = _validate_manifest_paper_outputs(
             manifest,
             repo,
             state,
             output_root,
             stage=args.stage,
         )
-        if manifest
-        else ([], [])
-    )
-    issues.extend(manifest_output_issues)
+        issues.extend(manifest_output_issues)
     discovered_card_paths = sorted(card_dir.glob("*.json")) if card_dir.exists() else []
     card_paths = sorted({*manifest_card_paths, *discovered_card_paths})
-    if not card_paths:
+    if needs_all_papers and not card_paths:
         issues.append(_issue("missing-paper-cards", card_dir, "AI must create paper-card JSONs before taxonomy"))
     for card_path in card_paths:
         issues.extend(_validate_paper_card(card_path, manifest_sources, stage=args.stage))
 
-    if args.stage in {"synthesis", "type-dossier", "final"}:
+    if args.stage in {"synthesis", "type-dossier", "type-analysis-sample", "final"}:
         issues.extend(_validate_taxonomy(taxonomy_path, card_paths))
     refs_by_type: dict[str, set[str]] = {}
-    if args.stage in {"type-dossier", "final"}:
+    if args.stage in {"type-dossier", "type-analysis-sample", "final"}:
         dossier_issues, refs_by_type = _validate_type_dossiers(state, output_root, card_paths, taxonomy_path)
         issues.extend(dossier_issues)
 
@@ -631,6 +763,13 @@ def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
         if not (output_root / dirname).is_dir():
             issues.append(_issue("missing-directory", output_root / dirname, "Required output directory is missing"))
     type_files = _nonempty_md_files(output_root / "题型解析")
+    if args.stage == "gold-sample":
+        issues.extend(_validate_gold_sample(output_root, refs_by_type))
+    if args.stage == "type-analysis-sample":
+        if not type_files:
+            issues.append(_issue("missing-type-analysis-sample", output_root / "题型解析", "Write one type-analysis sample before expanding all pages"))
+        else:
+            issues.extend(_validate_type_analysis(type_files[0], refs_by_type))
     if args.stage == "final":
         if not type_files:
             issues.append(_issue("missing-type-analyses", output_root / "题型解析", "AI must write type analyses"))
@@ -664,6 +803,12 @@ def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             issues.extend(_validate_markdown(output_root / filename, required_type=expected_types[key]))
 
     ok = not any(issue["severity"] == "error" for issue in issues)
+    error_codes = {issue["code"] for issue in issues if issue["severity"] == "error"}
+    mechanical_codes = {"render-risk", "markdown-table", "placeholder-content"}
+    source_markers = ("source", "ref", "card", "dossier", "taxonomy", "manifest")
+    textbook_markers = ("textbook",)
+    problem_markers = ("problem", "solution", "answer", "too-thin")
+    example_markers = ("example", "self-test", "worked")
     payload = {
         "ok": ok,
         "schema_version": SCHEMA_VERSION,
@@ -676,6 +821,16 @@ def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
         "paper_cards": len(card_paths),
         "type_dossiers": len(refs_by_type),
         "type_analysis_files": len(type_files),
+        "mechanical_ok": not (error_codes & mechanical_codes),
+        "source_ok": not any(any(marker in code for marker in source_markers) for code in error_codes),
+        "textbook_grounding_ok": not any(any(marker in code for marker in textbook_markers) for code in error_codes),
+        "problem_completeness_ok": not any(any(marker in code for marker in problem_markers) for code in error_codes),
+        "example_selftest_ok": not any(any(marker in code for marker in example_markers) for code in error_codes),
+        "learnability_warnings": [
+            issue
+            for issue in issues
+            if issue["severity"] == "warning" or issue["code"].startswith("type-analysis-low-quality")
+        ],
         "issue_count": len(issues),
         "issues": [
             {**issue, "path": relative_posix(Path(issue["path"]), repo) if issue["path"] else issue["path"]}
