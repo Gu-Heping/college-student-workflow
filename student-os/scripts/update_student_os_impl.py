@@ -402,7 +402,12 @@ def copy_override_items(source: Path, destination: Path) -> list[str]:
 def create_backup(target: Path) -> Path:
     backup_root = target.parent / BACKUP_DIRNAME
     backup_root.mkdir(parents=True, exist_ok=True)
-    backup_path = backup_root / f"{target.name}-{datetime.now().strftime('%Y%m%dT%H%M%S')}"
+    timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+    backup_path = backup_root / f"{target.name}-{timestamp}"
+    counter = 2
+    while backup_path.exists():
+        backup_path = backup_root / f"{target.name}-{timestamp}-{counter}"
+        counter += 1
     shutil.copytree(target, backup_path, symlinks=True)
     return backup_path
 
