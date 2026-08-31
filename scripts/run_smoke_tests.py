@@ -7981,10 +7981,18 @@ def seed_fake_student_os_source(repo: Path, *, version_label: str) -> str:
     )
     shutil.copy2(STUDENT_OS_SCRIPTS / "update_student_os.py", scripts_root / "update_student_os.py")
     shutil.copy2(STUDENT_OS_SCRIPTS / "update_student_os_impl.py", scripts_root / "update_student_os_impl.py")
+    shutil.copy2(STUDENT_OS_SCRIPTS / "update_all_student_os.py", scripts_root / "update_all_student_os.py")
     return commit_all(repo, f"fixture: {version_label}")
 
 
-def build_copy_install_fixture(base_dir: Path, source_repo: Path, installed_commit: str) -> Path:
+def build_copy_install_fixture(
+    base_dir: Path,
+    source_repo: Path,
+    installed_commit: str,
+    *,
+    agent: str = "codex",
+    scope: str = "user",
+) -> Path:
     install_module = load_root_script_module("install_student_os.py", "student_os_install_smoke")
     source_skill = source_repo / "student-os"
     target = base_dir / "installed-student-os"
@@ -7995,8 +8003,8 @@ def build_copy_install_fixture(base_dir: Path, source_repo: Path, installed_comm
     (target / ".student-os-install.local.json").write_text('{"theme":"custom"}\n', encoding="utf-8", newline="\n")
     manifest = install_module.build_install_manifest(
         destination=target,
-        agent="codex",
-        scope="user",
+        agent=agent,
+        scope=scope,
         install_method="copied",
         used_symlink=False,
         source_repo=str(source_repo.resolve()),
@@ -9561,6 +9569,93 @@ def verify_self_update_workflow(tmp_root: Path) -> None:
         raise AssertionError("self-update should refuse overwriting local installed-skill drift without --force")
 
 
+def verify_update_all_student_os_workflow(tmp_root: Path) -> None:
+    source_repo = tmp_root / "student-os-source"
+    init_git_repo(source_repo)
+    commit_v1 = seed_fake_student_os_source(source_repo, version_label="v1")
+    codex_target = build_copy_install_fixture(tmp_root / "codex", source_repo, commit_v1, agent="codex")
+    dsh_target = build_copy_install_fixture(tmp_root / "dsh", source_repo, commit_v1, agent="dsh")
+
+    commit_v2 = seed_fake_student_os_source(source_repo, version_label="v2")
+    check_payload = json.loads(
+        run_script(
+            "update_all_student_os.py",
+            "--check",
+            "--target",
+            str(codex_target),
+            "--target",
+            str(dsh_target),
+            "--repo",
+            str(source_repo.resolve()),
+            "--ref",
+            "main",
+            "--json",
+        )
+    )
+    if check_payload["ok"] is not True:
+        raise AssertionError(f"multi-target update check should succeed: {check_payload}")
+    if check_payload["target_count"] != 2 or check_payload["update_available_count"] != 2:
+        raise AssertionError(f"multi-target update check should report both pending updates: {check_payload}")
+    if {target["agent"] for target in check_payload["targets"]} != {"codex", "dsh"}:
+        raise AssertionError(f"multi-target update check should preserve manifest agent labels: {check_payload}")
+
+    apply_payload = json.loads(
+        run_script(
+            "update_all_student_os.py",
+            "--apply",
+            "--target",
+            str(codex_target),
+            "--target",
+            str(dsh_target),
+            "--repo",
+            str(source_repo.resolve()),
+            "--ref",
+            "main",
+            "--json",
+        )
+    )
+    if apply_payload["ok"] is not True or apply_payload["updated_count"] != 2 or apply_payload["failed_count"] != 0:
+        raise AssertionError(f"multi-target update apply should update both installs: {apply_payload}")
+    for target in (codex_target, dsh_target):
+        ensure_contains(target / "SKILL.md", "Fixture v2")
+        manifest = json.loads((target / ".student-os-install.json").read_text(encoding="utf-8"))
+        if manifest["installed_commit"] != commit_v2:
+            raise AssertionError("multi-target update should refresh each target manifest commit")
+
+    (codex_target / "SKILL.md").write_text(
+        (codex_target / "SKILL.md").read_text(encoding="utf-8") + "\nLocal drift\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    commit_v3 = seed_fake_student_os_source(source_repo, version_label="v3")
+    failure_payload = run_script_failure_json(
+        "update_all_student_os.py",
+        "--apply",
+        "--target",
+        str(codex_target),
+        "--target",
+        str(dsh_target),
+        "--repo",
+        str(source_repo.resolve()),
+        "--ref",
+        "main",
+        "--json",
+    )
+    if failure_payload["ok"] is not False or failure_payload["failed_count"] != 1 or failure_payload["updated_count"] != 1:
+        raise AssertionError(
+            f"multi-target update should continue after one target fails local drift safety: {failure_payload}"
+        )
+    failed_targets = [target for target in failure_payload["targets"] if not target.get("ok")]
+    if len(failed_targets) != 1 or failed_targets[0]["target_path"] != str(codex_target):
+        raise AssertionError(f"multi-target update should isolate the drift failure to the dirty install: {failure_payload}")
+    if "--force" not in str(failed_targets[0].get("error", "")):
+        raise AssertionError(f"dirty target failure should preserve the force guidance: {failure_payload}")
+    ensure_contains(dsh_target / "SKILL.md", "Fixture v3")
+    dsh_manifest = json.loads((dsh_target / ".student-os-install.json").read_text(encoding="utf-8"))
+    if dsh_manifest["installed_commit"] != commit_v3:
+        raise AssertionError("clean targets should still update when another install fails")
+
+
 def verify_extract_release_notes(tmp_root: Path) -> None:
     output_plain = tmp_root / "notes-0.6.0.md"
     output_prefixed = tmp_root / "notes-v0.6.0.md"
@@ -9665,6 +9760,7 @@ def main() -> int:
         verify_legacy_link_install_detection(tmp_root / "legacy-link-install-demo")
         verify_update_source_override_and_project_copy_detection(tmp_root / "update-override-demo")
         verify_self_update_workflow(tmp_root / "self-update-demo")
+        verify_update_all_student_os_workflow(tmp_root / "update-all-demo")
         verify_token_loader(tmp_root / "token-loader-demo")
         verify_scaffold_gitattributes(tmp_root / "scaffold-gitattributes-demo")
         verify_ensure_frontmatter(tmp_root / "ensure-frontmatter-demo")
@@ -9701,6 +9797,7 @@ def main() -> int:
     print("OK legacy-link-install-demo")
     print("OK update-override-demo")
     print("OK self-update-demo")
+    print("OK update-all-demo")
     print("OK token-loader-demo")
     print("OK scaffold-gitattributes-demo")
     print("OK ensure-frontmatter-demo")

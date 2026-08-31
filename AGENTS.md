@@ -16,7 +16,7 @@
 - 可选依赖：`requirements.txt`（`pdfplumber`、`pypdf`、`pymupdf`、`python-docx`、`openpyxl`、`python-pptx`、`mineru-open-sdk`），仅资料导入需要
 - 可选 DSH 插件：`integrations/dsh/`，改动后跑 `npm ci`、`npm run build`、`npm run test`
 - 测试：`python scripts/run_smoke_tests.py`
-- 编译检查：`python -m py_compile scripts/bootstrap_dsh.py scripts/dsh_plugin_build.py scripts/extract_release_notes.py scripts/install_student_os.py scripts/run_import_repair_evals.py scripts/run_exam_prep_evals.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py student-os/scripts/repair_import_queue.py student-os/scripts/repair_import_case.py student-os/scripts/repair_import_review.py student-os/scripts/repair_import_apply.py student-os/scripts/repair_import_run.py student-os/scripts/repair_import_check.py student-os/scripts/exam_prep_build.py student-os/scripts/exam_prep_check.py`
+- 编译检查：`python -m py_compile scripts/bootstrap_dsh.py scripts/dsh_plugin_build.py scripts/extract_release_notes.py scripts/install_student_os.py scripts/update_all_student_os.py scripts/run_import_repair_evals.py scripts/run_exam_prep_evals.py scripts/run_smoke_tests.py student-os/scripts/update_student_os.py student-os/scripts/update_all_student_os.py student-os/scripts/repair_import_queue.py student-os/scripts/repair_import_case.py student-os/scripts/repair_import_review.py student-os/scripts/repair_import_apply.py student-os/scripts/repair_import_run.py student-os/scripts/repair_import_check.py student-os/scripts/exam_prep_build.py student-os/scripts/exam_prep_check.py`
 - CI：`.github/workflows/smoke.yml`（PR 与 main push）
 
 ## 最重要的安全边界

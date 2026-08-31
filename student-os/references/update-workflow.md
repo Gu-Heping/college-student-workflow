@@ -51,6 +51,15 @@ When developing from the source checkout, the repository-level wrapper remains a
 python scripts/update_student_os.py --check --target /path/to/installed/student-os
 ```
 
+For a machine with multiple installed targets, use the multi-target wrapper. It discovers existing Codex, Claude Code, OpenCode, DSH, and project-scope installs, then checks or applies each target independently:
+
+```bash
+python /path/to/installed/student-os/scripts/update_all_student_os.py --check --json
+python /path/to/installed/student-os/scripts/update_all_student_os.py --apply --json
+```
+
+Use repeated `--target PATH` arguments when you want to limit the run to a known set. If one target has local skill drift, the multi-target updater reports that failure and continues processing the remaining targets; use `--force` only when the user explicitly agrees to overwrite local installed-skill edits.
+
 Useful options:
 - `--target PATH`
 - `--repo URL`
@@ -62,6 +71,7 @@ Useful options:
 
 When the update workflow runs, the final response should include:
 - installed target path
+- whether the run targeted one install or multiple discovered installs
 - install method
 - current commit
 - latest commit

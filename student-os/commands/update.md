@@ -7,6 +7,7 @@ Use when the user asks to:
 - refresh the installed skill
 - reinstall `student-os`
 - check whether a newer skill version is available
+- update every installed copy across Codex / Claude Code / OpenCode / DSH
 
 Default route:
 - primary role: `coordinator`
@@ -16,6 +17,7 @@ Hard rule: update **only** the installed skill directory (user-scope or project-
 
 Expected outputs:
 - installed target path
+- one target vs multi-target update mode
 - current commit and latest commit
 - whether an update is available
 - confirmation before applying updates

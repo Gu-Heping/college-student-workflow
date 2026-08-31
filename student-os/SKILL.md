@@ -78,7 +78,8 @@ Script appendix for task-specific use. Do not read or run this list wholesale. F
 - `scripts/prepare_github_issue.py` for privacy-checked GitHub issue drafts from local feedback entries, including `--stdin` / `--check-stdin` sanitization for arbitrary issue/PR/comment bodies.
 - `scripts/sanitize_and_post.py` for sanitize-then-post wrappers around `gh` so held-back privacy checks cannot create empty issue/review/comment bodies.
 - `scripts/publish_github_issue.py` for optional `gh issue create` publishing after explicit approval.
-- `scripts/update_student_os.py` for installed-skill update checks, safe apply, and rollback guidance.
+- `scripts/update_student_os.py` for single installed-skill update checks, safe apply, and rollback guidance.
+- `scripts/update_all_student_os.py` for checking or updating every discovered installed `student-os` target across Codex, Claude Code, OpenCode, DSH, and project-scope installs.
 - `scripts/build_week_plan.py` for weekly plans, near-term deadlines, and exam countdown material.
 - `scripts/build_review_indexes.py` for homework and review indexes.
 - `scripts/init_exam_census.py` for scanning paper sidecars and writing exam-census manifests.
