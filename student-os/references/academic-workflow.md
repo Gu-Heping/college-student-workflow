@@ -70,12 +70,19 @@ Slug notes:
 - Separate "review digest" from "raw note dump".
 - Extract concepts, methods, pitfalls, and practice targets instead of merely rearranging source text.
 
-### Build exam census material
+### Build AI-first exam prep material
 
-- Use when the user has many past papers and wants type frequencies plus an exam-prep pack.
+- Use when the user wants high-quality study material from past papers: 整理历年卷、构建期中/期末备考包、真题精析、题型解析、公式卡、答题模板、考前清单.
+- Follow `commands/exam-prep-build.md` and `references/exam-prep-gold-standard.md`.
+- The agent must read sources, write Markdown body text, and perform reader audit. Scripts initialize state and run tripwire checks only.
+- Do not use legacy exam-census templates or skeletons as the default source for tutoring handouts.
+
+### Build legacy exam census material
+
+- Use only when the user explicitly wants type frequencies, 题型普查, or `/exam-census`.
 - Follow `references/exam-census-workflow.md` and the `exam-census` command.
 - Keep annotations and taxonomy under `.student-os/state/exam-census/<course-key>/<exam-scope-key>/`.
-- Write the readable pack under `courses/<course-key>/reviews/<exam-scope-key>/`.
+- Write legacy/auxiliary reports under `courses/<course-key>/reviews/<exam-scope-key>/`.
 - Prefer these templates:
   - `templates/exam-type-taxonomy.md`
   - `templates/exam-type-frequency-report.md`
@@ -86,7 +93,7 @@ Slug notes:
   - `templates/answer-template-quickref.md`
   - `templates/pre-exam-one-hour-checklist.md`
 - Rank study effort by paper appearance rate from `build_exam_type_stats.py`, not gut feel.
-- After Aggregate, follow Phase A–E in `references/exam-census-quality.md` before treating the prep pack as done.
+- After Aggregate, follow Phase A–E in `references/exam-census-quality.md` before treating the legacy census pack as structurally complete. Do not treat it as high-quality study material without AI-first source reading, rewriting, and reader audit.
 
 ### Add lab or report work
 

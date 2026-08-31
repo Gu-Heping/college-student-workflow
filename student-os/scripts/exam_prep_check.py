@@ -18,7 +18,14 @@ from exam_census_utils import (
     reviews_dir,
     write_json,
 )
-from exam_prep_build import CORE_ANALYSIS_FILES, PREP_PACK_FILES, SCHEMA_VERSION, STANDARD_FILES, WORKFLOW, exam_prep_state_dir
+from exam_prep_build import (
+    CORE_ANALYSIS_FILES,
+    SCHEMA_VERSION,
+    STANDARD_FILES,
+    WORKFLOW,
+    exam_prep_state_dir,
+    prep_pack_files,
+)
 from import_governance import diagnose_import_risks
 
 
@@ -76,6 +83,14 @@ SOLUTION_STEP_RE = re.compile(r"(?:完整解析|解析|第\s*\d+\s*步|先判|�
 ANSWER_RE = re.compile(r"(?:自测.*答案|(?:\*\*)?答案(?:\*\*)?\s*[：:])", re.M)
 QUESTION_REF_RE = re.compile(r"(?:第?\s*[一二三四五六七八九十\d]+\s*题|Q\d+|一、|二、|三、|四、|五、|六、|七、)")
 QUESTION_REF_TOKEN_RE = re.compile(r"[\w.-]+\.json#[^\s,，;；)）\]}】、。]+")
+MACHINE_REF_LEAK_RE = re.compile(r"[\w.-]+\.json#[^\s,，;；)）\]}】、。]+|paper-card|机器可读题目卡引用", re.I)
+HUMAN_SOURCE_RE = re.compile(
+    r"(?:\d{4}\s*[-—]\s*\d{4}|20\d{2}|19\d{2}).{0,24}(?:学期|期中|期末|真题|试卷|卷).{0,24}(?:[一二三四五六七八九十]+[.、．]?\d*|第\s*\d+\s*题|\d+\s*[.、．])"
+)
+BROKEN_PROSE_RE = re.compile(
+    r"\\end\*\*Transfer|无\*\*Transfer|\*\*Answer\*\*：?\s*\$[^\n]{0,80}>\s*\*\*Check|验\*\*Transfer|\*\*(?:First look|Answer|Check|Transfer)\*\*[^\n]{0,2}\*\*(?:First look|Answer|Check|Transfer)\*\*",
+    re.I,
+)
 FABRICATED_QUESTION_RE = re.compile(r"(自编题|模拟题|改编题|原创题)")
 STANDARD_REQUIRED_MARKERS = (
     "目标读者",
@@ -243,7 +258,35 @@ def _validate_paper_card(card_path: Path, manifest_sources: set[str], *, stage: 
     return issues
 
 
-def _validate_markdown(path: Path, *, required_type: str | None = None) -> list[dict[str, str]]:
+def _manifest_source_paths(manifest: dict[str, Any]) -> set[str]:
+    sources: set[str] = set()
+    for item in manifest.get("papers", []):
+        if not isinstance(item, dict):
+            continue
+        for field in ("path", "canonical_problem_source", "canonical_answer_source"):
+            value = str(item.get(field) or "").replace("\\", "/")
+            if value:
+                sources.add(value)
+        all_sources = item.get("all_sources")
+        if isinstance(all_sources, list):
+            sources.update(str(source).replace("\\", "/") for source in all_sources if str(source).strip())
+        source_roles = item.get("source_roles")
+        if isinstance(source_roles, dict):
+            for values in source_roles.values():
+                if isinstance(values, list):
+                    sources.update(str(source).replace("\\", "/") for source in values if str(source).strip())
+    return sources
+
+
+def _manifest_canonical_problem_sources(manifest: dict[str, Any]) -> set[str]:
+    return {
+        str(item.get("canonical_problem_source") or item.get("path") or "").replace("\\", "/")
+        for item in manifest.get("papers", [])
+        if isinstance(item, dict) and str(item.get("canonical_problem_source") or item.get("path") or "").strip()
+    }
+
+
+def _validate_markdown(path: Path, *, required_type: str | None = None, human_facing: bool = False) -> list[dict[str, str]]:
     issues: list[dict[str, str]] = []
     if not path.exists():
         return [_issue("missing-file", path, "Required exam-prep artifact is missing")]
@@ -252,6 +295,22 @@ def _validate_markdown(path: Path, *, required_type: str | None = None) -> list[
         issues.append(_issue("frontmatter-type", path, f"Expected frontmatter type {required_type!r}"))
     if PLACEHOLDER_RE.search(text):
         issues.append(_issue("placeholder-content", path, "File still contains placeholder or AI task text"))
+    if human_facing and MACHINE_REF_LEAK_RE.search(text):
+        issues.append(
+            _issue(
+                "human-markdown-machine-ref-leak",
+                path,
+                "Human-facing Markdown must use readable citations such as 2018-2019 第二学期 · 一.2, not .json# or paper-card refs",
+            )
+        )
+    if human_facing and BROKEN_PROSE_RE.search(text):
+        issues.append(
+            _issue(
+                "human-markdown-broken-prose-join",
+                path,
+                "Markdown appears damaged by batch prose patching, e.g. LaTeX or words joined into **Transfer**/**Answer** sections",
+            )
+        )
     if markdown_table_pipe_issues(text):
         issues.append(_issue("markdown-table", path, "Markdown table columns appear broken"))
     for line in text.splitlines():
@@ -422,7 +481,7 @@ def _validate_gold_sample(output_root: Path, refs_by_type: dict[str, set[str]]) 
     if not deep_dive_files:
         issues.append(_issue("gold-sample-missing-paper-deep-dive", output_root / "试卷精析", "Create one representative paper deep-dive sample before bulk generation"))
     else:
-        issues.extend(_validate_markdown(deep_dive_files[0], required_type="exam-paper-deep-dive"))
+        issues.extend(_validate_markdown(deep_dive_files[0], required_type="exam-paper-deep-dive", human_facing=True))
         text = _read(deep_dive_files[0])
         for marker in ("题号", "来源", "考点", "解法", "疑点"):
             if marker not in text:
@@ -430,25 +489,25 @@ def _validate_gold_sample(output_root: Path, refs_by_type: dict[str, set[str]]) 
     if not type_files:
         issues.append(_issue("gold-sample-missing-type-analysis", output_root / "题型解析", "Create one representative type-analysis sample before bulk generation"))
     else:
-        issues.extend(_validate_markdown(type_files[0], required_type="exam-type-analysis"))
+        issues.extend(_validate_markdown(type_files[0], required_type="exam-type-analysis", human_facing=True))
         issues.extend(_validate_type_analysis_learning_quality(type_files[0], refs_by_type, strict_refs=bool(refs_by_type)))
     return issues
 
 
 def _validate_type_analysis(path: Path, refs_by_type: dict[str, set[str]]) -> list[dict[str, str]]:
-    issues = _validate_markdown(path)
+    issues = _validate_markdown(path, required_type="exam-type-analysis", human_facing=True)
     text = _read(path) if path.exists() else ""
     type_id = _extract_frontmatter_field(text, "exam_type_id")
     quality = _extract_frontmatter_field(text, "quality")
     for marker in REQUIRED_TYPE_BLOCKS:
         if marker not in text:
             issues.append(_issue("type-analysis-missing-block", path, f"Missing teaching block containing {marker!r}"))
-    if not SOURCE_RE.search(text) or not (QUESTION_REF_RE.search(text) or QUESTION_REF_TOKEN_RE.search(text)):
+    if not SOURCE_RE.search(text) or not (QUESTION_REF_RE.search(text) or HUMAN_SOURCE_RE.search(text)):
         issues.append(
             _issue(
                 "type-analysis-missing-source-question",
                 path,
-                "Type analysis must cite real paper/question sources",
+                "Type analysis must cite real paper/question sources in human-readable form",
             )
         )
     if FABRICATED_QUESTION_RE.search(text):
@@ -461,26 +520,19 @@ def _validate_type_analysis(path: Path, refs_by_type: dict[str, set[str]]) -> li
         issues.append(_issue("type-analysis-missing-dossier", path, f"No type dossier refs found for exam_type_id {type_id!r}"))
         return issues
 
-    refs = _extract_question_refs(text)
-    if not refs:
-        issues.append(_issue("type-analysis-missing-question-ref", path, "Use machine-readable paper-card refs such as 2024-final.json#一"))
-    for ref in sorted(refs):
-        if ref not in allowed_refs:
-            issues.append(_issue("type-analysis-ref-not-in-dossier", path, f"Question ref is not in the matching type dossier: {ref}"))
-
     examples_text = _section_text(text, "例题", stop_titles=("自测题", "自测答案", "快速得分", "易错点", "来源校对"))
     self_test_text = _section_text(text, "自测题", stop_titles=("自测答案", "快速得分", "易错点", "来源校对"))
     answers_text = _section_text(text, "自测答案", stop_titles=("快速得分", "易错点", "来源校对"))
-    example_refs = _extract_question_refs_list(examples_text)
-    self_refs = _extract_question_refs_list(self_test_text)
+    example_refs = _extract_human_sources(examples_text)
+    self_refs = _extract_human_sources(self_test_text)
     if not example_refs:
-        issues.append(_issue("type-analysis-missing-worked-example-ref", path, "Worked examples must cite dossier-backed past-paper refs"))
+        issues.append(_issue("type-analysis-missing-worked-example-source", path, "Worked examples must cite past papers in human-readable form"))
     if not self_refs:
-        issues.append(_issue("type-analysis-missing-self-test-ref", path, "Self-tests must cite dossier-backed past-paper refs"))
+        issues.append(_issue("type-analysis-missing-self-test-source", path, "Self-tests must cite past papers in human-readable form"))
     if len(set(example_refs)) != len(example_refs):
-        issues.append(_issue("type-analysis-duplicate-worked-example", path, "Worked examples repeat the same question ref"))
+        issues.append(_issue("type-analysis-duplicate-worked-example", path, "Worked examples repeat the same human-readable source"))
     if len(set(self_refs)) != len(self_refs):
-        issues.append(_issue("type-analysis-duplicate-self-test", path, "Self-tests repeat the same question ref"))
+        issues.append(_issue("type-analysis-duplicate-self-test", path, "Self-tests repeat the same human-readable source"))
     overlap = set(example_refs) & set(self_refs)
     if overlap:
         issues.append(
@@ -582,6 +634,14 @@ def _validate_manifest_paper_outputs(
     papers = [item for item in manifest.get("papers", []) if isinstance(item, dict)]
     for item in papers:
         paper_id = str(item.get("id") or "").strip()
+        if not item.get("source_roles") or not item.get("canonical_problem_source"):
+            issues.append(
+                _issue(
+                    "manifest-paper-missing-canonical-source-role",
+                    manifest.get("state_dir", "manifest"),
+                    "Each manifest paper must record canonical_problem_source and source_roles",
+                )
+            )
         card_rel = str(item.get("paper_card") or "")
         dive_rel = str(item.get("deep_dive") or "")
         card_path = (repo / card_rel).resolve() if card_rel else state / "paper-cards" / f"{paper_id}.json"
@@ -593,7 +653,7 @@ def _validate_manifest_paper_outputs(
         if not dive_path.exists():
             issues.append(_issue("missing-paper-deep-dive", dive_path, "Every manifest paper needs a v0 paper deep dive"))
             continue
-        issues.extend(_validate_markdown(dive_path, required_type="exam-paper-deep-dive"))
+        issues.extend(_validate_markdown(dive_path, required_type="exam-paper-deep-dive", human_facing=True))
         if stage == "final":
             text = _read(dive_path)
             if not any(marker in text for marker in CROSS_PAPER_MARKERS):
@@ -659,6 +719,19 @@ def _extract_question_refs_list(value: Any) -> list[str]:
 
 def _extract_question_refs(value: Any) -> set[str]:
     return set(_extract_question_refs_list(value))
+
+
+def _normalize_source_label(value: str) -> str:
+    return re.sub(r"\s+", "", value).strip(" ，,。；;、")
+
+
+def _extract_human_sources(text: str) -> list[str]:
+    sources: list[str] = []
+    for match in re.finditer(r"来源\s*[：:]\s*([^\n。；;]+)", text):
+        label = _normalize_source_label(match.group(1))
+        if label:
+            sources.append(label)
+    return sources
 
 
 def _extract_frontmatter_field(text: str, field: str) -> str:
@@ -786,13 +859,12 @@ def _validate_type_dossiers(
 
 
 def _validate_cross_paper_markdown(path: Path, card_paths: list[Path], message: str) -> list[dict[str, str]]:
-    issues = _validate_markdown(path, required_type="exam-prep-analysis")
+    issues = _validate_markdown(path, required_type="exam-prep-analysis", human_facing=True)
     if not path.exists():
         return issues
     text = _read(path)
-    refs = _card_ref_names(card_paths)
-    if refs and not any(ref in text for ref in refs):
-        issues.append(_issue("analysis-missing-paper-card-ref", path, message))
+    if card_paths and not HUMAN_SOURCE_RE.search(text):
+        issues.append(_issue("analysis-missing-human-source-ref", path, message))
     if ("原题" in text or "重复" in text or "相似" in text or "变式" in text) and not SOURCE_RE.search(text):
         issues.append(_issue("analysis-repeat-claim-missing-source", path, "Repeat/variant claims must cite source refs"))
     return issues
@@ -847,16 +919,21 @@ def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
         manifest = load_json(manifest_path)
         if manifest.get("workflow") != WORKFLOW:
             issues.append(_issue("manifest-workflow", manifest_path, f"manifest workflow must be {WORKFLOW}"))
+        if "canonical_exam_count" not in manifest or "raw_source_count" not in manifest:
+            issues.append(
+                _issue(
+                    "manifest-missing-canonical-exams",
+                    manifest_path,
+                    "Manifest must group duplicate sidecars into canonical exams before paper tasks are written",
+                )
+            )
 
-    manifest_sources = {
-        str(item.get("path") or "").replace("\\", "/")
-        for item in manifest.get("papers", [])
-        if isinstance(item, dict)
-    }
+    manifest_sources = _manifest_source_paths(manifest)
+    manifest_problem_sources = _manifest_canonical_problem_sources(manifest)
     if args.stage in {"standard", "source-map", "gold-sample", "paper-v0", "synthesis", "type-dossier", "type-analysis-sample", "final"}:
         issues.extend(_validate_quality_standard(quality_standard_path))
     if args.stage in {"source-map", "gold-sample", "paper-v0", "synthesis", "type-dossier", "type-analysis-sample", "final"}:
-        issues.extend(_validate_source_map(source_map_path, manifest_sources))
+        issues.extend(_validate_source_map(source_map_path, manifest_problem_sources))
 
     card_dir = state / "paper-cards"
     needs_all_papers = args.stage in {"paper-v0", "synthesis", "type-dossier", "final"}
@@ -908,7 +985,7 @@ def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
                 _validate_cross_paper_markdown(
                     analysis_dir / filename,
                     card_paths,
-                    "Cross-paper analysis must cite paper-card/question refs",
+                    "Cross-paper analysis must cite readable year/term/question sources",
                 )
             )
     if args.stage == "final":
@@ -924,11 +1001,11 @@ def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
         "one_hour_checklist": "pre-exam-one-hour-checklist",
     }
     if args.stage == "final":
-        for key, filename in PREP_PACK_FILES.items():
+        for key, filename in prep_pack_files(scope).items():
             if key == "guide":
                 issues.extend(_validate_guide(output_root / filename))
             else:
-                issues.extend(_validate_markdown(output_root / filename, required_type=expected_types[key]))
+                issues.extend(_validate_markdown(output_root / filename, required_type=expected_types[key], human_facing=True))
 
     ok = not any(issue["severity"] == "error" for issue in issues)
     error_codes = {issue["code"] for issue in issues if issue["severity"] == "error"}
@@ -942,6 +1019,10 @@ def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
         "tripwire_ok": ok,
         "tripwire_only": True,
         "reader_audit_required": True,
+        "subagent_drafts_reviewed": False,
+        "mechanical_tripwire_passed": ok,
+        "reader_audit_passed": False,
+        "math_human_verified": False,
         "delivery_allowed_by_script": False,
         "schema_version": SCHEMA_VERSION,
         "workflow": WORKFLOW,

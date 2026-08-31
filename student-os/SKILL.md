@@ -14,6 +14,12 @@ Run this skill as the single entry point for a university knowledge repository. 
 - Any workflow that writes files must **inspect Git status first** and must not auto-commit unless the user explicitly asks.
 - Any text destined for a **public** GitHub Issue / PR review / comment must pass privacy checks first (`prepare_github_issue.py --stdin` / `--check-only`, or `sanitize_and_post.py`). If the check fails or raises a privacy warning, **do not call `gh`**: keep a draft, redact, and wait for explicit human confirmation before publishing.
 
+## Agent runtime context boundary
+
+Use `references/agent-runtime-context.md` before workflows that depend on prior conversation, feedback, exam-prep quality standards, or examples from outside the current vault.
+
+The runtime agent may rely only on the current user request, current conversation, user-provided files/images, files it can actually read in the target vault, this installed skill's docs/scripts, and tool outputs it has produced. Do not assume access to maintainer-only context such as hidden analysis, previous development sessions, external transcript files, GitHub review state, or private example vaults unless the user explicitly provides them or points to readable files.
+
 ## Intent → workflow routing
 
 | User intent (examples) | Route |
@@ -24,8 +30,8 @@ Run this skill as the single entry point for a university knowledge repository. 
 | Import PDF/DOCX/PPTX/XLSX/images/legacy Office | File-handler → `references/file-handler.md` + `commands/import-file.md` / `materials-convert.md` |
 | Repair imported markdown | File-handler repair → `scripts/repair_markdown_import.py` or `materials_convert.py --repair`; automatic repair means `repair_status: auto-repaired`, not human verified |
 | Fill missing `.pdf.md` YAML frontmatter | File-handler → `scripts/ensure_frontmatter.py` (dry-run first, then `--apply`) |
-| Build exam prep material / 整理历年卷 / 构建期中期末备考包 | AI-first exam prep → `commands/exam-prep-build.md` |
-| Exam type census / frequency statistics / 题型普查 / 题型频率 | Exam-census → `references/exam-census-workflow.md` (Phases 0–5 + A–E) + `commands/exam-census.md` |
+| Build exam prep material / 整理历年卷 / 构建期中期末备考包 / 高质量题型解析 | AI-first exam prep → `commands/exam-prep-build.md` |
+| Exam type census / frequency statistics / 题型普查 / 题型频率 / explicit `/exam-census` | Legacy/auxiliary exam-census → `references/exam-census-workflow.md` + `commands/exam-census.md`; not the default route for high-quality study packs |
 | Record a local problem about student-os | Feedback → `references/feedback-ops.md` + `commands/feedback.md` |
 | Publish to GitHub Issue | GitHub feedback → `references/github-feedback.md` + `commands/report-issue.md` |
 | Sanitize text before any public post | `scripts/prepare_github_issue.py --stdin` / `--check-only` (+ `sanitize_and_post.py`) |
@@ -50,7 +56,7 @@ Before writing:
 - Detect whether the repository already resembles the standard contract or needs a mapping layer.
 - Read `.student-os/repo-profile.md` if it exists before making structural decisions.
 
-Use these scripts when helpful:
+Script appendix for task-specific use. Do not read or run this list wholesale. For content-writing workflows, open the relevant sources first; scripts initialize, inspect, convert, or check only when the routed workflow asks for them.
 - `scripts/inspect_repo.py` for repository shape, git state, and conflict detection.
 - `scripts/scaffold_repo.py` for creating the standard contract in a new or existing repository.
 - `scripts/scaffold_course.py` for setting up a new course space and starter artifacts.
@@ -215,20 +221,24 @@ When the request involves scanned PDFs, image-heavy materials, or legacy `.doc` 
 
 Use `commands/exam-prep-build.md` when the user wants a real study package from past papers: 真题精析、题型解析、公式总卡、答题模板、考前清单、期末/期中备考指南.
 
-Default to this route for messy or inconsistent paper sidecars. Before writing, read `references/exam-prep-gold-standard.md`. Enter editing-teacher mode, not batch-executor mode: the agent must personally open sources, understand the questions, write Markdown body text, read its own output as a student, and edit again. Scripts only initialize directories, list sources, record state, and run tripwire checks. They must not generate lecture body text, worked solutions, self-test answers, or type explanations.
+Default to this route for messy or inconsistent paper sidecars. Before writing, read `references/exam-prep-gold-standard.md`. Enter editing-teacher mode, not batch-executor mode: the agent must personally open sources, understand the questions, write Markdown body text, read its own output as a student, and edit again. Subagents may write draft prose when given a tight task contract, but the main agent must read the draft from disk,审稿, and make any needed local edits before delivery. Scripts only initialize directories, list sources, record state, and run tripwire checks. They must not generate lecture body text, worked solutions, self-test answers, or type explanations.
 
-Broad requests must not immediately bulk-generate a complete pack. First initialize with `scripts/exam_prep_build.py`, then create/check the local quality standard, source map, and exactly one gold loop: one representative `试卷精析` plus one representative `题型解析` that the agent wrote by hand after reading actual paper/textbook/answer evidence. Run `exam_prep_check.py --stage gold-sample`, then perform a reader audit. Expand only after both pass. Then run the staged loop in small batches: v0 paper deep dives plus paper-card JSONs with `repeat_status: unknown-pending-cross-paper-analysis`; after `--stage paper-v0` passes, synthesize cross-paper type/repeat/trend analysis and backfill each paper deep dive with cross-paper relationships; then create type-dossier JSONs plus `题型备课卡/` before writing `题型解析/` lecture pages and the prep pack. AI owns semantic understanding, type clustering, teaching explanations, readability, and prep strategy.
+Broad requests must not immediately bulk-generate a complete pack. First initialize with `scripts/exam_prep_build.py`, then read the canonical exam manifest: multiple sidecars for the same exam (paper, answer, review version, combined paper+answer) are one exam, not separate `试卷精析` pages. Create/check the local quality standard, source map, and exactly one gold loop: one representative `试卷精析` plus one representative `题型解析` that the agent wrote by hand after reading actual paper/textbook/answer evidence. Run `exam_prep_check.py --stage gold-sample`, then perform a reader audit. Expand only after both pass. Then run the staged loop in small batches: v0 canonical paper deep dives plus paper-card JSONs with `repeat_status: unknown-pending-cross-paper-analysis`; after `--stage paper-v0` passes, synthesize cross-paper type/repeat/trend analysis and backfill each paper deep dive with cross-paper relationships; then create type-dossier JSONs plus `题型备课卡/` before writing `题型解析/` lecture pages and the prep pack. AI owns semantic understanding, type clustering, teaching explanations, readability, and prep strategy.
 
-The target reader may have skipped lectures and homework and needs short-term catch-up. For `题型解析`, do not fill a blank template. Open the matching type dossier and its past-paper refs first, then write a tutoring handout: teach the textbook/lecture concepts before using them, include a symbol/concept table, give a 30-second memory card, a 2-minute writing template, method-choice rules, variants, full past-paper problem text, full worked solutions, self-tests, answers, checks, and pitfalls. Every worked example and self-test must cite a real paper-card ref such as `2024-final.json#一`; examples and self-tests must be disjoint. Choose them to cover the dossier's method cards and common variants so a student can learn the method from examples and then self-test the same coverage. This coverage judgment is AI work; the checker only enforces source refs, de-duplication, required sections, problem/answer presence, textbook grounding, and mechanical render safety. If the past-paper pool is too small, mark the page `quality: needs-review` and write `证据不足，需人工补充` instead of inventing 自编题、模拟题、改编题.
+The target reader may have skipped lectures and homework and needs short-term catch-up. For `题型解析`, do not fill a blank template. Open the matching type dossier and its past-paper refs first, then write a tutoring handout: teach the textbook/lecture concepts before using them, include a symbol/concept table, give a 30-second memory card, a 2-minute writing template, method-choice rules, variants, full past-paper problem text, full worked solutions, self-tests, answers, checks, and pitfalls. Keep machine refs such as `2024-final.json#一` inside `.student-os/state/` and type-dossier JSON only; human-facing Markdown should cite readable sources such as `2018-2019 第二学期 · 一.2`. Examples and self-tests must be disjoint. Choose them to cover the dossier's method cards and common variants so a student can learn the method from examples and then self-test the same coverage. This coverage judgment is AI work; the checker only enforces source refs in state, human-readable citations in pages, de-duplication, required sections, problem/answer presence, textbook grounding, and mechanical render safety. If the past-paper pool is too small, mark the page `quality: needs-review` and write `证据不足，需人工补充` instead of inventing 自编题、模拟题、改编题.
+
+When a checker flags missing fields or weak prose in teaching pages, open the affected page and edit the local Markdown by hand. Do not write batch regex scripts or loops to patch `题型解析`, worked examples, self-test answers, `First look`, `Answer`, `Check`, `Transfer`, or similar正文 sections; that pattern has caused broken joins such as LaTeX glued into headings.
 
 After AI writes artifacts, run `scripts/exam_prep_check.py --stage gold-sample` before expansion, `--stage synthesis` before backfill, `--stage type-dossier` before type pages, `--stage type-analysis-sample` when drafting the first type page, then `--stage final --json --write-report`. Passing means only that tripwire structure/evidence/render checks passed. It does not mean mathematical content is human verified, and `issue_count: 0` is not proof that the material is useful to study.
 
-Reader audit is mandatory before any "completed" report. Open and read the entry page, one type-analysis page, one paper deep dive, one worked example, and one self-test answer. Report concrete findings: which paragraphs were unreadable, which problem statements were incomplete, which solution failed to answer the problem, which self-test answer was generic, which textbook grounding was empty, and what you edited. If a blocker remains, keep editing or report blocked; do not claim completion.
+Reader audit is mandatory before any "completed" report. Open and read the entry page, every subagent draft claimed as finished, at least one type-analysis page, one paper deep dive, one worked example, and one self-test answer. Report concrete fields: `subagent_drafts_reviewed`, `mechanical_tripwire_passed`, `reader_audit_passed`, `math_human_verified:false`, sampled files, blockers found, edits made, and remaining risks. If a blocker remains, keep editing or report blocked; do not claim completion.
 
 ### Exam census
 
 Use `references/exam-census-workflow.md` and `references/exam-census-quality.md`.
 Command entry: `commands/exam-census.md`.
+
+Exam-census is a legacy/auxiliary machine-census path for type inventory, frequency statistics, and compatibility with older adapters. It is not the default route for high-quality study packs, tutoring handouts, or "整理历年卷 / 构建备考包" requests. Route those to AI-first exam prep unless the user explicitly asks for `/exam-census`, 题型普查, or frequency statistics.
 
 Claude Code vault adapters (recommended): install with `install_exam_census_adapters.py --platforms claude`, then run `/exam-census` or ask in natural language. The installed `.claude/skills/exam-census/SKILL.md` is a full runbook the model executes directly — do **not** use the Workflow tool or custom `.claude/workflows/*.js` (experimental opt-in only).
 
@@ -262,12 +272,15 @@ Use `references/github-feedback.md` when the user wants developer-facing or GitH
 
 Handle:
 - recording one feedback entry
+- turning the current unsatisfying workflow or user correction into a feedback entry
 - triaging one feedback entry
 - triaging feedback for later implementation
 - marking feedback as resolved
 - generating periodic feedback summaries
 - preparing a GitHub issue draft from feedback
 - publishing a GitHub issue after explicit confirmation
+
+When a Student OS workflow fails, wastes time, produces unusable output, or the user gives a concrete correction, extract feedback from the active conversation and related artifacts. Treat the current conversation, commands, and generated files as the evidence source. For exam-prep and import-repair failures, prefer `feedback_kind: exam-prep`, `import-repair`, `agent-routing`, or `quality-gate` over a vague `other`. Local feedback may be created as part of workflow closure; GitHub publication still requires privacy checks and explicit confirmation.
 
 ### Skill maintenance
 
@@ -293,6 +306,7 @@ When a request targets one of the seed courses, read the matching course pack be
 - `references/pdf-workflow.md`
 - `references/pdf-repair-rules.md`
 - `references/import-repair-examples.md`
+- `references/agent-runtime-context.md`
 - `references/exam-prep-gold-standard.md`
 - `references/docx-workflow.md`
 - `references/xlsx-workflow.md`

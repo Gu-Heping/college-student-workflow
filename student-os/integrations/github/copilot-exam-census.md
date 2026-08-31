@@ -2,7 +2,9 @@
 
 ## exam-census (student-os)
 
-When the user asks for past-paper census, 题型频率, midterm/final prep packs, or exam-census:
+When the user explicitly asks for past-paper census, 题型频率, or exam-census:
+
+This is a legacy/auxiliary machine-census route. For high-quality study packs, tutoring handouts, or "整理历年卷 / 构建备考包", use Student OS AI-first exam prep instead.
 
 1. Confirm the **learning vault** path (not this skill/repo as vault).
 2. Use student-os scripts under the installed skill `scripts/` directory.

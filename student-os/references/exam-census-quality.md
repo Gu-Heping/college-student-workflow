@@ -2,6 +2,8 @@
 
 Use this reference for Phase A–E after Aggregate. Mechanical census scripts stay unchanged; agents fill and gate content here.
 
+This is the legacy/auxiliary exam-census quality contract. It can improve census-derived compatibility pages, but it is not the default standard for AI-first high-quality study material. For tutoring handouts and real exam-prep packages, use `commands/exam-prep-build.md` and `references/exam-prep-gold-standard.md`.
+
 ## Output quality (Issue #51 / #63 / #65)
 
 题型解析面向**中文学生**阅读；**表格为主、段落为辅**。

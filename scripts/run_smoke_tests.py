@@ -6648,6 +6648,83 @@ def exercise_feedback_lifecycle(repo: Path) -> None:
     if "must stay under" not in failure_output:
         raise AssertionError(f"Expected path-guard failure, got: {failure_output}")
 
+    workflow_feedback = Path(
+        run_script(
+            "log_feedback.py",
+            str(repo),
+            "--title",
+            "Exam prep checker passed unreadable material",
+            "--feedback-kind",
+            "exam-prep",
+            "--severity",
+            "high",
+            "--reproducibility",
+            "sometimes",
+            "--source-context",
+            "active exam-prep conversation after reader audit found unusable pages",
+            "--workflow-area",
+            "exam-prep",
+            "--agent-failure-mode",
+            "reported completion from issue_count:0 instead of reading the generated handout",
+            "--tool-failure-mode",
+            "tripwire result was treated as teaching-quality certification",
+            "--user-visible-impact",
+            "student saw a complete-looking package that was not usable for study",
+            "--skill-improvement-candidate",
+            "require current-conversation feedback and reader audit before delivery",
+            "--issue-candidate",
+            "--evidence-from-current-conversation",
+            "- User corrected that mechanical checks cannot prove readability.\n- Generated type-analysis page had source links but no teachable explanation.",
+            "--related-outputs",
+            "courses/linear-algebra/reviews/期中/题型解析/01-sample.md,.student-os/state/exam-prep/linear-algebra/期中/quality-report.json",
+            "--related-roles",
+            "review-coach,coordinator",
+            "--what-happened",
+            "- The agent summarized a failed exam-prep workflow as complete because the checker reported issue_count:0.",
+            "--expected-behavior",
+            "- The agent should extract the failure from the active conversation, record feedback, and avoid treating tripwire output as proof of readability.",
+            "--why-unsatisfying",
+            "- The user had to explain that a human-readable study pack cannot be certified by the script alone.",
+            "--likely-cause",
+            "- Feedback capture was not embedded in workflow closure and issue_count:0 was over-trusted.",
+            "--suggested-improvement",
+            "- Add workflow feedback fields and require reader-audit evidence before completion.",
+            "--developer-summary",
+            "- Exam-prep feedback should be creatable from the active conversation without exported logs.",
+            "--evidence",
+            "- Current conversation summary and related generated artifacts.",
+        )
+    )
+    ensure_contains(workflow_feedback, "feedback_kind: exam-prep")
+    ensure_contains(workflow_feedback, "workflow_area:")
+    ensure_contains(workflow_feedback, "agent_failure_mode:")
+    ensure_contains(workflow_feedback, "tool_failure_mode:")
+    ensure_contains(workflow_feedback, "user_visible_impact:")
+    ensure_contains(workflow_feedback, "skill_improvement_candidate:")
+    ensure_contains(workflow_feedback, "issue_candidate: true")
+    ensure_contains(workflow_feedback, "evidence_source_status:")
+    ensure_contains(workflow_feedback, "evidence_log:")
+    ensure_contains(workflow_feedback, "## Evidence From Current Conversation")
+    ensure_contains(workflow_feedback, "## Related Outputs")
+    ensure_not_contains(workflow_feedback, "session_log_export")
+    ensure_not_contains(workflow_feedback, "Evidence log:")
+    ensure_contains(workflow_feedback, "Evidence source status:")
+
+    workflow_issue_payload = json.loads(
+        run_script(
+            "prepare_github_issue.py",
+            str(repo),
+            str(workflow_feedback),
+        )
+    )
+    if workflow_issue_payload["labels"] != ["feedback", "feedback:exam-prep", "severity:high"]:
+        raise AssertionError("Workflow feedback issue draft should use the new exam-prep label")
+    for section in ("## Workflow Failure Analysis", "## Evidence From Current Conversation", "## Related Outputs"):
+        if section not in workflow_issue_payload["body"]:
+            raise AssertionError(f"Workflow feedback issue draft should include {section}")
+    if "session_log_export" in workflow_issue_payload["body"]:
+        raise AssertionError("Workflow feedback issue draft must not mention exported session logs as required evidence")
+
     archive_feedback = Path(
         run_script(
             "log_feedback.py",

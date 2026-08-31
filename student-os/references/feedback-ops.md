@@ -19,8 +19,11 @@ Use the feedback flow when the user explicitly asks to:
 - report a feedback item to GitHub
 - summarize recent student-os issues
 - mark a previously recorded feedback item as resolved
+- turn the current workflow failure, poor result, or user correction into a feedback item
 
-Do not enter the feedback flow automatically at the end of ordinary tasks.
+For ordinary successful tasks, do not create feedback noise. When the user is dissatisfied or the agent observes workflow friction that should improve the skill, proactively create or offer a local feedback entry from the current conversation and output artifacts.
+
+Default to extracting the failure from the active workflow context: the current conversation, command summaries, file paths, visible artifact snippets, and the user's corrections.
 
 ## Default storage
 
@@ -36,6 +39,10 @@ Use one `feedback_kind`:
 - `template` for poor artifact structure or missing fields
 - `routing` for wrong specialist or companion hand-off
 - `import` for PDF, DOCX, XLSX, or PPTX issues
+- `exam-prep` for exam material construction, type analysis, reader audit, or prep-pack quality failures
+- `import-repair` for imported markdown repair loops, Obsidian render failures, or OCR sidecar cleanup issues
+- `agent-routing` for wrong role selection, over-broad scans, subagent misuse, or missing main-agent review
+- `quality-gate` for checker false passes, misleading checks, or tripwire coverage gaps
 - `git` for branch, staging, commit, or grouping issues
 - `quality` for weak output quality without a narrower fit
 - `docs` for missing or misleading instructions
@@ -59,6 +66,9 @@ Use one `reproducibility`:
 - Preserve the original complaint in `What Happened`.
 - Translate vague complaints into factual expectations in `Expected Behavior`.
 - Record evidence paths whenever relevant.
+- Record related output paths when the failure was visible in generated material.
+- Record the workflow area, agent failure mode, tool failure mode, user-visible impact, and candidate skill/tool improvement when the issue came from a Student OS workflow.
+- Use `evidence_source_status: summarized` when the current conversation already provides enough evidence. `evidence_log` is a legacy field name only; it does not mean an exported log file is required.
 - Keep likely causes tentative unless directly supported by repository evidence.
 - Prefer one feedback file per issue, even when several complaints happened on the same day.
 - Always keep a stable `feedback_id` once the item has been created.
@@ -83,7 +93,7 @@ Use these scripts when the repository owner wants a tighter lifecycle:
 - For **GitHub Issue** drafts and publishing, continue with `references/github-feedback.md` (`prepare_github_issue.py` / `publish_github_issue.py` / `sanitize_and_post.py`) — local developer summaries are not a substitute for the privacy-checked publish path
 
 Recommended progression:
-1. Capture the issue in `feedback/raw/`
+1. Capture the issue in `feedback/raw/`, using the current conversation as the default evidence source
 2. Triage it once the problem and owner are clear
 3. Prepare or publish a GitHub issue when the user wants a developer-visible report
 4. Resolve it only after the workflow, docs, template, or script change exists

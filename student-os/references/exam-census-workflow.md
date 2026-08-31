@@ -1,6 +1,8 @@
 # Exam Census Workflow
 
-Use this reference for large-scale past-paper censuses: question-type taxonomy, parallel annotation, frequency aggregation, and exam-prep pack generation.
+Use this reference for legacy/auxiliary large-scale past-paper censuses: question-type taxonomy, parallel annotation, and frequency aggregation.
+
+This is not the default route for high-quality study packs, tutoring handouts, or requests such as "整理历年卷 / 构建期中期末备考包 / 高质量题型解析". For those, use AI-first exam prep (`commands/exam-prep-build.md`). Exam-census outputs can support that workflow as evidence or rough statistics, but they must not replace agent-written study material.
 
 ## Platform entry points
 
@@ -136,7 +138,7 @@ One-screen map (agents should announce artifact paths before each step):
 | **B** Quality | Structural gate, ≤2 revision rounds | `review_type_analysis.py` |
 | **C** Multi-dim | Co-occurrence / difficulty drafts | `build_multi_dim_stats.py` |
 | **D** Deep-dive | 1–2 representative paper walkthroughs | `init_exam_deep_dive.py` |
-| **5** Prep pack | L1–L4 四层资料包（须在 Phase B 通过后） | templates + review-coach |
+| **5** Legacy prep pack | L1–L4 compatibility pack（须在 Phase B 通过后；not the high-quality default） | templates + review-coach |
 | **E** Cross-val | Coverage + prep-pack 四层完整性（prep pack 后再跑） | `cross_validate_exam_census.py` |
 
 Current entry points: this file, `commands/exam-census.md`, and `references/exam-census-quality.md` (content standard). Prefer those over inventing a parallel checklist.
@@ -266,7 +268,9 @@ Writes `cross-validation.json` and `analysis/覆盖率检查.md` (missing skelet
 
 Optional early diagnostic after Aggregate/A–D is fine for skeleton coverage, but expect `ok: false` / nonzero exit until prep-pack files are created — do not treat that as a hard stop before Phase 5.
 
-### Phase 5 — Prep pack 四层资料包
+### Phase 5 — Legacy prep pack 四层资料包
+
+This phase is a compatibility/auxiliary output for the exam-census pipeline. Do not use it as the default answer to "build a high-quality exam prep package". AI-first exam prep must own teaching prose, reader audit, source reading, and gold-page expansion.
 
 **前置：** Phase B 题型解析质量门禁已通过（`review_type_analysis.py` 无 blocking `needs-revision`）。不要在门禁失败时硬写备考包。
 

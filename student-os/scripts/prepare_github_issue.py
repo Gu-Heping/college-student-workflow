@@ -229,6 +229,10 @@ def likely_area(frontmatter: dict[str, str]) -> str:
         "template": "templates and generated artifact structure",
         "routing": "routing and companion selection",
         "import": "document import pipeline",
+        "exam-prep": "AI-first exam prep workflow and teaching-material quality",
+        "import-repair": "imported markdown repair workflow",
+        "agent-routing": "agent role routing and subagent/main-agent handoff",
+        "quality-gate": "mechanical tripwire and quality gate coverage",
         "git": "git workflow and change grouping",
         "quality": "output quality and result shaping",
         "docs": "documentation and usage guidance",
@@ -335,6 +339,9 @@ def build_issue_body(
     likely_cause = redact_sensitive_text(extract_section(body, "Likely Cause") or "- ")
     suggested_improvement = redact_sensitive_text(extract_section(body, "Suggested Improvement") or "- ")
     developer_summary = redact_sensitive_text(extract_section(body, "Developer Summary") or "- ")
+    workflow_failure = redact_sensitive_text(extract_section(body, "Workflow Failure Analysis") or "- ")
+    conversation_evidence = redact_sensitive_text(extract_section(body, "Evidence From Current Conversation") or "- ")
+    related_outputs = redact_sensitive_text(extract_section(body, "Related Outputs") or "- ")
     source_context = redact_sensitive_text(normalize_scalar(frontmatter.get("source_context", "")) or "unknown")
     severity = normalize_scalar(frontmatter.get("severity", "medium")) or "medium"
     privacy_lines = blockers + warnings or ["No obvious privacy warnings detected."]
@@ -369,6 +376,18 @@ def build_issue_body(
         "## Evidence",
         "",
         evidence,
+        "",
+        "## Workflow Failure Analysis",
+        "",
+        workflow_failure,
+        "",
+        "## Evidence From Current Conversation",
+        "",
+        conversation_evidence,
+        "",
+        "## Related Outputs",
+        "",
+        related_outputs,
         "",
         "## Reproduction Steps",
         "",

@@ -14,6 +14,8 @@ Exam prep pages are written by the agent as a tutoring teacher, not assembled by
 
 Scripts may initialize folders, list candidate sources, record state, and run mechanical tripwires. They must not generate lecture body text, worked solutions, self-test answers, or type explanations.
 
+Subagents can write drafts when they receive a precise contract: target reader, output file, required sources, source citation format, no machine refs in正文, no template prose, and a self-read checklist. Drafts are not finished material until the main agent reads them from disk, audits them, and makes any needed local edits.
+
 `issue_count: 0` means only that the tripwire did not catch obvious mechanical garbage. It is never a delivery standard.
 
 ## Target Reader
@@ -32,13 +34,14 @@ Write for this student. A page that is complete but unreadable is a failed page.
 For broad requests, do not generate a whole package at once. Complete one small loop first:
 
 1. Inspect the vault and identify available papers, answers, textbook, lecture notes, homework, and existing high-quality references.
-2. Choose one high-value type or one representative paper.
-3. Open the actual sources.
-4. Write one useful page by hand in Markdown.
-5. Read the page as a student.
-6. Edit the page until it teaches.
-7. Run mechanical tripwire checks.
-8. Only then expand to the next page or batch.
+2. Consolidate canonical exams: one real exam gets one deep dive and paper-card; answer/review/combined sidecars are evidence roles, not extra papers.
+3. Choose one high-value type or one representative paper.
+4. Open the actual sources.
+5. Write one useful page by hand in Markdown.
+6. Read the page as a student.
+7. Edit the page until it teaches.
+8. Run mechanical tripwire checks.
+9. Only then expand to the next page or batch.
 
 ## Page Shapes
 
@@ -71,7 +74,7 @@ Each type page is a tutoring handout. It must contain:
 - separate self-test answers;
 - pitfalls, checks, and scoring strategy.
 
-Do not use `paper-card` refs as a substitute for problem text. The student must be able to do the problem from the page.
+Do not use `paper-card` refs as a substitute for problem text. Machine refs such as `2024-final.json#一` belong in `.student-os/state/` and type-dossier JSON. Human-facing Markdown should use readable citations such as `2018-2019 第二学期 · 一.2`. The student must be able to do the problem from the page.
 
 ### Worked Example
 
@@ -156,6 +159,8 @@ Use short, teachable blocks:
 - no universal filler copied across pages;
 - no "source link only" examples;
 - no OCR dump pasted into a handout without editing.
+- no batch regex or loop-based prose patching in teaching sections after a checker failure; open the page and edit the paragraph, example, answer, or `Transfer` block directly.
+- no broken joins such as LaTeX commands glued to `**Answer**`, `**Check**`, or `**Transfer**`.
 
 Worked solutions should use "action sentence + formula + short note":
 
@@ -170,6 +175,7 @@ Worked solutions should use "action sentence + formula + short note":
 Before reporting completion, the agent must personally read at least:
 
 - the entry page;
+- every subagent draft being claimed as finished;
 - one type analysis page;
 - one paper deep dive;
 - one worked example;
@@ -189,6 +195,10 @@ reader_audit:
   remaining_risks:
     - ...
   student_start_here: ...
+  subagent_drafts_reviewed: true|false
+  mechanical_tripwire_passed: true|false
+  reader_audit_passed: true|false
+  math_human_verified: false
 ```
 
 If the audit finds a blocker, keep editing. Do not report completion.

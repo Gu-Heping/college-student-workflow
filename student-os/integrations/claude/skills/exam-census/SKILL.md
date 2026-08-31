@@ -1,19 +1,23 @@
 ---
 name: exam-census
-description: Run student-os exam-census for past-paper type analysis and exam-prep pack generation. Use when the user asks for exam-census, 题型普查, 题型频率, past-paper analysis, midterm/final prep pack, or runs /exam-census.
+description: Run the legacy/auxiliary student-os exam-census pipeline for explicit exam-census, 题型普查, 题型频率, or frequency-statistics requests. Do not use as the default route for high-quality study packs or tutoring handouts; use AI-first exam prep for 整理历年卷 / 构建备考包.
 argument-hint: "vault=<path> course=<course> examScope=<scope> [papersDir=<path>]"
 ---
 
 # Exam Census Runbook
 
-你是 **exam-census 编排者**。收到 `/exam-census` 或自然语言题型普查请求时，**由你直接按本 runbook 执行**（Bash / 读文件 / 写文件 / 委派子任务均可）。
+你是 **exam-census 编排者**。收到 `/exam-census` 或自然语言题型普查 / 题型频率请求时，**由你直接按本 runbook 执行**（Bash / 读文件 / 写文件 / 委派子任务均可）。
+
+本 runbook 是 legacy/auxiliary 机器普查路径。用户要“整理历年卷 / 构建备考包 / 写高质量题型解析 / 做能直接学习的复习资料”时，不要走本路径；改用 Student OS 的 AI-first exam prep 入口。
 
 **禁止**使用 Workflow 工具来跑 exam-census。不要查找或执行 `.claude/workflows/exam-census.js`。本文件就是唯一执行说明。
 
 ## 何时触发
 
 - 用户运行 `/exam-census ...`
-- 用户说：题型普查、试卷普查、题型频率、真题分析、备考资料包、exam-census 等
+- 用户说：题型普查、试卷普查、题型频率、exam-census 等
+
+不要因“备考资料包 / 整理历年卷 / 高质量题型解析”触发本 skill；这些属于 AI-first exam prep。
 
 ## 参数（全部必填 unless 标注）
 

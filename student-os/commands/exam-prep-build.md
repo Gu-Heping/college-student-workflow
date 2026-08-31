@@ -12,6 +12,7 @@ Default route:
 - work mode: editing teacher, not batch executor
 - scripts initialize workspace/state and run tripwire checks only
 - AI personally reads sources, writes Markdown body text, judges readability, revises, and reports reader audit
+- subagents may draft正文 only from explicit task contracts; main agent must read back,审稿, and locally edit those drafts before delivery
 
 Do **not** start with mechanical statistics, keyword parsing, or full-package generation. For messy papers, the default order is:
 
@@ -25,8 +26,11 @@ Do **not** start with mechanical statistics, keyword parsing, or full-package ge
 ```
 
 Before any content work, read `references/exam-prep-gold-standard.md`. Treat it as the writing standard.
+Also read `references/agent-runtime-context.md` when using feedback, examples, or prior conversation as evidence. Do not assume access to hidden maintainer context, exported logs, or private sample vaults unless the user provides readable files.
 
 The core rule is simple: every explanation, worked solution, self-test answer, guide route, and type page paragraph must be written by the agent after reading source material. Do not use scripts, loops, state JSON, paper-cards, or dossiers to assemble body prose.
+
+Before paper writing, use the manifest's canonical exam grouping. One real exam gets one `试卷精析` and one paper-card; paper sidecars, answer sidecars, combined paper+answer files, review versions, PDFs, and text-layer repairs are evidence roles for that canonical exam, not separate exams.
 
 ## Start
 
@@ -77,7 +81,7 @@ Reader audit for the gold sample must answer:
 
 For each paper:
 
-1. Read the `.pdf.md` sidecar and nearby answer/source evidence.
+1. Read the canonical problem source and its source roles in the manifest: original paper first, combined paper+answer second, answer/review text only as checking evidence.
 2. Write `试卷精析/<paper>.md` as a v0 teaching walkthrough, not a raw transcript.
 3. Write the matching `paper-cards/<paper>.json` with `question_id`, `prompt_summary`, `solution_summary`, `initial_type`, `evidence_refs`, `confidence`, `repeat_status`, and notes.
 4. Use `low` / `needs-review` when source evidence is unclear.
@@ -119,7 +123,7 @@ Do not write `题型解析/*.md` from a blank template. For each taxonomy type:
 2. Create `.student-os/state/exam-prep/<course>/<scope>/type-dossiers/<type-id>.json`.
 3. Create `reviews/<scope>/题型备课卡/<type-id>.md`.
 4. The dossier must include recognition cues, variants, method cards, formula cards, pitfalls, source question refs, worked example candidates, self-test candidates, confidence, and insufficient-evidence notes.
-5. Worked examples and self-tests must all come from past-paper `paper-card.json#question_id` refs. They must be disjoint. Do not use 自编题、模拟题、改编题, or invented examples.
+5. Worked examples and self-tests must all come from past-paper question refs in the dossier. Those machine refs stay in state/dossier JSON; human-facing Markdown cites the same source as readable text such as `2018-2019 第二学期 · 一.2`. They must be disjoint. Do not use 自编题、模拟题、改编题, or invented examples.
 
 Check dossiers:
 
@@ -141,7 +145,7 @@ Then write `题型解析/*.md` as tutoring handout pages from the dossier. The d
 - Explain textbook grounding precisely enough to study from it: prefer textbook/lecture subsection, figure number, problem diagram, or chapter anchor. Do not use answer keys as concept authority.
 - Use "action sentence + formula + short note": what to judge first, what to write next, how to substitute, how to check, and what to answer.
 - Default target: at least 5 worked examples and 4 self-tests. If past-paper evidence is insufficient, write `quality: needs-review` and explain `证据不足，需人工补充`.
-- Every example/self-test must cite a machine-readable past-paper ref such as `2024-final.json#一`; example refs and self-test refs must not overlap.
+- Every example/self-test must cite a readable past-paper source such as `2024-2025 第二学期 · 一.2`; example sources and self-test sources must not overlap. Keep `.json#` refs out of human-facing Markdown.
 - Choose examples and self-tests to cover the method cards and common variants in the dossier, not just to fill a count. This coverage judgment is AI work: each worked example should name the method/variant it teaches, explain what to notice first, and include a transfer cue; each self-test should state which method/variant it trains. The checker only verifies source refs, de-duplication, required sections, and whether training targets are labeled.
 - Do not copy a universal worked-solution paragraph across examples. Each solution must name the exact givens, the exact first relation, the exact computation, and the exact check for that problem.
 
@@ -165,6 +169,7 @@ Passing means the package passed tripwire evidence/structure/render checks. It d
 - Do not treat `issue_count: 0` as proof of teaching quality; it is only mechanical acceptance.
 - Do not report a broad exam-prep request as complete without a concrete reader audit.
 - Do not use batch scripts or loops to generate lecture body text, example explanations, self-test answers, or guide prose.
+- Do not use batch regex scripts to patch teaching prose after tripwire failures; open the page, read the context, and edit the local paragraph/solution/answer yourself.
 - Do not bulk-generate the whole pack before a gold sample passes.
 - Do not invent examples or self-tests; all examples and self-tests must come from past papers.
 - Do not cite only paper-card refs without including usable problem text.
@@ -173,5 +178,6 @@ Passing means the package passed tripwire evidence/structure/render checks. It d
 - Do not use vague textbook grounding such as only "§2"; cite the usable section, figure, problem diagram, or lecture location when available.
 - Do not mark AI output as human verified.
 - Do not let scripts decide complex semantics.
+- Do not let subagent drafts enter the final pack without main-agent reader audit and local edits where needed.
 - If source format is chaotic, spend effort on `试卷精析` and `paper-cards` first.
 - If a generated page feels unreadable, fix the prose and examples directly; do not hide behind a passing tripwire report.

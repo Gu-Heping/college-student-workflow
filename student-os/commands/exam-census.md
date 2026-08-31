@@ -1,13 +1,14 @@
 # exam-census
 
-Intent: large-scale past-paper census and exam-prep pack generation.
+Intent: legacy/auxiliary large-scale past-paper census and frequency statistics.
 
 Use when the user asks to:
 - classify question types across many midterm/final papers
 - compute type appearance frequencies
-- generate type analyses ranked by frequency
-- raise skeletons to vault-quality type pages (Phase A–E)
-- assemble an exam prep pack (guide, formula card, answer templates, one-hour checklist)
+- generate type-analysis skeletons or rough compatibility pages ranked by frequency
+- run the legacy Phase A–E census pipeline explicitly
+
+Do **not** use this command as the default route for high-quality study packs, tutoring handouts, or broad "整理历年卷 / 构建备考包" requests. Use `commands/exam-prep-build.md` for those.
 
 Default route:
 - primary role: `review-coach`
@@ -24,7 +25,7 @@ Before any writing phase: inspect Git in the **learning vault** (not the skill s
 | B Quality | Structural quality gate (`review_type_analysis.py`) |
 | C Multi-dim | Drafts under `analysis/` |
 | D Deep-dive | Representative paper walkthroughs |
-| 5 Prep pack | L1–L4 四层资料包（须在 Phase B 通过后） |
+| 5 Legacy prep pack | L1–L4 compatibility pack（须在 Phase B 通过后；not the high-quality default） |
 | E Cross-val | Coverage + prep-pack 四层完整性（prep pack 后再跑） |
 
 Full checklist below; narrative detail in `references/exam-census-workflow.md`.

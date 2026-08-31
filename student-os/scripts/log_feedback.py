@@ -33,6 +33,26 @@ def main() -> int:
     parser.add_argument("--related-course", default="", help="Related course name if any")
     parser.add_argument("--related-artifacts", default="", help="Comma-separated related artifact paths")
     parser.add_argument("--related-roles", default="", help="Comma-separated related roles")
+    parser.add_argument("--workflow-area", default="", help="Workflow area where the problem surfaced")
+    parser.add_argument("--agent-failure-mode", default="", help="How the agent behavior failed or got stuck")
+    parser.add_argument("--tool-failure-mode", default="", help="How a Student OS script/tool contract contributed")
+    parser.add_argument("--user-visible-impact", default="", help="What the user actually experienced")
+    parser.add_argument("--skill-improvement-candidate", default="", help="Candidate skill/tool improvement")
+    parser.add_argument("--issue-candidate", action="store_true", help="Mark this feedback as a candidate GitHub issue")
+    parser.add_argument("--evidence-from-current-conversation", default="", help="Conversation-derived evidence summary from the active workflow")
+    parser.add_argument("--related-outputs", default="", help="Comma-separated output artifacts related to the failure")
+    parser.add_argument(
+        "--evidence-log",
+        default="summarized",
+        choices=["unavailable", "attached", "summarized"],
+        help="Legacy alias for --evidence-source-status.",
+    )
+    parser.add_argument(
+        "--evidence-source-status",
+        default=None,
+        choices=["unavailable", "attached", "summarized"],
+        help="Whether evidence comes from the current workflow summary, attached artifacts, or is unavailable.",
+    )
     parser.add_argument("--what-happened", default="- ", help="What happened")
     parser.add_argument("--expected-behavior", default="- ", help="Expected behavior")
     parser.add_argument("--why-unsatisfying", default="- ", help="Why the result was unsatisfying")
@@ -60,10 +80,12 @@ def main() -> int:
         counter += 1
 
     artifacts = parse_csv(args.related_artifacts)
+    outputs = parse_csv(args.related_outputs)
     roles = parse_csv(args.related_roles)
     feedback_id = build_feedback_id(today, args.title)
     if counter > 1:
         feedback_id = f"{feedback_id}-{counter}"
+    evidence_source_status = args.evidence_source_status or args.evidence_log
     frontmatter = OrderedDict(
         [
             ("type", "feedback"),
@@ -78,7 +100,16 @@ def main() -> int:
             ("source_context", quoted_yaml_string(args.source_context)),
             ("related_course", quoted_yaml_string(args.related_course)),
             ("related_artifacts", f"[{yaml_list(artifacts)}]"),
+            ("related_outputs", f"[{yaml_list(outputs)}]"),
             ("related_roles", f"[{yaml_list(roles)}]"),
+            ("workflow_area", quoted_yaml_string(args.workflow_area)),
+            ("agent_failure_mode", quoted_yaml_string(args.agent_failure_mode)),
+            ("tool_failure_mode", quoted_yaml_string(args.tool_failure_mode)),
+            ("user_visible_impact", quoted_yaml_string(args.user_visible_impact)),
+            ("skill_improvement_candidate", quoted_yaml_string(args.skill_improvement_candidate)),
+            ("issue_candidate", "true" if args.issue_candidate else "false"),
+            ("evidence_source_status", quoted_yaml_string(evidence_source_status)),
+            ("evidence_log", quoted_yaml_string(evidence_source_status)),
             ("github_issue_url", '""'),
             ("github_issue_number", '""'),
             ("github_issue_status", '""'),
@@ -116,6 +147,24 @@ def main() -> int:
         "## Evidence",
         "",
         args.evidence,
+        "",
+        "## Workflow Failure Analysis",
+        "",
+        f"- Workflow area: {args.workflow_area or 'unknown'}",
+        f"- Agent failure mode: {args.agent_failure_mode or 'unknown'}",
+        f"- Tool failure mode: {args.tool_failure_mode or 'unknown'}",
+        f"- User-visible impact: {args.user_visible_impact or 'unknown'}",
+        f"- Skill improvement candidate: {args.skill_improvement_candidate or 'unknown'}",
+        f"- Issue candidate: {'true' if args.issue_candidate else 'false'}",
+        f"- Evidence source status: {evidence_source_status}",
+        "",
+        "## Evidence From Current Conversation",
+        "",
+        args.evidence_from_current_conversation or "- Not provided.",
+        "",
+        "## Related Outputs",
+        "",
+        "\n".join(f"- {item}" for item in outputs) if outputs else "- Not provided.",
         "",
         "## Follow-up",
         "",

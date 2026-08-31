@@ -1,11 +1,13 @@
 ---
-description: Run student-os exam-census on a learning vault — past-paper taxonomy, annotation batches, frequency stats, Phase A–E type-analysis quality fill, deep-dive, and prep pack. Use when the user asks for exam-census, 题型频率, 试卷普查, midterm/final prep pack generation, or @exam-census.
+description: Run the legacy/auxiliary student-os exam-census pipeline on a learning vault — past-paper taxonomy, annotation batches, and frequency stats. Use only for explicit exam-census, 题型频率, 试卷普查, or @exam-census requests. Use AI-first exam prep for high-quality study packs or tutoring handouts.
 alwaysApply: false
 ---
 
 # exam-census (Cursor / Codex orchestration)
 
 You are orchestrating the **student-os exam-census** workflow against a **learning vault** (never against the skill repo itself).
+
+This is a legacy/auxiliary machine-census route. For "整理历年卷", "构建备考包", "高质量题型解析", or study material a student can directly learn from, switch to Student OS AI-first exam prep instead.
 
 ## Install adapters once (optional)
 
@@ -45,7 +47,7 @@ Fall back to a local checkout’s `student-os/scripts/`.
 7. **Quality (B)** — run `review_type_analysis.py` **once globally** after all fills; revise ≤2 rounds or set `quality: needs-review`（只处理 `type_needs_revision`）
 8. **Multi-dim (C)** — `build_multi_dim_stats.py --overwrite`（面向用户的 analysis 报告中文优先）；然后**再跑** `review_type_analysis.py`，处理 `analysis_needs_revision`；修订后再跑一次确认清空
 9. **Deep-dive (D)** — `init_exam_deep_dive.py --limit 2` then fill scaffolds
-10. **Prep pack** — 备考指南 / 公式总卡 / 答题模板 / 考前清单 with real links to `题型解析/`
+10. **Legacy prep pack** — compatibility guide / formula card / answer template / checklist with real links to `题型解析/`; not the high-quality default
 11. **Cross-val (E)** — `cross_validate_exam_census.py`
 
 ## Output quality (must)

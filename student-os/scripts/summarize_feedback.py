@@ -46,12 +46,15 @@ def main() -> int:
             data["status"] = normalize_scalar(data.get("status", status))
             data["severity"] = normalize_scalar(data.get("severity", "medium"))
             data["feedback_kind"] = normalize_scalar(data.get("feedback_kind", "other"))
+            data["workflow_area"] = normalize_scalar(data.get("workflow_area", ""))
+            data["issue_candidate"] = normalize_scalar(data.get("issue_candidate", "false"))
             data["fix_version"] = normalize_scalar(data.get("fix_version", ""))
             data["feedback_id"] = normalize_scalar(data.get("feedback_id", ""))
             data["title"] = extract_title(body) or path.stem
             all_items.append(data)
 
     by_kind = Counter(item.get("feedback_kind", "other") for item in all_items)
+    by_workflow_area = Counter(item.get("workflow_area") for item in all_items if item.get("workflow_area"))
     by_status = Counter(item.get("status", "open") for item in all_items)
     open_high = [
         item for item in all_items
@@ -121,6 +124,13 @@ def main() -> int:
     else:
         lines.append("- No pending feedback items.")
 
+    lines.extend(["", "## Workflow Areas", ""])
+    if by_workflow_area:
+        for area, count in sorted(by_workflow_area.items()):
+            lines.append(f"- {area}: {count}")
+    else:
+        lines.append("- No workflow-area feedback recorded yet.")
+
     lines.extend(["", "## Recent Resolutions", ""])
     if recent_resolved:
         for item in recent_resolved:
@@ -136,7 +146,7 @@ def main() -> int:
             for item in pending_items[:10]:
                 feedback_id = item.get("feedback_id", "")
                 lines.append(
-                    f"- {feedback_id or item.get('path')}: {item.get('title')} ({item.get('feedback_kind', 'other')}, {item.get('severity', 'medium')})"
+                    f"- {feedback_id or item.get('path')}: {item.get('title')} ({item.get('feedback_kind', 'other')}, {item.get('severity', 'medium')}, workflow_area={item.get('workflow_area') or 'unknown'}, issue_candidate={item.get('issue_candidate', 'false')})"
                 )
         else:
             lines.append("- No open developer follow-up items.")
