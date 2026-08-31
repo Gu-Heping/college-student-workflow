@@ -632,16 +632,11 @@ def _validate_manifest_paper_outputs(
     issues: list[dict[str, str]] = []
     card_paths: list[Path] = []
     papers = [item for item in manifest.get("papers", []) if isinstance(item, dict)]
+    missing_canonical_role = False
     for item in papers:
         paper_id = str(item.get("id") or "").strip()
         if not item.get("source_roles") or not item.get("canonical_problem_source"):
-            issues.append(
-                _issue(
-                    "manifest-paper-missing-canonical-source-role",
-                    manifest.get("state_dir", "manifest"),
-                    "Each manifest paper must record canonical_problem_source and source_roles",
-                )
-            )
+            missing_canonical_role = True
         card_rel = str(item.get("paper_card") or "")
         dive_rel = str(item.get("deep_dive") or "")
         card_path = (repo / card_rel).resolve() if card_rel else state / "paper-cards" / f"{paper_id}.json"
@@ -664,6 +659,14 @@ def _validate_manifest_paper_outputs(
                         "Final stage requires a cross-paper relationship/backfill section in each deep dive",
                     )
                 )
+    if missing_canonical_role:
+        issues.append(
+            _issue(
+                "manifest-paper-missing-canonical-source-role",
+                manifest.get("state_dir", "manifest"),
+                "One or more manifest papers must record canonical_problem_source and source_roles",
+            )
+        )
     return issues, card_paths
 
 
@@ -727,7 +730,7 @@ def _normalize_source_label(value: str) -> str:
 
 def _extract_human_sources(text: str) -> list[str]:
     sources: list[str] = []
-    for match in re.finditer(r"来源\s*[：:]\s*([^\n。；;]+)", text):
+    for match in re.finditer(r"(?:\*\*)?来源(?:\*\*)?\s*[：:]\s*([^\n。；;]+)", text):
         label = _normalize_source_label(match.group(1))
         if label:
             sources.append(label)
@@ -898,6 +901,42 @@ def _validate_guide(path: Path) -> list[dict[str, str]]:
     return issues
 
 
+def _validate_scope_naming(output_root: Path, scope: str) -> list[dict[str, str]]:
+    if "期中" not in scope:
+        return []
+    issues: list[dict[str, str]] = []
+    stale_core_names = ("期末公式总卡", "期末答题模板", "期末考试备考指南")
+    core_paths = [output_root / "README.md"]
+    for filename in prep_pack_files(scope).values():
+        core_paths.append(output_root / filename)
+    for legacy_name in ("期末公式总卡.md", "期末答题模板速查.md", "期末考试备考指南.md"):
+        legacy_path = output_root / legacy_name
+        if legacy_path.exists():
+            issues.append(
+                _issue(
+                    "scope-naming-residue",
+                    legacy_path,
+                    "期中备考包不得保留期末命名的核心入口文件；请重命名并更新链接",
+                )
+            )
+            core_paths.append(legacy_path)
+    for path in sorted(set(core_paths)):
+        if not path.exists():
+            continue
+        text = _read(path)
+        for marker in stale_core_names:
+            if marker in text:
+                issues.append(
+                    _issue(
+                        "scope-naming-residue",
+                        path,
+                        f"期中备考包核心入口或链接中仍出现 {marker}",
+                    )
+                )
+                break
+    return issues
+
+
 def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
     course_dir = resolve_course(repo, args.course, semester=args.semester)
     course_key = course_slug_of(course_dir, repo)
@@ -1001,6 +1040,7 @@ def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
         "one_hour_checklist": "pre-exam-one-hour-checklist",
     }
     if args.stage == "final":
+        issues.extend(_validate_scope_naming(output_root, scope))
         for key, filename in prep_pack_files(scope).items():
             if key == "guide":
                 issues.extend(_validate_guide(output_root / filename))

@@ -243,7 +243,7 @@ def _initial_pack_text(kind: str, course: str, exam_scope: str) -> str:
             "| L1 | 本文件 | 复习优先级、时间分配、风险说明 |\n"
             "| L2 | [题型解析/](题型解析/) | 逐题型学习方法与真题例题 |\n"
             f"| L3 | [{pack_files['formula_card']}]({pack_files['formula_card']}) / [{pack_files['answer_templates']}]({pack_files['answer_templates']}) | 背公式与套模板 |\n"
-            "| L4 | [考前1小时清单.md](考前1小时清单.md) | 最后冲刺 |\n\n"
+            f"| L4 | [{pack_files['one_hour_checklist']}]({pack_files['one_hour_checklist']}) | 最后冲刺 |\n\n"
             "## 题型优先级\n\n"
             "> AI 读取 `试卷精析/` 与 `题目卡/` 后填写。不要只依据脚本统计。\n\n"
             "## 复习时间分配\n\n"
@@ -404,6 +404,44 @@ def _gold_sample_task_payload(repo: Path, output_root: Path, state: Path, course
             "Run exam_prep_check.py --stage gold-sample --json. Do not expand to the full pack until the sample passes.",
         ],
         "bulk_generation_locked_until": "gold-sample-pass",
+    }
+
+
+def _ready_for_stage(repo: Path, state: Path, output_root: Path, scope: str) -> dict[str, bool]:
+    manifest = state / "manifest.json"
+    source_map = state / STANDARD_FILES["source_map"]
+    gold_sample = state / STANDARD_FILES["gold_sample_task"]
+    taxonomy = state / "taxonomy.json"
+    paper_cards = state / "paper-cards"
+    type_dossiers = state / "type-dossiers"
+    type_analysis = output_root / "题型解析"
+    paper_deep_dives = output_root / "试卷精析"
+    pack_files = prep_pack_files(scope)
+    standard_ready = (output_root / STANDARD_FILES["quality_standard"]).exists()
+    source_map_ready = manifest.exists() and source_map.exists()
+    paper_v0_ready = (
+        paper_deep_dives.exists()
+        and any(paper_deep_dives.glob("*.md"))
+        and paper_cards.exists()
+        and any(paper_cards.glob("*.json"))
+    )
+    synthesis_ready = taxonomy.exists() and any((output_root / "分析").glob("*.md"))
+    type_dossier_ready = (
+        type_dossiers.exists()
+        and any(type_dossiers.glob("*.json"))
+        and any((output_root / "题型备课卡").glob("*.md"))
+    )
+    type_analysis_ready = type_analysis.exists() and any(type_analysis.glob("*.md"))
+    final_ready = type_analysis_ready and all((output_root / filename).exists() for filename in pack_files.values())
+    return {
+        "standard": standard_ready,
+        "source-map": source_map_ready,
+        "gold-sample": standard_ready and source_map_ready and gold_sample.exists(),
+        "paper-v0": paper_v0_ready,
+        "synthesis": paper_v0_ready and synthesis_ready,
+        "type-dossier": synthesis_ready and type_dossier_ready,
+        "type-analysis-sample": type_dossier_ready and type_analysis_ready,
+        "final": final_ready,
     }
 
 
@@ -663,28 +701,6 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
                 ],
             },
         )
-    write_json(
-        status_path,
-        {
-            "schema_version": SCHEMA_VERSION,
-            "workflow": WORKFLOW,
-            "status": "initialized",
-            "current_phase": "source_inventory",
-            "phases": PHASES,
-            "next_action": "Create the quality standard, source map, and one gold sample before bulk paper/type generation.",
-            "ready_for_stage": {
-                "standard": False,
-                "source-map": False,
-                "gold-sample": False,
-                "paper-v0": False,
-                "synthesis": False,
-                "type-dossier": False,
-                "type-analysis-sample": False,
-                "final": False,
-            },
-        },
-    )
-
     _write_if_missing(output_root / "README.md", _readme_text(course_key, scope))
     _write_if_missing(quality_standard_path, _quality_standard_text(course_key, scope))
     if not source_map_path.exists() or args.overwrite:
@@ -699,6 +715,22 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
         _write_if_missing(output_root / "分析" / filename, _analysis_text(filename, course_key, scope))
     for kind, filename in prep_pack_files(scope).items():
         _write_if_missing(output_root / filename, _initial_pack_text(kind, course_key, scope))
+    ready_for_stage = _ready_for_stage(repo, state, output_root, scope)
+    write_json(
+        status_path,
+        {
+            "schema_version": SCHEMA_VERSION,
+            "workflow": WORKFLOW,
+            "status": "initialized" if not any(ready_for_stage.values()) else "resynced",
+            "current_phase": "quality_check" if ready_for_stage["final"] else "source_inventory",
+            "phases": PHASES,
+            "next_action": (
+                "Run exam_prep_check.py for the next false stage; scripts only report readiness, "
+                "AI reader audit is still required before delivery."
+            ),
+            "ready_for_stage": ready_for_stage,
+        },
+    )
 
     return {
         "ok": True,

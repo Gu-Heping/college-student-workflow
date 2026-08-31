@@ -441,6 +441,24 @@ def verify_quality_pass_and_render_fail(tmp_root: Path) -> None:
     if not report.exists():
         raise AssertionError("exam_prep_check.py --write-report should write quality-report.json")
 
+    run_student_script(
+        "exam_prep_build.py",
+        str(vault),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期末",
+        "--papers-dir",
+        str(vault / "courses" / "linear-algebra" / "references" / "exams"),
+        "--overwrite",
+        "--json",
+        cwd=ROOT,
+    )
+    status = json.loads((vault / ".student-os" / "state" / "exam-prep" / "linear-algebra" / "期末" / "build-status.json").read_text(encoding="utf-8"))
+    ready = status.get("ready_for_stage")
+    if not isinstance(ready, dict) or ready.get("final") is not True or status.get("status") != "resynced":
+        raise AssertionError(f"Build status should resync from existing artifacts instead of stale false readiness: {status}")
+
     broken = vault / "courses" / "linear-algebra" / "reviews" / "期末" / "题型解析" / "01-matrix-equation.md"
     text = broken.read_text(encoding="utf-8")
     broken.write_text(text + "\n坏公式：$ x $\n", encoding="utf-8", newline="\n")
@@ -484,6 +502,51 @@ def verify_scope_specific_pack_names(tmp_root: Path) -> None:
         raise AssertionError(f"Exam-prep build should use scope-specific prep pack names: {payload}; found={pack_names}")
     if any(path.name == "期末考试备考指南.md" for path in vault.rglob("*考试备考指南.md")):
         raise AssertionError("期中 prep workspace must not initialize a 期末 guide filename")
+    readme = (vault / "courses" / "linear-algebra" / "reviews" / midterm / "期中考试备考指南.md").read_text(encoding="utf-8")
+    if "期中考前1小时清单.md" not in readme or "考前1小时清单.md](考前1小时清单.md)" in readme:
+        raise AssertionError("Scope-specific guide should link the scoped one-hour checklist filename")
+    stale = vault / "courses" / "linear-algebra" / "reviews" / midterm / "期末公式总卡.md"
+    write_text(stale, "# stale\n")
+    fail = run_student_script(
+        "exam_prep_check.py",
+        str(vault),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        midterm,
+        "--stage",
+        "final",
+        "--json",
+        cwd=ROOT,
+        expect_ok=False,
+    )
+    codes = {issue["code"] for issue in fail.get("issues", []) if isinstance(issue, dict)}
+    if "scope-naming-residue" not in codes:
+        raise AssertionError(f"期中 packages must fail when stale 期末 core names remain: {fail}")
+
+
+def verify_bold_human_sources_pass(tmp_root: Path) -> None:
+    vault, _ = verify_init_and_initial_failure(tmp_root)
+    write_ai_outputs(vault)
+    add_cross_paper_backfill(vault)
+    type_page = vault / "courses" / "linear-algebra" / "reviews" / "期末" / "题型解析" / "01-matrix-equation.md"
+    text = type_page.read_text(encoding="utf-8")
+    text = text.replace("来源：2024-2025 期末 · 一", "**来源**：2024-2025 期末 · 一")
+    type_page.write_text(text, encoding="utf-8", newline="\n")
+    ok = run_student_script(
+        "exam_prep_check.py",
+        str(vault),
+        "--course",
+        "linear-algebra",
+        "--exam-scope",
+        "期末",
+        "--stage",
+        "final",
+        "--json",
+        cwd=ROOT,
+    )
+    if ok.get("ok") is not True:
+        raise AssertionError(f"Bold human source labels should be accepted: {ok}")
 
 
 def verify_type_dossier_rejects_bad_refs_and_overlap(tmp_root: Path) -> None:
@@ -784,6 +847,7 @@ def main() -> int:
         tmp_root = Path(tmp)
         verify_quality_pass_and_render_fail(tmp_root / "main")
         verify_scope_specific_pack_names(tmp_root / "scope-names")
+        verify_bold_human_sources_pass(tmp_root / "bold-sources")
         verify_type_dossier_rejects_bad_refs_and_overlap(tmp_root / "bad-dossier")
         verify_type_analysis_rejects_fabricated_and_duplicate_sources(tmp_root / "bad-type-page")
         verify_type_analysis_rejects_unlearnable_shell(tmp_root / "unlearnable-type-page")
