@@ -263,18 +263,18 @@ def count_likely_math_dollars(text: str) -> int:
     return count
 
 
-def odd_inline_math_dollar_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
+def odd_inline_math_dollar_lines(text: str, *, max_items: int | None = 8) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     for line_number, line in enumerate(_strip_markdown_code(text).splitlines(), start=1):
         dollars = len(re.findall(r"(?<!\\)\$", line))
         if dollars % 2 == 1:
             items.append({"line": line_number, "count": dollars})
-            if len(items) >= max_items:
+            if max_items is not None and len(items) >= max_items:
                 break
     return items
 
 
-def inline_array_render_risk_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
+def inline_array_render_risk_lines(text: str, *, max_items: int | None = 8) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     for line_number, line in enumerate(_strip_markdown_code(text).splitlines(), start=1):
         for match in re.finditer(r"(?<!\\)\$(?P<body>[^$\n]*(?:\\begin\{(?:array|matrix|[pbvBV]?matrix)\})[^$\n]*)(?<!\\)\$", line):
@@ -282,12 +282,12 @@ def inline_array_render_risk_lines(text: str, *, max_items: int = 8) -> list[dic
             if len(body) >= 80 or r"\begin{array}" in body:
                 items.append({"line": line_number, "length": len(body)})
                 break
-        if len(items) >= max_items:
+        if max_items is not None and len(items) >= max_items:
             break
     return items
 
 
-def inline_math_delimiter_space_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
+def inline_math_delimiter_space_lines(text: str, *, max_items: int | None = 8) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     in_fence = False
     fence_char = ""
@@ -326,12 +326,12 @@ def inline_math_delimiter_space_lines(text: str, *, max_items: int = 8) -> list[
                 }
             )
             break
-        if len(items) >= max_items:
+        if max_items is not None and len(items) >= max_items:
             break
     return items
 
 
-def display_math_delimiter_not_standalone_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
+def display_math_delimiter_not_standalone_lines(text: str, *, max_items: int | None = 8) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     for line_number, line in enumerate(_strip_markdown_code(text).splitlines(), start=1):
         search_at = 0
@@ -354,7 +354,7 @@ def display_math_delimiter_not_standalone_lines(text: str, *, max_items: int = 8
                 )
                 break
             search_at = index + 2
-        if len(items) >= max_items:
+        if max_items is not None and len(items) >= max_items:
             break
     return items
 
@@ -400,7 +400,7 @@ def _brace_balance_issue(body: str) -> tuple[int, int, str] | None:
     return None
 
 
-def latex_math_span_brace_unbalanced_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
+def latex_math_span_brace_unbalanced_lines(text: str, *, max_items: int | None = 8) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     for line_number, line in _iter_plain_lines(text):
         cursor = 0
@@ -441,16 +441,38 @@ def latex_math_span_brace_unbalanced_lines(text: str, *, max_items: int = 8) -> 
                 )
                 break
             cursor = end + 1
-        if len(items) >= max_items:
+        if max_items is not None and len(items) >= max_items:
             break
     return items
 
 
-def latex_array_wrapper_malformed_lines(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
+def latex_array_wrapper_malformed_lines(text: str, *, max_items: int | None = 8) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     pattern = re.compile(r"\\begin\{array\}\s*\{(?P<spec>[^}]*)\}\s*\{")
     for line_number, line in _iter_plain_lines(text):
         for match in pattern.finditer(line):
+            # A grouped cell is valid; a group wrapping alignment rows is not.
+            start = match.end() - 1
+            depth = 0
+            end = None
+            for pos in range(start, len(line)):
+                if pos > 0 and line[pos - 1] == "\\":
+                    continue
+                if line[pos] == "{":
+                    depth += 1
+                elif line[pos] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = pos
+                        break
+            if end is None:
+                continue
+            content = line[start + 1:end]
+            # Nested environments and cell groups are left to the column check.
+            if r"\begin{" in content or not re.search(r"(?<!\\)&|\\\\", content):
+                continue
+            if not line[end + 1:].lstrip().startswith(r"\end{array}"):
+                continue
             items.append(
                 {
                     "line": line_number,
@@ -460,41 +482,55 @@ def latex_array_wrapper_malformed_lines(text: str, *, max_items: int = 8) -> lis
                 }
             )
             break
-        if len(items) >= max_items:
+        if max_items is not None and len(items) >= max_items:
             break
     return items
 
 
-def array_column_mismatches(text: str, *, max_items: int = 8) -> list[dict[str, object]]:
+def array_column_mismatches(text: str, *, max_items: int | None = 8, uncertain: list[dict[str, object]] | None = None) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
-    array_re = re.compile(r"\\begin\{array\}\s*\{(?P<spec>[^}]*)\}(?P<body>.*?)\\end\{array\}")
-    for line_number, line in enumerate(_strip_markdown_code(text).splitlines(), start=1):
-        for match in array_re.finditer(line):
-            body = match.group("body")
-            if r"\begin{array}" in body:
-                continue
-            spec = match.group("spec")
-            expected_columns = len(re.findall(r"[clr]", spec))
-            if expected_columns <= 0:
-                continue
-            row_columns: list[int] = []
-            for row in re.split(r"(?<!\\)\\\\", body):
-                row = row.strip()
-                if not row:
-                    continue
-                row_columns.append(row.count("&") + 1)
-            actual_columns = sorted(set(row_columns))
-            if actual_columns and actual_columns != [expected_columns]:
-                items.append(
-                    {
-                        "line": line_number,
-                        "expected_columns": expected_columns,
-                        "actual_columns": actual_columns,
-                        "spec": spec.strip(),
-                    }
-                )
-                if len(items) >= max_items:
-                    return items
+    clean = _strip_markdown_code(text)
+    array_re = re.compile(r"\\begin\{array\}\s*\{(?P<spec>[^}]*)\}(?P<body>.*?)\\end\{array\}", re.S)
+    for match in array_re.finditer(clean):
+        body, spec = match.group("body"), match.group("spec")
+        line_number = clean.count("\n", 0, match.start()) + 1
+        if r"\begin{array}" in body or r"\multicolumn" in body or not re.fullmatch(r"[clr|\s]+", spec):
+            if uncertain is not None:
+                uncertain.append({"line": line_number, "reason": "complex-column-layout", "spec": spec})
+            continue
+        expected = len(re.findall(r"[clr]", spec))
+        if expected == 0:
+            continue
+        rows: list[int] = []
+        columns, braces, environments = 1, 0, 0
+        for token in re.findall(r"\\(?:begin|end)\{[^}]+\}|\\\\|\\.|[{}&]", body):
+            if token.startswith(r"\begin{"):
+                environments += 1
+            elif token.startswith(r"\end{"):
+                environments -= 1
+            elif environments == 0:
+                if token == "{":
+                    braces += 1
+                elif token == "}":
+                    braces -= 1
+                elif braces == 0 and token == "&":
+                    columns += 1
+                elif braces == 0 and token == r"\\":
+                    rows.append(columns)
+                    columns = 1
+            if braces < 0 or environments < 0:
+                break
+        if braces != 0 or environments != 0:
+            if uncertain is not None:
+                uncertain.append({"line": line_number, "reason": "unbalanced-or-nested-layout", "spec": spec})
+            continue
+        if body.strip() and not body.rstrip().endswith(r"\\"):
+            rows.append(columns)
+        actual = sorted(set(rows))
+        if actual and actual != [expected]:
+            items.append({"line": line_number, "expected_columns": expected, "actual_columns": actual, "spec": spec.strip()})
+            if max_items is not None and len(items) >= max_items:
+                break
     return items
 
 
@@ -522,7 +558,7 @@ def imported_content_text(text: str) -> str:
     return text[end:]
 
 
-def diagnose_import_risks(text: str) -> list[dict[str, object]]:
+def diagnose_import_risks(text: str, *, sample_limit: int | None = 8) -> list[dict[str, object]]:
     risks: list[dict[str, object]] = []
     diagnostic_text = _strip_markdown_code(text)
 
@@ -531,32 +567,37 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
         ("unicode-escape", r"\\u[0-9a-fA-F]{4}", 0),
     ]
     for code, pattern, flags in checks:
-        count = len(re.findall(pattern, diagnostic_text, flags))
-        if count:
-            risks.append({"code": code, "count": count})
+        affected = [{"line": index, "excerpt": line[:160]} for index, line in enumerate(diagnostic_text.splitlines(), 1) if re.search(pattern, line, flags)]
+        if affected:
+            risks.append({"code": code, "count": len(affected), "lines": affected})
 
     nonumber_count = count_orphan_latex_nonumber(diagnostic_text)
     if nonumber_count:
-        risks.append({"code": "latex-nonumber", "count": nonumber_count})
+        affected = [{"line": index} for index, line in enumerate(diagnostic_text.splitlines(), 1) if count_orphan_latex_nonumber(line)]
+        risks.append({"code": "latex-nonumber", "count": len(affected), "lines": affected})
 
     binom_count = count_malformed_binom(diagnostic_text)
     if binom_count:
-        risks.append({"code": "latex-binom-fragment", "count": binom_count})
+        affected = [{"line": index} for index, line in enumerate(diagnostic_text.splitlines(), 1) if count_malformed_binom(line)]
+        risks.append({"code": "latex-binom-fragment", "count": len(affected), "lines": affected})
 
     left_count = len(re.findall(r"\\left\b", diagnostic_text))
     right_count = len(re.findall(r"\\right\b", diagnostic_text))
     if left_count != right_count:
-        risks.append({"code": "latex-left-right-unbalanced", "left": left_count, "right": right_count})
+        risks.append({"code": "latex-left-right-unbalanced", "count": 1, "count_unit": "document", "left": left_count, "right": right_count})
 
-    array_mismatches = array_column_mismatches(text)
+    uncertain_arrays: list[dict[str, object]] = []
+    array_mismatches = array_column_mismatches(text, max_items=None, uncertain=uncertain_arrays)
+    if uncertain_arrays:
+        risks.append({"code": "latex-array-layout-uncertain", "severity": "warning", "count": len(uncertain_arrays), "lines": uncertain_arrays})
     if array_mismatches:
         risks.append({"code": "latex-array-column-mismatch", "count": len(array_mismatches), "lines": array_mismatches})
 
-    inline_array_lines = inline_array_render_risk_lines(text)
+    inline_array_lines = inline_array_render_risk_lines(text, max_items=None)
     if inline_array_lines:
         risks.append({"code": "obsidian-inline-array-render-risk", "count": len(inline_array_lines), "lines": inline_array_lines})
 
-    display_delimiter_lines = display_math_delimiter_not_standalone_lines(text)
+    display_delimiter_lines = display_math_delimiter_not_standalone_lines(text, max_items=None)
     if display_delimiter_lines:
         risks.append(
             {
@@ -566,7 +607,7 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
             }
         )
 
-    delimiter_space_lines = inline_math_delimiter_space_lines(text)
+    delimiter_space_lines = inline_math_delimiter_space_lines(text, max_items=None)
     if delimiter_space_lines:
         risks.append(
             {
@@ -576,18 +617,18 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
             }
         )
 
-    brace_lines = latex_math_span_brace_unbalanced_lines(text)
+    brace_lines = latex_math_span_brace_unbalanced_lines(text, max_items=None)
     if brace_lines:
         risks.append({"code": "latex-math-span-brace-unbalanced", "count": len(brace_lines), "lines": brace_lines})
 
-    wrapper_lines = latex_array_wrapper_malformed_lines(text)
+    wrapper_lines = latex_array_wrapper_malformed_lines(text, max_items=None)
     if wrapper_lines:
         risks.append({"code": "latex-array-wrapper-malformed", "count": len(wrapper_lines), "lines": wrapper_lines})
 
     inline_dollars = count_likely_math_dollars(text)
     if inline_dollars % 2 == 1:
-        risks.append({"code": "math-dollar-unbalanced", "count": inline_dollars})
-    odd_dollar_lines = odd_inline_math_dollar_lines(text)
+        risks.append({"code": "math-dollar-unbalanced", "count": 1, "count_unit": "document", "delimiter_count": inline_dollars})
+    odd_dollar_lines = odd_inline_math_dollar_lines(text, max_items=None)
     if odd_dollar_lines:
         risks.append({"code": "math-dollar-odd-line", "count": len(odd_dollar_lines), "lines": odd_dollar_lines})
 
@@ -601,6 +642,19 @@ def diagnose_import_risks(text: str) -> list[dict[str, object]]:
     ):
         risks.append({"code": "low-cjk-density", "cjk": cjk_count})
 
+    for risk in risks:
+        records = risk.get("lines")
+        if isinstance(records, list):
+            by_line = {int(record["line"]): record for record in records}
+            risk["count"] = len(by_line)
+            risk["lines"] = list(by_line.values()) if sample_limit is None else list(by_line.values())[:sample_limit]
+            risk["sample_count"] = len(risk["lines"])
+            risk["truncated"] = len(by_line) > len(risk["lines"])
+            risk["count_unit"] = "affected-lines"
+        else:
+            risk.setdefault("count_unit", "document")
+            risk["sample_count"] = 0
+            risk["truncated"] = False
     return risks
 
 

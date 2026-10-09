@@ -8,7 +8,7 @@
 | --- | --- |
 | **install** | `install.sh` / `install.ps1` / `scripts/install_student_os.py`；支持 Codex / Claude Code / OpenCode / DeepSeek Harness (DSH)，写入 `.student-os-install.json` |
 | **self-update** | `student-os/scripts/update_student_os.py`：`--check` / `--apply`、备份与 rollback 指引；不碰用户 vault |
-| **DSH native tools** | `integrations/dsh/`：本地 Cordis plugin，提供 `student_os_inspect` / `student_os_group_changes` / `student_os_frontmatter` / `student_os_repair_import_run` / `student_os_repair_import_check`，复用 Python core；`scripts/bootstrap_dsh.py` 可生成带 `vaultRoot` 的 project-local overlay；官方 API/package/bootstrap smoke 已通过 |
+| **DSH native tools** | `integrations/dsh/`：本地 Cordis plugin，提供 `student_os_inspect` / `student_os_group_changes` / `student_os_frontmatter` / `student_os_repair_import_run` / `student_os_repair_import_check`，复用 Python core；bootstrap overlay 配置 `vaultRoot` 与安装目录 `skillRoot`，结果暴露实际 `skill_root`；未配置 `skillRoot` 保留仓库来源兼容 |
 | **Git safety** | `inspect_repo.py`、`group_git_changes.py`：脏工作区分组、hold-back（冲突/缓存/大文件/venv 等）；默认不自动提交 |
 | **feedback lifecycle** | `log` → `triage` → `resolve` → `summarize`；稳定 `feedback_id` |
 | **GitHub issue publishing** | `prepare_github_issue.py` + `publish_github_issue.py`；需 `gh` 认证，否则 draft 降级 |
@@ -16,7 +16,7 @@
 | **materials_convert** | 批量 PDF/DOCX/PPTX/XLSX/图片/旧 Office → markdown sidecar；positional 为 source，非 vault |
 | **MinerU API** | `--method auto` / `--method api`；有 token 时走 v4 精准 API；`auto` 无 token 时 ≤10MB 文件可走 v1 Agent 免登录 API；PDF 按 ≤20 页/片限制自动拆分合并 |
 | **markdown repair** | `repair_markdown_import.py`；`materials_convert --repair` / `--repair-only`；AI 默认可直接编辑一个文件的局部 Obsidian 可见问题，再用 `repair_import_check.py` 做 compact/focused 机械审查；queue/case/proposal/review/apply 保留为审计与大范围修复 fallback |
-| **exam-census** | Init → taxonomy → annotate → aggregate；Phase A–E（fill / quality / multi-dim / deep-dive / cross-val）；备考包模板；多平台 adapters |
+| **exam-census** | 辅助机器普查/频率统计与兼容 adapters；高质量讲义使用 AI-first：AI 阅读、亲自编辑、逐页读回审稿，机械检查不证明可读性 |
 | **smoke tests / CI** | `scripts/run_smoke_tests.py`、`scripts/run_import_repair_evals.py`；`.github/workflows/smoke.yml` |
 
 ## 部分可用 / 需小心

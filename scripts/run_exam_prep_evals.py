@@ -842,10 +842,56 @@ def verify_paper_v0_rejects_premature_repeat_claim(tmp_root: Path) -> None:
         raise AssertionError(f"paper-v0 must reject premature original-repeat claims: {fail}")
 
 
+def verify_linked_textbook_grounding(tmp_root: Path) -> None:
+    vault, _ = verify_init_and_initial_failure(tmp_root)
+    write_ai_outputs(vault)
+    state = vault / ".student-os/state/exam-prep/linear-algebra/期末"
+    page = vault / "courses/linear-algebra/reviews/期末/题型解析/01-matrix-equation.md"
+    text = page.read_text(encoding="utf-8").replace("课本 §2.3.1", "定义").replace("讲义图 2.3.1", "运算规则")
+    write_text(page, text)
+    args = (str(vault), "--course", "linear-algebra", "--exam-scope", "期末", "--stage", "type-analysis-sample", "--json")
+    failure = run_student_script("exam_prep_check.py", *args, cwd=ROOT, expect_ok=False)
+    assert "type-analysis-missing-textbook-grounding" in {item["code"] for item in failure["issues"]}
+    source = vault / "references/教材.md"
+    write_text(source, "# 逆矩阵\n\n左乘逆矩阵消去已知矩阵，乘法顺序不能交换。\n")
+    source_map = json.loads((state / "source-map.json").read_text(encoding="utf-8"))
+    source_map["page_grounding"] = {"matrix-equation": [{"path": "references/教材.md", "locator": "逆矩阵小节"}]}
+    write_json(state / "source-map.json", source_map)
+    assert run_student_script("exam_prep_check.py", *args, cwd=ROOT)["ok"] is True
+    source_map["page_grounding"] = {"other-type": [{"path": "references/教材.md", "locator": "逆矩阵小节"}]}
+    write_json(state / "source-map.json", source_map)
+    failure = run_student_script("exam_prep_check.py", *args, cwd=ROOT, expect_ok=False)
+    assert "type-analysis-missing-textbook-grounding" in {item["code"] for item in failure["issues"]}
+    dossier_path = state / "type-dossiers/matrix-equation.json"
+    dossier = json.loads(dossier_path.read_text(encoding="utf-8"))
+    dossier["textbook_refs"] = [{"path": "references/教材.md", "locator": "逆矩阵小节"}]
+    write_json(dossier_path, dossier)
+    assert run_student_script("exam_prep_check.py", *args, cwd=ROOT)["ok"] is True
+    source.unlink()
+    failure = run_student_script("exam_prep_check.py", *args, cwd=ROOT, expect_ok=False)
+    assert "type-analysis-missing-textbook-grounding" in {item["code"] for item in failure["issues"]}
+
+
+def verify_teaching_contract_docs() -> None:
+    command = (ROOT / "student-os/commands/exam-prep-build.md").read_text(encoding="utf-8")
+    standard = (ROOT / "student-os/references/exam-prep-gold-standard.md").read_text(encoding="utf-8")
+    feedback = (ROOT / "student-os/references/feedback-ops.md").read_text(encoding="utf-8")
+    for marker in ("improving existing pages", "Do not force workspace initialization", "two routes"):
+        assert marker in command, marker
+    for marker in ("every changed teaching page", "old audit does not approve", "numerical spot check", "export copy", "same question does not"):
+        assert marker in standard, marker
+    assert "existing raw/triaged entries" in feedback
+    assert "not universal skill rules" in feedback
+    # This only guards instruction drift; it does not certify teaching quality.
+    examples = ROOT / "student-os/references/exam-prep-reader-audit-examples.md"
+    assert examples.is_file()
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="student-os-exam-prep-eval-") as tmp:
         tmp_root = Path(tmp)
         verify_quality_pass_and_render_fail(tmp_root / "main")
+        verify_linked_textbook_grounding(tmp_root / "linked-grounding")
         verify_scope_specific_pack_names(tmp_root / "scope-names")
         verify_bold_human_sources_pass(tmp_root / "bold-sources")
         verify_type_dossier_rejects_bad_refs_and_overlap(tmp_root / "bad-dossier")
@@ -857,6 +903,7 @@ def main() -> int:
         verify_paper_v0_rejects_premature_repeat_claim(tmp_root / "premature")
         verify_subagent_contract_docs()
         verify_context_and_legacy_census_docs()
+        verify_teaching_contract_docs()
     print("OK exam-prep-ai-first-evals")
     return 0
 

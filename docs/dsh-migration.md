@@ -48,6 +48,10 @@ If `<vault>/.dsh/student-os.cordis.yml` already exists with different content, b
 
 Start DSH from the vault root with the returned argv. Bootstrap does not hot-load the current DSH session: `active_in_current_process` is `false` and `restart_required` is `true`.
 
+The overlay sets `vaultRoot` to the project and `skillRoot` to its installed `.dsh/skills/student-os`. Native tools return the actual `skill_root` and call Python there, so installed local script changes are observable. An invalid explicit `skillRoot` returns `invalid-skill-root`; it never silently switches to repository scripts. Omitting `skillRoot` preserves the older repository-source behavior.
+
+To update an older overlay, inspect its custom configuration first, then rerun bootstrap with `--force-overlay`; the existing backup mechanism preserves it. Restart DSH with the returned `--patch` argv to activate the change. Do not change global profiles. Census adapters remain auxiliary statistics routes; refresh an existing adapter explicitly with the adapter installer only after reviewing local customizations.
+
 Bootstrap performs:
 
 - project-scope Skill install via `scripts/install_student_os.py --agent dsh --scope project --project-root <vault>`
@@ -126,6 +130,7 @@ cat > /path/to/vault/.dsh/student-os.cordis.yml <<EOF
       name: 'file:///absolute/path/to/college-student-workflow/integrations/dsh/dist/index.js'
       config:
         vaultRoot: '/absolute/path/to/your/learning-vault'
+        skillRoot: '/absolute/path/to/your/learning-vault/.dsh/skills/student-os'
       # Windows example:
       # name: 'file:///D:/repos/college-student-workflow/integrations/dsh/dist/index.js'
 EOF

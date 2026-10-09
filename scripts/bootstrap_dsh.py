@@ -56,6 +56,7 @@ def overlay_text(plugin_entry: Path, *, project_root: Path) -> str:
         f"      name: {yaml_single_quote(plugin_url)}\n"
         "      config:\n"
         f"        vaultRoot: {yaml_single_quote(json_safe_path(project_root))}\n"
+        f"        skillRoot: {yaml_single_quote(json_safe_path(project_root / SKILL_RELATIVE))}\n"
     )
 
 

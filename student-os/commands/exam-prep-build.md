@@ -14,7 +14,13 @@ Default route:
 - AI personally reads sources, writes Markdown body text, judges readability, revises, and reports reader audit
 - subagents may draft正文 only from explicit task contracts; main agent must read back,审稿, and locally edit those drafts before delivery
 
-Do **not** start with mechanical statistics, keyword parsing, or full-package generation. For messy papers, the default order is:
+## Choose The Work Mode
+
+Confirm the target course, exam scope, files to edit, and the roles of textbook, answers and reference pages. A reference is not an edit target. Read the course's existing quality standard and the user's current corrections first.
+
+For **improving existing pages**, open the page and relevant sources, edit locally, read every changed teaching page back as a beginner, then run a focused mechanical check. Do not force workspace initialization, new dossiers, or the whole staged pipeline. Keep type IDs stable; order learning by prerequisites and synchronize the entry, guide and speed cards.
+
+For **a new study pack**, do not start with mechanical statistics, keyword parsing, or full-package generation. For messy papers, the default order is:
 
 ```text
 阶段 0：读取 gold standard → 资料盘点 → quality-standard.md → source-map.json
@@ -34,7 +40,7 @@ Before paper writing, use the manifest's canonical exam grouping. One real exam 
 
 ## Start
 
-Initialize the AI-first workspace:
+For a new pack only, initialize the AI-first workspace:
 
 ```bash
 python student-os/scripts/exam_prep_build.py /path/to/vault \
@@ -140,7 +146,9 @@ Then write `题型解析/*.md` as tutoring handout pages from the dossier. The d
 - Open the dossier and the referenced past-paper questions first.
 - Open the relevant textbook/lecture material before explaining concepts.
 - Start with cross-paper value: frequency, score band, difficulty, repeat/variant status, representative years, and review priority.
-- Include 30 秒速记、符号和概念表、课本知识点与精确依据、2 分钟下笔模板、方法选择、核心概念、核心方法、例题精讲、自测题、自测答案、抢分技巧、易错点.
+- Offer two routes: beginners start with necessary concepts and concrete operations; exam revision jumps to the speed card. Teach recognition cues, concepts, operations/reasons, a minimal demonstration, real problems and transfer. Organize flexibly; these are teaching responsibilities, not eleven mandatory headings.
+- Read authoritative material before explaining concepts. Keep precise evidence in the associated source map, dossier or appendix; the prose must explain the idea, not send the student to a slide position. For linked grounding use `page_grounding: {<type-id>: [{"path": "vault-relative/source.md", "locator": "section/figure/example"}]}` in source-map, or the same records in a dossier's `textbook_refs`. Old body citations remain supported.
+- Allocate past-paper problems across methods before writing: each method needs a teaching example and an independent self-test where available. The same problem with another solution is still a duplicate. Reduce counts and describe gaps when evidence is insufficient. Label minimal concept demonstrations as demonstrations, not past-paper questions or self-tests.
 - Put the actual past-paper problem text in the page. Source links alone are not enough.
 - Explain textbook grounding precisely enough to study from it: prefer textbook/lecture subsection, figure number, problem diagram, or chapter anchor. Do not use answer keys as concept authority.
 - Use "action sentence + formula + short note": what to judge first, what to write next, how to substitute, how to check, and what to answer.

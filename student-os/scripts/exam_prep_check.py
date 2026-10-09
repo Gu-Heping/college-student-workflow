@@ -371,7 +371,7 @@ def _validate_source_map(path: Path, manifest_sources: set[str]) -> list[dict[st
     return issues
 
 
-def _validate_type_analysis_learning_quality(path: Path, refs_by_type: dict[str, set[str]], *, strict_refs: bool) -> list[dict[str, str]]:
+def _validate_type_analysis_learning_quality(path: Path, refs_by_type: dict[str, set[str]], *, strict_refs: bool, grounded_types: set[str] | None = None) -> list[dict[str, str]]:
     issues: list[dict[str, str]] = []
     if not path.exists():
         return [_issue("missing-type-analysis-sample", path, "Gold sample needs at least one type-analysis page")]
@@ -380,15 +380,16 @@ def _validate_type_analysis_learning_quality(path: Path, refs_by_type: dict[str,
         issues.append(_issue("type-analysis-low-quality-phrase", path, "Type analysis contains placeholder or non-teaching phrases"))
     if SELF_QUESTION_TITLE_RE.search(text):
         issues.append(_issue("type-analysis-self-question-heading", path, "Avoid self-Q&A headings; write direct teaching sections"))
-    if not TEXTBOOK_GROUNDING_RE.search(text):
+    grounded = bool(TEXTBOOK_GROUNDING_RE.search(text)) or _extract_frontmatter_field(text, "exam_type_id") in (grounded_types or set())
+    if not grounded:
         issues.append(
             _issue(
                 "type-analysis-missing-textbook-grounding",
                 path,
-                "Concept explanations must cite a precise textbook/lecture section, figure, problem diagram, or chapter anchor",
+                "Record precise textbook/lecture evidence in the page, its dossier, or source-map page_grounding; citations do not prove teaching quality",
             )
         )
-    if OVERBROAD_SECTION_RE.search(text) and not TEXTBOOK_GROUNDING_RE.search(text):
+    if OVERBROAD_SECTION_RE.search(text) and not grounded:
         issues.append(_issue("type-analysis-overbroad-textbook-ref", path, "Textbook grounding is too broad; cite a precise subsection, figure, or problem diagram"))
     if "2 分钟" not in text and "下笔模板" not in text:
         issues.append(_issue("type-analysis-missing-action-template", path, "Type analysis must include a 2-minute writing/action template"))
@@ -474,7 +475,7 @@ def _validate_type_analysis_learning_quality(path: Path, refs_by_type: dict[str,
     return issues
 
 
-def _validate_gold_sample(output_root: Path, refs_by_type: dict[str, set[str]]) -> list[dict[str, str]]:
+def _validate_gold_sample(output_root: Path, refs_by_type: dict[str, set[str]], grounded_types: set[str] | None = None) -> list[dict[str, str]]:
     issues: list[dict[str, str]] = []
     deep_dive_files = _nonempty_md_files(output_root / "试卷精析")
     type_files = _nonempty_md_files(output_root / "题型解析")
@@ -490,17 +491,23 @@ def _validate_gold_sample(output_root: Path, refs_by_type: dict[str, set[str]]) 
         issues.append(_issue("gold-sample-missing-type-analysis", output_root / "题型解析", "Create one representative type-analysis sample before bulk generation"))
     else:
         issues.extend(_validate_markdown(type_files[0], required_type="exam-type-analysis", human_facing=True))
-        issues.extend(_validate_type_analysis_learning_quality(type_files[0], refs_by_type, strict_refs=bool(refs_by_type)))
+        issues.extend(_validate_type_analysis_learning_quality(type_files[0], refs_by_type, strict_refs=bool(refs_by_type), grounded_types=grounded_types))
     return issues
 
 
-def _validate_type_analysis(path: Path, refs_by_type: dict[str, set[str]]) -> list[dict[str, str]]:
+def _validate_type_analysis(path: Path, refs_by_type: dict[str, set[str]], grounded_types: set[str] | None = None) -> list[dict[str, str]]:
     issues = _validate_markdown(path, required_type="exam-type-analysis", human_facing=True)
     text = _read(path) if path.exists() else ""
     type_id = _extract_frontmatter_field(text, "exam_type_id")
     quality = _extract_frontmatter_field(text, "quality")
+    block_aliases = {
+        "考前速记": ("考前速记", "速查", "30 秒", "30秒"),
+        "核心概念": ("核心概念", "必要概念", "基础知识"),
+        "核心方法": ("核心方法", "操作步骤", "方法选择"),
+        "快速得分": ("快速得分", "抢分", "步骤分"),
+    }
     for marker in REQUIRED_TYPE_BLOCKS:
-        if marker not in text:
+        if not any(alias in text for alias in block_aliases.get(marker, (marker,))):
             issues.append(_issue("type-analysis-missing-block", path, f"Missing teaching block containing {marker!r}"))
     if not SOURCE_RE.search(text) or not (QUESTION_REF_RE.search(text) or HUMAN_SOURCE_RE.search(text)):
         issues.append(
@@ -578,7 +585,7 @@ def _validate_type_analysis(path: Path, refs_by_type: dict[str, set[str]]) -> li
         )
     if not answers_text:
         issues.append(_issue("type-analysis-missing-self-test-answers", path, "Self-test answers must be separated from self-test prompts"))
-    issues.extend(_validate_type_analysis_learning_quality(path, refs_by_type, strict_refs=False))
+    issues.extend(_validate_type_analysis_learning_quality(path, refs_by_type, strict_refs=False, grounded_types=grounded_types))
     return issues
 
 
@@ -937,12 +944,46 @@ def _validate_scope_naming(output_root: Path, scope: str) -> list[dict[str, str]
     return issues
 
 
+def linked_grounded_types(repo: Path, state: Path) -> set[str]:
+    """Recognize page-specific evidence records, not a global textbook folder."""
+    grounded: set[str] = set()
+    source_map_path = state / STANDARD_FILES["source_map"]
+    try:
+        source_map = load_json(source_map_path) if source_map_path.exists() else {}
+    except (ValueError, OSError):
+        source_map = {}
+    associations = source_map.get("page_grounding", {}) if isinstance(source_map, dict) else {}
+    records = dict(associations) if isinstance(associations, dict) else {}
+    for path in (state / "type-dossiers").glob("*.json"):
+        try:
+            dossier = load_json(path)
+        except (ValueError, OSError):
+            continue
+        if isinstance(dossier, dict):
+            refs = dossier.get("textbook_refs", [])
+            if isinstance(refs, list):
+                existing = records.get(path.stem, [])
+                records[path.stem] = (existing if isinstance(existing, list) else []) + refs
+    for type_id, refs in records.items():
+        if not isinstance(refs, list):
+            continue
+        for ref in refs:
+            if not isinstance(ref, dict):
+                continue
+            source = ref.get("path")
+            locator = ref.get("locator")
+            if isinstance(source, str) and isinstance(locator, str) and source.strip() and locator.strip() and (repo / source).is_file():
+                grounded.add(str(type_id))
+    return grounded
+
+
 def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
     course_dir = resolve_course(repo, args.course, semester=args.semester)
     course_key = course_slug_of(course_dir, repo)
     scope = args.exam_scope.strip()
     exam_scope_key(scope)
     state = exam_prep_state_dir(repo, course_key, scope)
+    grounded_types = linked_grounded_types(repo, state)
     output_root = reviews_dir(course_dir, scope)
     manifest_path = state / "manifest.json"
     taxonomy_path = state / "taxonomy.json"
@@ -1005,17 +1046,17 @@ def check(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             issues.append(_issue("missing-directory", output_root / dirname, "Required output directory is missing"))
     type_files = _nonempty_md_files(output_root / "题型解析")
     if args.stage == "gold-sample":
-        issues.extend(_validate_gold_sample(output_root, refs_by_type))
+        issues.extend(_validate_gold_sample(output_root, refs_by_type, grounded_types))
     if args.stage == "type-analysis-sample":
         if not type_files:
             issues.append(_issue("missing-type-analysis-sample", output_root / "题型解析", "Write one type-analysis sample before expanding all pages"))
         else:
-            issues.extend(_validate_type_analysis(type_files[0], refs_by_type))
+            issues.extend(_validate_type_analysis(type_files[0], refs_by_type, grounded_types))
     if args.stage == "final":
         if not type_files:
             issues.append(_issue("missing-type-analyses", output_root / "题型解析", "AI must write type analyses"))
         for path in type_files:
-            issues.extend(_validate_type_analysis(path, refs_by_type))
+            issues.extend(_validate_type_analysis(path, refs_by_type, grounded_types))
 
     analysis_dir = output_root / "分析"
     if args.stage in {"synthesis", "final"}:

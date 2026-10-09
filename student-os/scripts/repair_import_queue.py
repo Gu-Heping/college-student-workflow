@@ -538,7 +538,7 @@ def first_snippet_for_risk(text: str, code: str, *, radius: int = 2) -> dict[str
     return None
 
 
-def extra_risks(path: Path, text: str, frontmatter: dict[str, str], *, decode_error: bool) -> list[dict[str, object]]:
+def extra_risks(path: Path, text: str, frontmatter: dict[str, str], *, decode_error: bool, sample_limit: int | None = 8) -> list[dict[str, object]]:
     risks: list[dict[str, object]] = []
     if decode_error:
         risks.append({"code": "non-utf8-import", "count": 1})
@@ -560,6 +560,20 @@ def extra_risks(path: Path, text: str, frontmatter: dict[str, str], *, decode_er
     symbol_garbage_count = len(re.findall(r"\\boxplus|\\neg\s*\\neg|\\\s+Y(?:\s+Y)+", text))
     if symbol_garbage_count:
         risks.append({"code": "ocr-symbol-garbage", "count": symbol_garbage_count})
+
+    line_patterns = {
+        "question-heading-promoted": r"^##\s+[一二三四五六七八九十]+[\.、]",
+        "control-character": r"[\x00-\x08\x0b\x0c\x0e-\x1f]",
+        "ocr-symbol-garbage": r"\\boxplus|\\neg\s*\\neg|\\\s+Y(?:\s+Y)+",
+    }
+    for risk in risks:
+        pattern = line_patterns.get(str(risk["code"]))
+        if pattern:
+            affected = [{"line": index} for index, line in enumerate(text.split("\n"), 1) if re.search(pattern, line)]
+            samples = affected if sample_limit is None else affected[:sample_limit]
+            risk.update(count=len(affected), lines=samples, sample_count=len(samples), truncated=len(affected) > len(samples), count_unit="affected-lines")
+        else:
+            risk.update(sample_count=0, truncated=False, count_unit="document")
 
     if re.search(r"(答案|参考答案|解析)", path.name) and re.search(r"(?m)^\s*(?:解|证明|答)[:：]", text):
         if not has_question_stem(text):
@@ -590,6 +604,13 @@ def merge_risks(risks: list[dict[str, object]]) -> list[dict[str, object]]:
 
 def risk_metadata(code: str) -> dict[str, object]:
     metadata: dict[str, dict[str, object]] = {
+        "latex-array-layout-uncertain": {
+            "severity": "warning",
+            "confidence": "low",
+            "actionability": "manual-render-check",
+            "safe_fix_kind": "none",
+            "description": "Complex array layout cannot be reliably counted; inspect locally, do not rewrite to clear this warning.",
+        },
         "unicode-escape": {
             "severity": "info",
             "confidence": "high",
@@ -878,6 +899,9 @@ def build_queue_item(root: Path, path: Path, *, text: str | None = None, decode_
     target_section = target_section_for_blocking_lines(sections, blocking_lines)
     repair_scope_required = repair_scope_required_for(blocking_count, blocking_lines, target_section)
     review_strategy = review_strategy_for(blocking_count, blocking_lines, target_section)
+    if any(risk.get("truncated") and str(risk.get("code")) in BLOCKING_RISKS for risk in risks):
+        repair_scope_required = "widened"
+        review_strategy = "blocked-or-split-into-smaller-cases"
     item = {
         "schema_version": SCHEMA_VERSION,
         "id": stable_id(root, path),

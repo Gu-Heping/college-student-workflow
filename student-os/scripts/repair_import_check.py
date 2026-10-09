@@ -13,8 +13,9 @@ from import_governance import (
     frontmatter_value,
     is_verified,
     mark_auto_repaired,
+    read_frontmatter,
 )
-from repair_import_queue import BLOCKING_RISKS, build_queue_item, is_relative_to, is_repair_target_markdown, iter_import_markdown, json_path, state_root_for_scan
+from repair_import_queue import BLOCKING_RISKS, build_queue_item, extra_risks, is_relative_to, iter_import_markdown, json_path, state_root_for_scan
 
 
 SCHEMA_VERSION = "import-repair-check/v1"
@@ -166,15 +167,23 @@ def check_file(path: Path, *, root: Path, include_verified: bool, focus_lines: s
     item = build_queue_item(root, path, text=text, decode_error=decode_error)
     risks = item.get("risks", []) if isinstance(item, dict) else diagnose_import_risks(text)
     risk_objects = [risk for risk in risks if isinstance(risk, dict)]
+    complete_risks = {str(risk["code"]): risk for risk in diagnose_import_risks(text, sample_limit=None)} if focus_lines else {}
+    if focus_lines:
+        parsed = read_frontmatter(text)
+        complete_risks.update({str(risk["code"]): risk for risk in extra_risks(path, text, parsed[0] if parsed else {}, decode_error=decode_error, sample_limit=None)})
     blocking = []
     for risk in risk_objects:
         if str(risk.get("code", "")) not in BLOCKING_RISKS:
             continue
         lines = risk_lines(risk)
+        complete_lines = risk_lines(complete_risks.get(str(risk.get("code")), risk))
         issue = {
             "code": risk.get("code", ""),
             "severity": "error",
             "count": risk_count(risk, lines),
+            "sample_count": risk.get("sample_count", len(lines)),
+            "truncated": risk.get("truncated", False),
+            "count_unit": risk.get("count_unit", "affected-lines"),
             "lines": lines,
             "first_excerpt": first_excerpt(text, lines),
             "message": risk.get("description", "Mechanical import repair check failed."),
@@ -182,12 +191,22 @@ def check_file(path: Path, *, root: Path, include_verified: bool, focus_lines: s
             "suggestion": risk.get("suggestion", ""),
         }
         issue["fingerprint"] = issue_fingerprint(issue)
+        if focus_lines:
+            issue["in_focus"] = not complete_lines or bool(set(complete_lines) & focus_lines)
+            if issue["in_focus"]:
+                issue["lines"] = [line for line in complete_lines if line in focus_lines][:8]
+                issue["first_excerpt"] = first_excerpt(text, issue["lines"])
+                issue["sample_count"] = len(issue["lines"])
+                issue["truncated"] = len(complete_lines) > len(issue["lines"])
         blocking.append(issue)
     warnings = [
         {
             "code": risk.get("code", ""),
             "severity": risk.get("severity", "warning"),
             "count": risk_count(risk, risk_lines(risk)),
+            "sample_count": risk.get("sample_count", len(risk_lines(risk))),
+            "truncated": risk.get("truncated", False),
+            "count_unit": risk.get("count_unit", "affected-lines"),
             "message": risk.get("description", "Nonblocking import repair risk remains."),
             "lines": risk_lines(risk),
             "first_excerpt": first_excerpt(text, risk_lines(risk)),
@@ -215,7 +234,7 @@ def check_file(path: Path, *, root: Path, include_verified: bool, focus_lines: s
         focused_blocking = []
         for issue in blocking:
             lines = [line for line in issue.get("lines", []) if isinstance(line, int)]
-            if not lines or any(line in focus_lines for line in lines):
+            if issue.pop("in_focus", not lines or any(line in focus_lines for line in lines)):
                 focused_blocking.append(issue)
             else:
                 out_of_focus_blocking.append(issue)
@@ -243,8 +262,7 @@ def check_file(path: Path, *, root: Path, include_verified: bool, focus_lines: s
 
 def candidate_files(target: Path) -> list[Path]:
     if target.is_file():
-        header = target.read_text(encoding="utf-8", errors="replace")[:65536]
-        return [target] if target.suffix.lower() == ".md" and is_repair_target_markdown(target, header) else []
+        return [target] if target.suffix.lower() == ".md" else []
     return [path for path, _header in iter_import_markdown(target)]
 
 
@@ -340,8 +358,9 @@ def main() -> int:
         payload = {
             "schema_version": SCHEMA_VERSION,
             "ok": False,
-            "stage": "no-import-sidecar",
-            "error": "No imported markdown sidecar was found at the target path.",
+            "stage": "no-matching-files",
+            "files_scanned": 0,
+            "error": "No matching Markdown files found; no mechanical validation was performed.",
             "target": json_path(target),
             "target_root": json_path(root),
         }
@@ -367,6 +386,7 @@ def main() -> int:
         "eol_policy": EOL_POLICY,
         "focus_lines": sorted(focus_lines) if focus_lines else [],
         "files_checked": len([item for item in file_results if not item.get("skipped")]),
+        "files_scanned": len(files),
         "files_skipped": len([item for item in file_results if item.get("skipped")]),
         "blocking_error_count": blocking_count,
         "warning_count": warning_count,
@@ -408,6 +428,7 @@ def main() -> int:
             "eol_policy": EOL_POLICY,
             "focus_lines": full_payload["focus_lines"],
             "files_checked": full_payload["files_checked"],
+            "files_scanned": full_payload["files_scanned"],
             "files_skipped": full_payload["files_skipped"],
             "blocking_error_count": blocking_count,
             "warning_count": warning_count,

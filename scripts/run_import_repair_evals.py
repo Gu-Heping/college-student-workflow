@@ -308,6 +308,52 @@ def build_fixture(vault: Path) -> dict[str, Path]:
     }
 
 
+def verify_diagnostic_contract(root: Path) -> None:
+    from import_governance import diagnose_import_risks
+
+    text = "\n".join("公式 $ x=1 $。" for _ in range(17)) + "\n"
+    risk = next(item for item in diagnose_import_risks(text) if item["code"] == "inline-math-delimiter-space")
+    assert risk["count"] == 17 and risk["sample_count"] == 8
+    assert risk["truncated"] is True and risk["count_unit"] == "affected-lines"
+    valid = r"\begin{array}{cc}{a} & b \\ c & {d}\end{array}"
+    nested = r"\begin{array}{cc}\begin{pmatrix}1&2\\3&4\end{pmatrix}&x\end{array}"
+    escaped = r"\begin{array}{cc}\text{A\&B}&x\end{array}"
+    for sample in (valid, nested, escaped):
+        codes = {item["code"] for item in diagnose_import_risks(sample)}
+        assert "latex-array-wrapper-malformed" not in codes, sample
+        assert "latex-array-column-mismatch" not in codes, sample
+    broken = r"\begin{array}{r}{1 &0\\0&1}\end{array}"
+    assert "latex-array-wrapper-malformed" in {item["code"] for item in diagnose_import_risks(broken)}
+    multiline = "\\begin{array}{cc}\n{a} & b \\\\\n c & {d}\n\\end{array}"
+    assert "latex-array-column-mismatch" not in {item["code"] for item in diagnose_import_risks(multiline)}
+    nested_bad = r"\begin{array}{cc}\begin{pmatrix}1&2\\3&4\end{pmatrix}&x&y\end{array}"
+    assert "latex-array-column-mismatch" in {item["code"] for item in diagnose_import_risks(nested_bad)}
+    complex_spec = r"\begin{array}{p{2cm}}text\end{array}"
+    uncertain = next(item for item in diagnose_import_risks(complex_spec) if item["code"] == "latex-array-layout-uncertain")
+    assert uncertain["severity"] == "warning"
+    root.mkdir(parents=True)
+    ordinary = root / "普通讲义.md"
+    write_text(ordinary, text)
+    report = run_json("repair_import_check.py", str(ordinary), "--json", "--full-json", cwd=root, expect_ok=False)
+    assert report["files_scanned"] == 1
+    issue = next(item for item in report["files"][0]["blocking_errors"] if item["code"] == "inline-math-delimiter-space")
+    assert issue["count"] == 17 and issue["truncated"] is True
+    focused = run_json("repair_import_check.py", str(ordinary), "--json", "--focus-lines", "17", cwd=root, expect_ok=False)
+    assert focused["recommended_file"]["blocking_errors"][0]["lines"] == [17]
+    assert focused["recommended_file"]["blocking_errors"][0]["sample_count"] == 1
+    from repair_import_queue import build_queue_item
+    write_text(root / "sample.pdf.md", text)
+    queued = build_queue_item(root, root / "sample.pdf.md", text=text, decode_error=False)
+    assert queued["single_section_candidate"] is False
+    assert "smaller" in queued["suggested_next_step"]
+    write_text(ordinary, "中文讲义，合法公式 $x=1$。\n")
+    assert run_json("repair_import_check.py", str(ordinary), "--json", cwd=root)["ok"] is True
+    empty = root / "empty"
+    empty.mkdir()
+    report = run_json("repair_import_check.py", str(empty), "--json", cwd=root, expect_ok=False)
+    assert report["stage"] == "no-matching-files" and report["files_scanned"] == 0
+
+
 def main() -> int:
     if decode_yaml_path(r"C:\new\file.pdf") != r"C:\new\file.pdf":
         raise AssertionError("Unquoted Windows paths must not be interpreted as escape sequences")
@@ -1377,6 +1423,7 @@ def main() -> int:
         if valid_tail_payload.get("ok") is not True:
             raise AssertionError(f"Valid formulas ending with braces should pass mechanical review: {valid_tail_payload}")
 
+        verify_diagnostic_contract(Path(tmp) / "diagnostic-contract")
     print("OK import-repair-evals")
     return 0
 

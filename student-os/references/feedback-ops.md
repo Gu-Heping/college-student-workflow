@@ -25,6 +25,8 @@ For ordinary successful tasks, do not create feedback noise. When the user is di
 
 Default to extracting the failure from the active workflow context: the current conversation, command summaries, file paths, visible artifact snippets, and the user's corrections.
 
+Fix the current task first. At a meaningful phase closure, save reusable explicit writing preferences in the course quality standard (not universal skill rules). Record actionable routing/tool/repeated-work defects as local feedback. Check existing raw/triaged entries before creating another: append new occurrences to the same problem with user wording, affected output, concrete fixes and skill-improvement candidate intact. Do not treat an old resolved entry as proof a new occurrence is fixed. Recording local feedback is not GitHub publication; publication still requires separate authorization and privacy checks.
+
 ## Default storage
 
 - `feedback/raw/` for newly captured feedback

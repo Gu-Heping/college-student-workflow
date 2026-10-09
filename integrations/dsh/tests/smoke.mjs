@@ -244,6 +244,22 @@ try {
   assert.equal(typeof slow.stderr, 'string')
 
   const sidecar = join(vault, 'sample.pdf.md')
+  const installedRoot = join(tmpRoot, '安装技能')
+  mkdirSync(join(installedRoot, 'scripts'), { recursive: true })
+  writeFileSync(join(installedRoot, 'scripts', 'inspect_repo.py'), 'import json\nprint(json.dumps({"origin": "installed-script"}))\n', 'utf8')
+  const installedCtx = await setupHarnessContext({ skillRoot: installedRoot, vaultRoot: vault })
+  const installedResult = await execute(installedCtx, 'student_os_inspect', {})
+  assert.equal(installedResult.isError, false)
+  assert.equal(installedResult.value.ok, true)
+  assert.equal(installedResult.value.skill_root, installedRoot)
+  assert.equal(installedResult.value.payload.origin, 'installed-script')
+  assert.equal(installedResult.value.command[1], join(installedRoot, 'scripts', 'inspect_repo.py'))
+  const invalidCtx = await setupHarnessContext({ skillRoot: join(tmpRoot, 'missing-skill'), vaultRoot: vault })
+  const invalidRoot = await execute(invalidCtx, 'student_os_inspect', {})
+  assert.equal(invalidRoot.isError, false)
+  assert.equal(invalidRoot.value.ok, false)
+  assert.equal(invalidRoot.value.stage, 'invalid-skill-root')
+  assert.deepEqual(invalidRoot.value.command, [])
   writeFileSync(sidecar, '# Imported\n', 'utf8')
   const frontmatter = await execute(ctx, 'student_os_frontmatter', {
     path: sidecar,

@@ -55,11 +55,15 @@ The top of the entry page must answer:
 - Which P0/P1 type page should I read first?
 - How do I use each type page: speed card, worked example, self-test, answer check?
 
+Provide two paths: a beginner follows necessary concepts, a concrete calculation, method choice, examples and self-tests; a revision reader jumps to the speed card. Put purpose and both links on the first screen, not a prerequisite demand to memorize compressed formulas. Use the same prerequisite-based order in all entry/guide/speed pages; stable type IDs are not learning-order numbers.
+
 Do not deliver an entry page that is only a file list, frequency table, or artifact inventory.
 
 ### Type Analysis Page
 
 Each type page is a tutoring handout. It must contain:
+
+The items below are responsibilities, not a mandatory eleven-section skeleton. Organize for the actual topic: recognition signal → necessary concept → operation and reason → minimal demonstration → past-paper problem → transfer. A shared foundations page is useful, but explain first-use essentials briefly and link it; avoid circular prerequisites and copied universal introductions.
 
 - what this type tests in the exam;
 - textbook or lecture concepts rewritten into exam actions;
@@ -120,6 +124,8 @@ Use the rhythm:
 
 Self-tests must come from past papers and must not repeat worked examples.
 
+Before writing, allocate the available past-paper pool against core methods and variants for both teaching examples and independent tests. A different solution to the same question does not make it a different question. If examples consume the entire pool, move some to self-tests or reduce counts and record the coverage gap; never manufacture tests. Small concept demonstrations are permitted when labelled as demonstrations, not historical exam questions.
+
 Each self-test needs:
 
 - source;
@@ -147,6 +153,10 @@ If textbook evidence is missing, write `textbook_grounding: missing` or state in
 
 Do not cite a broad chapter as proof. Prefer subsection, theorem, figure, problem diagram, example number, lecture slide, or homework source.
 
+Grounding means reading authoritative material and then explaining it. Precise locations may live in the associated source map (`page_grounding` keyed by stable type ID), dossier (`textbook_refs`), or source appendix. A structured record has a readable vault-relative `path` and precise `locator`. A global textbook folder is not a page-specific record. Body citations remain compatible but are not compulsory. A link cannot replace the explanation or demonstration of an operation. Answer keys ground solutions, not definitions.
+
+For Yuque or other export targets, keep the Obsidian source intact; convert only an export copy. Do not hunt for a KaTeX installation or rewrite every matrix to satisfy an unrelated renderer.
+
 ## Writing Style
 
 Use short, teachable blocks:
@@ -172,6 +182,8 @@ Worked solutions should use "action sentence + formula + short note":
 
 ## Reader Audit
 
+Use `exam-prep-reader-audit-examples.md` to calibrate the teaching judgment with synthetic counterexamples; it is not a template to paste into course prose.
+
 Before reporting completion, the agent must personally read at least:
 
 - the entry page;
@@ -181,10 +193,20 @@ Before reporting completion, the agent must personally read at least:
 - one worked example;
 - one self-test answer.
 
+Also read **every changed teaching page**, including all subagent drafts, from disk after the last edit. Walk an actual solution as the student: are symbols defined, operations executable, applicability conditions clear, intermediate steps sufficient, and tests independently doable? Correct gaps and read the edits again. Distinguish a proof from an exact calculation and from a numerical spot check; the last cannot establish a general theorem. Recheck incomplete OCR against sources rather than inventing a question backwards from its answer.
+
+Update the existing `reader-audit.md` for this round with reviewed paths, current page hashes or revision identifiers, specific findings, fixes and remaining risks. Preserve prior rounds as history; an old audit does not approve changed pages. These records support AI accountability, not automated proof of readability or human verification.
+
+At phase closure, persist explicit reusable user corrections in the course quality standard. Group repeated workflow/tool defects into existing local feedback records while retaining the user's wording, affected outputs and changes made. Use only the active conversation and readable files; fix the task first, do not interrupt it for feedback collection, and do not publish without separate authorization/privacy review.
+
 The final report must include a concrete reader audit:
 
 ```yaml
 reader_audit:
+  reviewed_files:
+    - path: ...
+      current_revision_or_hash: ...
+      concrete_findings_and_fixes: ...
   sampled_files:
     - path: ...
       checked_for: ...

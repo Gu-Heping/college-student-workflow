@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { spawn, spawnSync } from 'node:child_process'
+import { existsSync, statSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool, type JsonValue } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -12,6 +13,7 @@ export const inject = ['tools', 'systemPrompt']
 export interface Config {
   repoRoot?: string
   vaultRoot?: string
+  skillRoot?: string
   python?: string
   timeoutMs?: number
 }
@@ -26,6 +28,7 @@ export interface StudentOsToolResult {
   plugin_version: string
   repo_commit: string
   repo_root: string
+  skill_root: string
   vault?: string
   vault_resolution_source?: string
   stage?: string
@@ -35,6 +38,7 @@ export interface StudentOsToolResult {
 
 interface ScriptRunOptions {
   repoRoot?: string
+  skillRoot?: string
   python?: string
   timeoutMs?: number
   vault?: string
@@ -59,6 +63,7 @@ const toolResultSchema = {
     plugin_version: { type: 'string', required: true },
     repo_commit: { type: 'string', required: true },
     repo_root: { type: 'string', required: true },
+    skill_root: { type: 'string', required: true },
     vault: { type: 'string' },
     vault_resolution_source: { type: 'string' },
     stage: { type: 'string' },
@@ -96,12 +101,13 @@ function repoCommit(repoRoot: string): string {
   return repoCommitCache
 }
 
-function baseResult(config: Config): Pick<StudentOsToolResult, 'plugin_version' | 'repo_commit' | 'repo_root'> {
+function baseResult(config: Config): Pick<StudentOsToolResult, 'plugin_version' | 'repo_commit' | 'repo_root' | 'skill_root'> {
   const repoRoot = resolveRepoRoot(config.repoRoot)
   return {
     plugin_version: pluginVersion,
     repo_commit: repoCommit(repoRoot),
     repo_root: repoRoot,
+    skill_root: config.skillRoot === undefined ? resolve(repoRoot, 'student-os') : resolveUserPath(config.skillRoot),
   }
 }
 
@@ -229,7 +235,15 @@ export function runStudentOsScript(
   options: ScriptRunOptions,
 ): Promise<StudentOsToolResult> {
   const repoRoot = resolveRepoRoot(options.repoRoot)
-  const scriptPath = resolve(repoRoot, 'student-os', 'scripts', scriptName)
+  const skillRoot = options.skillRoot === undefined ? resolve(repoRoot, 'student-os') : resolveUserPath(options.skillRoot)
+  const scriptPath = resolve(skillRoot, 'scripts', scriptName)
+  if (options.skillRoot !== undefined && (options.skillRoot.trim() === '' || !existsSync(scriptPath) || !statSync(scriptPath).isFile())) {
+    return Promise.resolve({
+      ...baseResult(options), ok: false, exitCode: null, cwd: repoRoot,
+      command: [], stdout: '', stderr: `Configured skillRoot has no script: ${scriptPath}`,
+      stage: 'invalid-skill-root', vault: options.vault, vault_resolution_source: options.vaultResolutionSource,
+    })
+  }
   const command = [pythonCommand(options.python), scriptPath, ...args]
   const timeoutMs = Math.max(1, options.timeoutMs ?? 45_000)
 
@@ -335,6 +349,7 @@ function renderResult(toolName: string, value: StudentOsToolResult): { type: 'te
       `cwd: ${value.cwd}`,
       `plugin: student-os ${value.plugin_version} (${value.repo_commit})`,
       `repo: ${value.repo_root}`,
+      `skill: ${value.skill_root}`,
       value.vault === undefined ? '' : `vault: ${value.vault} (${value.vault_resolution_source ?? 'unknown'})`,
       `command: ${value.command.join(' ')}`,
       value.stage === 'missing-vault' ? 'next: pass vault explicitly or restart DSH from the vault workspace with the Student OS overlay.' : '',

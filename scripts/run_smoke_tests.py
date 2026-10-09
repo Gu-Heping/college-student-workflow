@@ -9249,6 +9249,8 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
         raise AssertionError("DSH bootstrap overlay should reference the absolute plugin entry as a file:// URL")
     if "vaultRoot:" not in overlay or str(vault.resolve()) not in overlay:
         raise AssertionError(f"DSH bootstrap overlay should bind the project vaultRoot:\n{overlay}")
+    if "skillRoot:" not in overlay or str(skill_path.resolve()) not in overlay:
+        raise AssertionError(f"DSH bootstrap overlay should bind the installed skillRoot:\n{overlay}")
     if str(plugin_entry) in overlay and "\\" in str(plugin_entry):
         raise AssertionError("DSH bootstrap overlay should not use backslash-escaped Windows paths")
     if len(list((vault / ".dsh").glob("student-os*.cordis.yml"))) != 1:
@@ -9280,7 +9282,8 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
         raise AssertionError("Second DSH bootstrap should not execute npm ci or npm run build")
     ensure_exists(skill_path / "SKILL.md")
 
-    overlay_path.write_text("# user overlay\n", encoding="utf-8")
+    legacy_overlay = "\n".join(line for line in overlay.splitlines() if "skillRoot:" not in line) + "\n"
+    overlay_path.write_text(legacy_overlay, encoding="utf-8")
     conflict_output = run_root_script_failure(
         "bootstrap_dsh.py",
         "--project-root",
@@ -9322,6 +9325,8 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
     if not backup:
         raise AssertionError("DSH bootstrap --force-overlay should report an overlay backup")
     ensure_exists(Path(backup))
+    if Path(backup).read_text(encoding="utf-8") != legacy_overlay:
+        raise AssertionError("Overlay update must preserve the old config in its backup")
     force_git = force_payload.get("git", {})
     if ".dsh/student-os.cordis.yml" not in force_git.get("dsh_files", {}).get("modified", []):
         raise AssertionError(f"DSH bootstrap --force-overlay should report modified overlay content: {force_git}")
