@@ -61,7 +61,7 @@ def main() -> int:
         summary.append("")
 
     target = out_dir / "homework-and-reviews.md"
-    target.write_text("\n".join(summary), encoding="utf-8")
+    target.write_text("\n".join(summary), encoding="utf-8", newline="\n")
     print(target)
     return 0
 

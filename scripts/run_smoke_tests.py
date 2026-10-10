@@ -7330,6 +7330,36 @@ def verify_organize_reviews(repo: Path) -> None:
         raise AssertionError("Dry run should not create archive directories")
 
 
+def verify_generated_markdown_lf(repo: Path) -> None:
+    run_script("scaffold_repo.py", str(repo))
+    user_note = repo / "notes" / "untouched.md"
+    user_note.parent.mkdir(parents=True, exist_ok=True)
+    original = "Private fixture\r\nKeep existing bytes\r\n".encode("utf-8")
+    user_note.write_bytes(original)
+    for course in ("线性代数", "微积分"):
+        run_script("scaffold_course.py", str(repo), course, "--semester", "2026-2027-1")
+    for homework in ("练习一", "练习二"):
+        run_script("scaffold_homework.py", str(repo), "线性代数", homework,
+                   "--semester", "2026-2027-1", "--due", date.today().isoformat())
+    for _ in range(2):
+        run_script("build_review_indexes.py", str(repo))
+        run_script("build_week_plan.py", str(repo))
+        run_script("rebuild_indexes.py", str(repo))
+        run_script("summarize_feedback.py", str(repo), "--title", "LF regression")
+        for path in repo.rglob("*.md"):
+            if path == user_note:
+                continue
+            data = path.read_bytes()
+            data.decode("utf-8")
+            if b"\r" in data or data.startswith(b"\xef\xbb\xbf"):
+                raise AssertionError(f"Generated Markdown must be UTF-8 without BOM and LF: {path}")
+    for name in ("courses", "semesters", "projects", "tasks", "dashboards", "recent-activity"):
+        ensure_exists(repo / ".student-os" / "index" / f"{name}.md")
+    ensure_contains(repo / ".student-os" / "index" / "courses.md", "线性代数")
+    if user_note.read_bytes() != original:
+        raise AssertionError("Index regeneration must not normalize unrelated user Markdown")
+
+
 def verify_generated_index_filtering(repo: Path) -> None:
     previous_sys_path = list(sys.path)
     sys.path.insert(0, str(STUDENT_OS_SCRIPTS))
@@ -9813,6 +9843,7 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="student-os-smoke-") as tmp:
         tmp_root = Path(tmp)
+        verify_generated_markdown_lf(tmp_root / "generated-markdown-lf-demo")
         single_repo = tmp_root / "single-semester-demo"
         multi_repo = tmp_root / "multi-semester-demo"
         legacy_repo = tmp_root / "legacy-layout-demo"
@@ -9862,6 +9893,7 @@ def main() -> int:
                 normalize_text_files(example_root)
 
     print("OK single-semester-demo")
+    print("OK generated-markdown-lf-demo")
     print("OK multi-semester-demo")
     print("OK legacy-layout-demo")
     print("OK unicode-course-demo")

@@ -163,7 +163,7 @@ def main() -> int:
         ]
     )
 
-    summary_path.write_text("\n".join(lines), encoding="utf-8")
+    summary_path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     print(summary_path)
     return 0
 

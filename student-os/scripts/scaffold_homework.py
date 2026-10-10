@@ -23,7 +23,7 @@ def read_file(path: Path) -> str:
 def write_if_missing(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
-        path.write_text(content, encoding="utf-8")
+        path.write_text(content, encoding="utf-8", newline="\n")
 
 
 def append_backlink(path: Path, marker: str, line: str) -> None:
@@ -36,7 +36,7 @@ def append_backlink(path: Path, marker: str, line: str) -> None:
         text = text.replace(marker, f"{marker}\n{line}")
     else:
         text += f"\n{line}\n"
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="\n")
 
 
 def read_course_name(course_dir: Path) -> str:

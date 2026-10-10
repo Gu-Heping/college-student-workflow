@@ -279,7 +279,7 @@ def write_dashboard(repo: Path, week_label: str, today: date, overdue: list[Task
     else:
         lines.append("- Inbox is clear.")
 
-    dashboard_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    dashboard_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return dashboard_path
 
 
@@ -423,7 +423,7 @@ def main() -> int:
     )
     lines.extend(["", "## Dashboard Link", "", f"- {dashboard_path.relative_to(repo).as_posix()}"])
 
-    weekly_plan.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    weekly_plan.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     print(weekly_plan)
     print(dashboard_path)
     return 0

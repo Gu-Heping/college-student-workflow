@@ -45,7 +45,7 @@ def write_index(path: Path, title: str, items: list[str]) -> None:
     else:
         body.append("- None")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(body) + "\n", encoding="utf-8")
+    path.write_text("\n".join(body) + "\n", encoding="utf-8", newline="\n")
 
 
 def main() -> int:

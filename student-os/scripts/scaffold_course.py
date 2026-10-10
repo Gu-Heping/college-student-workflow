@@ -65,7 +65,7 @@ def sync_semester_overview(repo: Path, semester_root: Path, courses_path: Path) 
                 insert_at += 1
                 spacer = "\n"
             updated = overview_text[:insert_at] + spacer + block + "\n" + overview_text[insert_at:]
-    overview_path.write_text(updated, encoding="utf-8")
+    overview_path.write_text(updated, encoding="utf-8", newline="\n")
 
 
 def enable_semester_mode(repo: Path) -> None:
@@ -80,7 +80,7 @@ def enable_semester_mode(repo: Path) -> None:
     if "enabled: false" not in section:
         return
     updated = before + section_marker + section.replace("enabled: false", "enabled: true", 1)
-    profile_path.write_text(updated, encoding="utf-8")
+    profile_path.write_text(updated, encoding="utf-8", newline="\n")
 
 
 def main() -> int:
@@ -123,7 +123,7 @@ def main() -> int:
     for output_name, template_name in templates.items():
         target = root / output_name
         if not target.exists():
-            target.write_text(fill_template(template_root / template_name, repl), encoding="utf-8")
+            target.write_text(fill_template(template_root / template_name, repl), encoding="utf-8", newline="\n")
 
     if args.semester:
         enable_semester_mode(repo)
@@ -131,7 +131,7 @@ def main() -> int:
         semester_root.mkdir(parents=True, exist_ok=True)
         overview_path = semester_root / "overview.md"
         if not overview_path.exists():
-            overview_path.write_text(fill_template(template_root / "semester-overview.md", repl), encoding="utf-8")
+            overview_path.write_text(fill_template(template_root / "semester-overview.md", repl), encoding="utf-8", newline="\n")
 
         courses_path = semester_root / "courses.md"
         entry = f"- {args.course_name}: {root.relative_to(repo).as_posix()}"
@@ -139,11 +139,12 @@ def main() -> int:
             lines = courses_path.read_text(encoding="utf-8").splitlines()
             if entry not in lines:
                 lines.extend(["", entry])
-                courses_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+                courses_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8", newline="\n")
         else:
             courses_path.write_text(
                 f"# Courses - {args.semester}\n\n## Entries\n\n{entry}\n",
                 encoding="utf-8",
+                newline="\n",
             )
         sync_semester_overview(repo, semester_root, courses_path)
 

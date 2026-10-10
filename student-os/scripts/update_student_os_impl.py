@@ -154,7 +154,7 @@ def snapshot_skill_files(root: Path) -> dict[str, str]:
 
 def write_manifest(destination: Path, manifest: dict[str, object]) -> Path:
     manifest_path = destination / MANIFEST_FILENAME
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     return manifest_path
 
 
