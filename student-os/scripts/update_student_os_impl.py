@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -486,6 +487,50 @@ def sync_top_level_symlink_entries(target: Path, source_skill_root: Path) -> lis
     return created
 
 
+@contextmanager
+def external_replacement_cwd(target: Path):
+    original = Path.cwd().resolve()
+    resolved_target = target.resolve()
+    relocated = original == resolved_target or resolved_target in original.parents
+    if relocated:
+        os.chdir(resolved_target.parent)
+    try:
+        yield relocated
+    finally:
+        if relocated and original.is_dir():
+            os.chdir(original)
+
+
+def swap_install_directory(target: Path, staged: Path, previous: Path) -> bool:
+    """Release our cwd lock; preserve the old install if the staged swap fails."""
+    target, staged, previous = target.resolve(), staged.resolve(), previous.resolve()
+    if staged.parent != target.parent or previous.parent != target.parent or len({target, staged, previous}) != 3:
+        raise ValueError("Replacement directories must be distinct siblings of the install target")
+    moved = False
+    with external_replacement_cwd(target) as relocated:
+        try:
+            if target.exists():
+                target.rename(previous)
+                moved = True
+            staged.rename(target)
+        except OSError as exc:
+            if moved:
+                if path_exists(target):
+                    raise RuntimeError(f"Target appeared during replacement; original install retained at {previous}") from exc
+                previous.rename(target)
+            if staged.exists():
+                shutil.rmtree(staged)
+            if getattr(exc, "winerror", None) in {32, 33}:
+                raise RuntimeError(
+                    "Installed skill directory is held by another process. Close shells/tools using it, "
+                    "then retry from outside the skill directory. Do not use --force to bypass a file lock."
+                ) from exc
+            raise
+        if previous.exists():
+            shutil.rmtree(previous)
+    return relocated
+
+
 def replace_copy_install(
     info: InstallInfo,
     *,
@@ -507,15 +552,7 @@ def replace_copy_install(
     previous_dir = info.target.parent / f".{info.target.name}.previous"
     if previous_dir.exists():
         shutil.rmtree(previous_dir)
-    info.target.rename(previous_dir)
-    try:
-        staging_dir.rename(info.target)
-    except Exception:
-        if info.target.exists():
-            shutil.rmtree(info.target)
-        previous_dir.rename(info.target)
-        raise
-    shutil.rmtree(previous_dir)
+    cwd_relocated = swap_install_directory(info.target, staging_dir, previous_dir)
     manifest = build_install_manifest(
         destination=info.target,
         agent=str(existing_manifest.get("agent") or "unknown"),
@@ -530,6 +567,7 @@ def replace_copy_install(
     write_manifest(info.target, manifest)
     return {
         "updated": True,
+        "cwd_relocated": cwd_relocated,
         "install_kind": "copy",
         "updated_files": replaced_files,
         "backup_path": str(backup_path),
@@ -633,13 +671,10 @@ def restore_backup(target: Path, backup_path: Path) -> dict[str, object]:
     previous_dir = target.parent / f".{target.name}.before-restore"
     if previous_dir.exists():
         shutil.rmtree(previous_dir)
-    if target.exists():
-        target.rename(previous_dir)
-    restore_stage.rename(target)
-    if previous_dir.exists():
-        shutil.rmtree(previous_dir)
+    cwd_relocated = swap_install_directory(target, restore_stage, previous_dir)
     return {
         "restored": True,
+        "cwd_relocated": cwd_relocated,
         "target": str(target),
         "backup_path": str(backup_path),
     }

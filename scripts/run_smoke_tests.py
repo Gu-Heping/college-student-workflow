@@ -9459,11 +9459,62 @@ def verify_update_source_override_and_project_copy_detection(tmp_root: Path) -> 
         raise AssertionError("Manifestless copied installs should require --force before replacement")
 
 
+def verify_update_swap_failures(tmp_root: Path) -> None:
+    from unittest.mock import patch
+
+    updater = load_student_os_script_module("update_student_os_impl.py", "student_os_swap_smoke")
+    real_rename = Path.rename
+    original_cwd = Path.cwd()
+    for phase in ("target-lock", "staging-failure"):
+        target = tmp_root / phase / "student-os"
+        staged = target.parent / ".student-os.update-staging"
+        previous = target.parent / ".student-os.previous"
+        (target / "scripts").mkdir(parents=True)
+        staged.mkdir()
+        (target / "SKILL.md").write_bytes(b"original\n")
+        (staged / "SKILL.md").write_bytes(b"replacement\n")
+
+        def fail_rename(path: Path, destination: Path) -> Path:
+            cwd = Path.cwd().resolve()
+            if cwd == target or target in cwd.parents:
+                raise AssertionError("Rename attempted while cwd was inside the target")
+            if phase == "target-lock" and path == target:
+                error = PermissionError("synthetic external directory lock")
+                error.winerror = 32
+                raise error
+            if phase == "staging-failure" and path == staged:
+                raise OSError("synthetic staging swap failure")
+            return real_rename(path, destination)
+
+        try:
+            os.chdir(target / "scripts")
+            with patch.object(Path, "rename", fail_rename):
+                try:
+                    updater.swap_install_directory(target, staged, previous)
+                except (OSError, RuntimeError) as exc:
+                    if phase == "target-lock" and "another process" not in str(exc):
+                        raise AssertionError("External lock failure needs actionable guidance") from exc
+                else:
+                    raise AssertionError("Failed rename must not be reported as an update")
+            if Path.cwd() != target / "scripts":
+                raise AssertionError("Failed swap should restore its original working directory")
+        finally:
+            os.chdir(original_cwd)
+        if (target / "SKILL.md").read_bytes() != b"original\n":
+            raise AssertionError("Failed swap must preserve the original install")
+        if staged.exists() or previous.exists():
+            raise AssertionError("Recovered failed swap must clean temporary directories")
+
+
 def verify_self_update_workflow(tmp_root: Path) -> None:
+    verify_update_swap_failures(tmp_root / "swap-failures")
     source_repo = tmp_root / "student-os-source"
     init_git_repo(source_repo)
     commit_v1 = seed_fake_student_os_source(source_repo, version_label="v1")
     install_target = build_copy_install_fixture(tmp_root, source_repo, commit_v1)
+
+    (install_target / ".env").write_bytes(b"MINERU_TOKEN=synthetic-test-secret\n")
+    override_bytes = (install_target / ".env").read_bytes()
 
     seed_fake_student_os_source(source_repo, version_label="v2")
     (source_repo / "student-os" / "templates" / "fixture.md").write_text(
@@ -9494,8 +9545,8 @@ def verify_self_update_workflow(tmp_root: Path) -> None:
         raise AssertionError("update_student_os.py --check should resolve the latest remote commit")
 
     apply_payload = json.loads(
-        run_root_script(
-            "update_student_os.py",
+        run_path_script(
+            install_target / "scripts" / "update_student_os.py",
             "--apply",
             "--target",
             str(install_target),
@@ -9504,10 +9555,15 @@ def verify_self_update_workflow(tmp_root: Path) -> None:
             "--ref",
             "main",
             "--json",
+            cwd=install_target,
         )
     )
     if not apply_payload["updated"]:
         raise AssertionError("copy-mode self-update should report an applied update")
+    if apply_payload.get("cwd_relocated") is not True:
+        raise AssertionError("Updater launched inside its target must leave that cwd before replacement")
+    if (install_target / ".env").read_bytes() != override_bytes:
+        raise AssertionError("Update must preserve .env without exposing its contents")
     if not apply_payload["backup_path"]:
         raise AssertionError("copy-mode self-update should create and report a backup path")
     if "--restore-backup" not in apply_payload["rollback_command"]:
@@ -9548,6 +9604,21 @@ def verify_self_update_workflow(tmp_root: Path) -> None:
         raise AssertionError("Installed updater should not report its own __pycache__ artifacts as local changes")
     assert_no_pycache(install_target)
     assert_no_pycache(source_repo)
+
+    restored = json.loads(run_path_script(
+        installed_updater, "--restore-backup", apply_payload["backup_path"],
+        "--target", str(install_target), "--json", cwd=install_target / "scripts",
+    ))
+    if restored.get("restored") is not True or restored.get("cwd_relocated") is not True:
+        raise AssertionError("Backup restore must work from a nested target cwd")
+    ensure_contains(install_target / "SKILL.md", "Fixture v1")
+    if (install_target / ".env").read_bytes() != override_bytes:
+        raise AssertionError("Restore should retain the backed-up override")
+    run_path_script(installed_updater, "--apply", "--target", str(install_target),
+                    "--repo", str(source_repo.resolve()), "--ref", "main", "--json", cwd=install_target / "scripts")
+    for suffix in ("update-staging", "previous", "restore-staging", "before-restore"):
+        if (install_target.parent / f".{install_target.name}.{suffix}").exists():
+            raise AssertionError(f"Successful update/restore left temporary directory {suffix}")
 
     (install_target / "SKILL.md").write_text(
         (install_target / "SKILL.md").read_text(encoding="utf-8") + "\nLocal drift\n",
@@ -9605,8 +9676,8 @@ def verify_update_all_student_os_workflow(tmp_root: Path) -> None:
         raise AssertionError(f"multi-target update check should preserve manifest agent labels: {check_payload}")
 
     apply_payload = json.loads(
-        run_script(
-            "update_all_student_os.py",
+        run_path_script(
+            codex_target / "scripts" / "update_all_student_os.py",
             "--apply",
             "--target",
             str(codex_target),
@@ -9617,10 +9688,13 @@ def verify_update_all_student_os_workflow(tmp_root: Path) -> None:
             "--ref",
             "main",
             "--json",
+            cwd=dsh_target / "scripts",
         )
     )
     if apply_payload["ok"] is not True or apply_payload["updated_count"] != 2 or apply_payload["failed_count"] != 0:
         raise AssertionError(f"multi-target update apply should update both installs: {apply_payload}")
+    if not any(result["agent"] == "dsh" and result.get("cwd_relocated") is True for result in apply_payload["targets"]):
+        raise AssertionError("Multi-update must safely update the install containing its original cwd")
     for target in (codex_target, dsh_target):
         ensure_contains(target / "SKILL.md", "Fixture v2")
         manifest = json.loads((target / ".student-os-install.json").read_text(encoding="utf-8"))
