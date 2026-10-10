@@ -768,6 +768,12 @@ def verify_context_and_legacy_census_docs() -> None:
     claude_command = (ROOT / "student-os" / "integrations" / "claude" / "commands" / "exam-census.md").read_text(encoding="utf-8")
     cursor_rule = (ROOT / "student-os" / "integrations" / "cursor" / "rules" / "exam-census.mdc").read_text(encoding="utf-8")
     github_copilot = (ROOT / "student-os" / "integrations" / "github" / "copilot-exam-census.md").read_text(encoding="utf-8")
+    review_coach = (ROOT / "student-os" / "companions" / "review-coach.md").read_text(encoding="utf-8")
+    if "../commands/exam-prep-build.md" not in review_coach or "not the default teaching workflow" not in review_coach:
+        raise AssertionError("Review-coach must route teaching packs to AI-first, not census template fills")
+    for relative in ("../commands/exam-prep-build.md", "../references/exam-census-workflow.md"):
+        if not (ROOT / "student-os" / "companions" / relative).is_file():
+            raise AssertionError(f"Review-coach workflow destination is missing: {relative}")
     legacy_docs = "\n".join((census, census_command, claude_census, claude_command, cursor_rule, github_copilot)).lower()
     if "not the default route for high-quality" not in legacy_docs:
         raise AssertionError("Legacy exam-census docs must stop claiming high-quality study-pack default routing")

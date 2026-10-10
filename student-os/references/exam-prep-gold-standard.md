@@ -29,6 +29,8 @@ Assume the student:
 
 Write for this student. A page that is complete but unreadable is a failed page.
 
+Attendance, submitted homework and copied answers are separate from demonstrated understanding. Do not infer mastery from files or completion labels. When the user asks for material, finish the teaching work rather than tell them to practice before you will improve it. Practice advice belongs in the material as an optional next step, not as a substitute for missing explanations.
+
 ## Default Loop
 
 For broad requests, do not generate a whole package at once. Complete one small loop first:
@@ -42,6 +44,10 @@ For broad requests, do not generate a whole package at once. Complete one small 
 7. Edit the page until it teaches.
 8. Run mechanical tripwire checks.
 9. Only then expand to the next page or batch.
+
+Start teaching from a real exam problem: what is given, what is requested, what to notice, and the first executable step. Explain the minimum concept when it becomes necessary. This is problem-led teaching, not forcing an unprepared student to solve before seeing an explanation. A foundations page is optional support, not a prerequisite detour through all missed lectures. Do not create a parallel lecture-note series for an exam-prep request without an explicit request for that output.
+
+Condense the guide, formula card and priorities from the completed analyses, not the reverse. If only a sample is done, deliver it as a sample and say which content remains unwritten; folder scaffolds and reachable README stubs do not make a usable pack. Continue the authorized work in manageable batches without repeatedly requiring the user to approve each internal stage.
 
 ## Page Shapes
 
@@ -155,6 +161,24 @@ Do not cite a broad chapter as proof. Prefer subsection, theorem, figure, proble
 
 Grounding means reading authoritative material and then explaining it. Precise locations may live in the associated source map (`page_grounding` keyed by stable type ID), dossier (`textbook_refs`), or source appendix. A structured record has a readable vault-relative `path` and precise `locator`. A global textbook folder is not a page-specific record. Body citations remain compatible but are not compulsory. A link cannot replace the explanation or demonstration of an operation. Answer keys ground solutions, not definitions.
 
+## Evidence Reconciliation
+
+Keep three questions separate: what the source actually says, whether the derivation is sound under those givens, and whether the student's requested topic is covered. Agreement with a known answer does not prove an unreadable angle, sign or condition in the source; do not reconstruct a question backward from its answer.
+
+When OCR conflicts with a derivation, first inspect the relevant original PDF page/crop or supplied image if accessible and the model can view it. Compare the textbook explanation, diagram, answer key and lecture source as needed. A second generated page copying the same OCR is not independent evidence. If visual inspection is unavailable, record that limitation and the conflicting readings locally; do not imply you saw the original. Request human help only for the unresolved, consequential detail, not for every item labelled unverified. AI source comparison stays unverified; it does not require a paper book when a readable original is already available.
+
+For overlap/repeat analysis, distinguish identical questions, changed parameters, additional requirements, same-method variants and concept coverage. Name the observed denominator and known duplicate/uncertain sources. Do not promote a tiny historical sample to "the entire future question pool" or invent a current exam's score/format from old papers. A partial paper crop cannot establish the total question count; check the full layout before changing that fact.
+
+After correcting a source fact, revisit its downstream uses: problem text, derivation, answer, type page, formula card, priority table and entry. Replace contradicted statements rather than leave an old statement beside a new correction. Reconcile counts and learning routes across those pages before delivery.
+
+## Delegation And Integration
+
+Subagents may write useful prose, but give them the same source and teaching constraints as the main agent. A compact contract names the exact output/write ownership, target reader, required problem/textbook/answer sources, reserved worked-example and self-test identities, human-readable citations and uncertainties. Do not quietly replace a past-paper-only self-test pool with textbook exercises; when the independent pool is insufficient, explain the gap or ask about a labelled supplementary exercise set.
+
+Give actual source and output locations instead of guessed relative-link rules. Each writer resolves links relative to the file being written, including spaces/parentheses, and checks the destination. The coordinator owns shared entry pages while writers own disjoint drafts; coordinate handoff before either edits the other's file. Share corrected source facts and citations with the affected writers, not only in the final response.
+
+Draft delivery includes sources actually read, specific doubts and changed paths, not just file size or heading count. Main-agent integration requires reading the draft's problem, full solution and self-test answer from disk, resolving reported conflicts where possible, and checking it against neighboring pages. A subagent's self-audit is useful evidence, not the main agent's reader audit.
+
 For Yuque or other export targets, keep the Obsidian source intact; convert only an export copy. Do not hunt for a KaTeX installation or rewrite every matrix to satisfy an unrelated renderer.
 
 ## Writing Style
@@ -171,6 +195,7 @@ Use short, teachable blocks:
 - no OCR dump pasted into a handout without editing.
 - no batch regex or loop-based prose patching in teaching sections after a checker failure; open the page and edit the paragraph, example, answer, or `Transfer` block directly.
 - no broken joins such as LaTeX commands glued to `**Answer**`, `**Check**`, or `**Transfer**`.
+- for a targeted replacement, select the complete paragraph, table row or math block, not a prefix ending mid-sentence; include enough unchanged context to disambiguate the edit. Read back that whole unit and its neighbors afterward. A successful literal match can still leave the old tail attached to new prose.
 
 Worked solutions should use "action sentence + formula + short note":
 
@@ -196,6 +221,8 @@ Before reporting completion, the agent must personally read at least:
 Also read **every changed teaching page**, including all subagent drafts, from disk after the last edit. Walk an actual solution as the student: are symbols defined, operations executable, applicability conditions clear, intermediate steps sufficient, and tests independently doable? Correct gaps and read the edits again. Distinguish a proof from an exact calculation and from a numerical spot check; the last cannot establish a general theorem. Recheck incomplete OCR against sources rather than inventing a question backwards from its answer.
 
 Update the existing `reader-audit.md` for this round with reviewed paths, current page hashes or revision identifiers, specific findings, fixes and remaining risks. Preserve prior rounds as history; an old audit does not approve changed pages. These records support AI accountability, not automated proof of readability or human verification.
+
+Read the final entry table, one full guided solution and its independent test as a continuous learning route, not only file heads or grep matches. After a merge, reread the joins and repeated concepts: appending a slide-summary table is not teaching integration if the explanation the student needs is still absent. Check diagram dependencies and method conditions, not just algebra; a compressed catalogue of formulas cannot stand in for the first usable example. Record concrete corrections, not "links all reachable, therefore ready" or unsupported percentages of readiness.
 
 At phase closure, persist explicit reusable user corrections in the course quality standard. Group repeated workflow/tool defects into existing local feedback records while retaining the user's wording, affected outputs and changes made. Use only the active conversation and readable files; fix the task first, do not interrupt it for feedback collection, and do not publish without separate authorization/privacy review.
 

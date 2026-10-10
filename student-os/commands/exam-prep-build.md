@@ -18,6 +18,10 @@ Default route:
 
 Confirm the target course, exam scope, files to edit, and the roles of textbook, answers and reference pages. A reference is not an edit target. Read the course's existing quality standard and the user's current corrections first.
 
+The deliverable is usable teaching material, not a demand that the student first attempt questions. Treat existing homework answers as source material, not evidence of the student's competence. For exam catch-up, start from a representative real problem, show how to begin, and explain necessary concepts alongside its solution. A beginner may follow the worked example before trying an independent test. Do not replace one prerequisite wall with another by insisting either on reading a whole course first or on closed-book attempts before any explanation.
+
+Continue within the writing scope the user has already requested. A sample gate is the agent's self-review, not a mandatory human approval or a reason to ask "continue?" after every page. Ask when resolving a consequential source ambiguity or changing scope, not for routine reading, writing and revision. Do not invent separate lecture notes to compensate for missed classes; integrate useful textbook/slide explanations into the problem/type page, unless the user asked for notes.
+
 For **improving existing pages**, open the page and relevant sources, edit locally, read every changed teaching page back as a beginner, then run a focused mechanical check. Do not force workspace initialization, new dossiers, or the whole staged pipeline. Keep type IDs stable; order learning by prerequisites and synchronize the entry, guide and speed cards.
 
 For **a new study pack**, do not start with mechanical statistics, keyword parsing, or full-package generation. For messy papers, the default order is:
@@ -37,6 +41,8 @@ Also read `references/agent-runtime-context.md` when using feedback, examples, o
 The core rule is simple: every explanation, worked solution, self-test answer, guide route, and type page paragraph must be written by the agent after reading source material. Do not use scripts, loops, state JSON, paper-cards, or dossiers to assemble body prose.
 
 Before paper writing, use the manifest's canonical exam grouping. One real exam gets one `试卷精析` and one paper-card; paper sidecars, answer sidecars, combined paper+answer files, review versions, PDFs, and text-layer repairs are evidence roles for that canonical exam, not separate exams.
+
+Copy a reference pack's useful teaching patterns, not its file count, type IDs, or unsupported priorities. A navigation stub may identify planned work; it is not a finished guide. Formula cards, templates and study priorities are condensed from analyzed problems and audited teaching pages, not written from memory first and justified afterward. Keep draft/partial labels until the dependencies actually exist.
 
 ## Start
 
@@ -111,6 +117,8 @@ After paper-v0 passes:
 2. Write cross-paper analysis, especially `分析/01-题型频率统计.md`, `分析/02-跨年原题重复记录.md`, and `分析/05-近年趋势与教考分离.md`.
 3. Backfill each `试卷精析/<paper>.md` with a cross-paper relationship section: type links, original-repeat/close-variant/same-type status, related years/questions, and review priority.
 
+For source-overlap claims, compare the actual givens, requested result, diagram and prescribed method. Distinguish an identical question, changed parameters, an added requirement, a shared method, and only a shared concept. Report observed sample counts and their denominator; "textbook covers the concepts" is not "all questions are textbook originals". Duplicate copies are not independent exams, but matching questions alone cannot prove two documents came from the same sitting. Historical final-paper sections may be evidence for a current midterm topic, not proof of its format, total score or future question pool. Keep those assumptions explicit.
+
 Check synthesis:
 
 ```bash
@@ -158,6 +166,8 @@ Then write `题型解析/*.md` as tutoring handout pages from the dossier. The d
 - Do not copy a universal worked-solution paragraph across examples. Each solution must name the exact givens, the exact first relation, the exact computation, and the exact check for that problem.
 
 ## Check
+
+Before checking, read `references/exam-prep-gold-standard.md` sections **Evidence Reconciliation**, **Delegation And Integration**, and **Reader Audit** when those responsibilities apply. Reconcile changed source facts through the affected deep dive, type page, answer, formula card and entry; do not merely append a source column to stale content.
 
 Final check:
 

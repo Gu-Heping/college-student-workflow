@@ -44,6 +44,36 @@ Weak: a last month's audit approves this week's rewritten answers; checking thre
 
 Repair direction: read the revised files and update this round's audit with paths, current revisions, concrete corrections and remaining risks; keep the previous round as history. Label exact calculations, numerical spot checks and general proofs separately. Resolve OCR gaps from source evidence, not by guessing a problem that matches the answer.
 
+## Summaries Before Source Analysis
+
+Weak: the guide and formula card are declared ready because every link works, although their problem pages are still stubs. Later analysis reveals that a turning-point condition was confused with a contact-loss condition.
+
+Repair direction: read the original problem, identify the physical event and derive its condition before writing the shortcut. Correct both the worked solution and every summary carrying the old claim. Mark a partial route as partial; reachable files do not make an exam-ready pack.
+
+## Missed Lectures Are Not A New Deliverable
+
+Weak: a request to finish problem-led revision material becomes a separate lecture-note series, or the agent refuses to continue until the student does closed-book exercises. Submitted homework is treated as proof of mastery.
+
+Repair direction: keep writing the requested material. Explain the symbols and necessary operation where the first real problem needs them, then demonstrate a guided solution. Offer an independent test without making the student's attempt a prerequisite for finishing the page. Separate notes are appropriate when requested, not simply because the student missed class.
+
+## A Successful Edit With A Broken Join
+
+Weak: a table-row replacement matches only through `T5 → T`, inserts complete new rows, and leaves the old suffix `6 → ... |` attached to the last new row. Links still resolve, so the agent reports success.
+
+Repair direction: read and replace the complete row with distinguishing context. Read the saved table and neighboring paragraphs after the edit, including its final cells. Repair the join locally; neither the tool's match result nor a link checker proves the resulting sentence is intact.
+
+## A Correct Limit Does Not Prove The Given Angle
+
+Weak: a solution reduces to the textbook answer at a known angle, so the agent claims that an unclear scanned angle was transcribed correctly. It asks the student to check every uncertainty despite having access to the original PDF and relevant course figures.
+
+Repair direction: separate source transcription from mathematical consistency. Inspect the original page and local crop when vision is available; compare independent course evidence. If the source remains unreadable or vision is unavailable, state that limitation and ask about the specific consequential detail. A valid derivation does not settle an illegible given, and AI source checking is not human verification.
+
+## Draft Reports Instead Of Reader Review
+
+Weak: a subagent reports a long, complete page; the coordinator reads only its opening and link report. The task guessed the wrong relative paths and silently substituted textbook exercises for required past-paper tests.
+
+Repair direction: give the writer actual source and output locations and reserved question identities. Read the saved complete example, independent test answer and source labels. Fix paths and teaching gaps locally; when independent past-paper questions are insufficient, report the gap rather than disguising supplementary exercises as exam questions.
+
 ## Acceptance Exercise
 
 ### A Concrete Teaching Repair

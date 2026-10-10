@@ -224,9 +224,12 @@ For exam study material, use editing-teacher mode: AI reads sources, writes teac
 
 - **Improve an existing page:** confirm course, scope, edit targets and reference roles; read the course quality standard and current feedback; open the page and relevant sources, edit locally, then read every changed teaching page back from disk. Do not reinitialize a pack or rerun all stages.
 - **Build a new pack:** follow `commands/exam-prep-build.md`; consolidate canonical exams, complete one useful sample loop, then expand in small batches. Subagents may write drafts, but the main agent owns read-back review and revisions.
+- **Exam catch-up is problem-led:** put a complete sourced problem and a guided first solution within reach; teach the needed concepts where the solution uses them. Missing attendance/homework does not authorize a separate course-notes project, imply mastery from submitted homework, or turn a material-writing request into coaching the user to start practicing.
+- Do not write final formula cards, priorities or guides before their supporting problems have been analyzed. Continue the already requested writing work without asking permission at every internal step; ask only for a material scope/evidence decision or separately authorized action.
 - Teach through recognition cues, necessary concepts, operations with reasons, a small demonstration, past-paper examples and independent self-tests. Offer a beginner learning route and a separate exam-speed route; do not make beginners start with compressed formulas.
 - Read `references/exam-prep-gold-standard.md` for teaching, source allocation and AI audit rules. Examples and self-tests must come from past papers and be disjoint; concept demonstrations are labelled separately.
 - At phase closure, update the current reader audit; preserve previous audit history without reusing it as approval. Capture reusable user corrections in the course standard and actionable workflow defects in local feedback, using current conversation and files only.
+- After local edits, read back the complete affected paragraph/table/math block and its neighbors. Main-agent review must also reconcile problem variants, counts, source uncertainty and routes across the pages being delivered; link checks cannot approve those decisions.
 
 ### Exam census
 
