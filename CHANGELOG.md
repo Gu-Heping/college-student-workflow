@@ -6,6 +6,8 @@
 
 ### Changed
 
+- 补充共享 worktree 的路径限定提交、暂存区保留、Git 写操作协调及 amend 独立授权边界；明确 HEAD 检查不构成并发锁，误改历史不自动用 amend/reset 恢复。
+
 - 强化 AI-first 备考写作的来源先行、贴题补基础、完整结构单元编辑与读回审稿；统一 review-coach 路由，补充摘要抢跑、编辑接缝损坏及证据过度推断的脱敏审稿反例。机械检查仍不证明教学质量。
 
 - 补齐索引、周计划、课程/作业 scaffold、反馈摘要及更新 manifest 的显式 UTF-8 + LF 写入，避免 Windows 默认换行转换产生 CRLF。

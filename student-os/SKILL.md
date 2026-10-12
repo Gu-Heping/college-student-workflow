@@ -400,6 +400,8 @@ Common managed artifact types in this iteration:
 
 - Inspect the working tree before and after the task.
 - Keep "pre-existing dirty changes" separate from "changes created for this request".
+- A shared worktree also shares its index and HEAD. Before committing, read `references/vault-governance.md` **Shared worktree commits**: use explicit task paths, preserve other staged changes, and serialize Git writes. Staging selected files does not limit a plain commit.
+- Prefer a new commit to amend. History rewriting needs separate authorization, an identified expected commit and exclusive coordination; a HEAD check alone does not prevent a concurrent change.
 - Do not stage or commit conflict files, caches, generated noise, or unknown binary blobs by default.
 - Suggest a branch name when the task is large enough to deserve isolation.
 - Suggest a commit title and body whenever the task changes repository-tracked files.

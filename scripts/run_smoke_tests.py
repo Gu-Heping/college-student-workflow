@@ -7963,6 +7963,63 @@ def init_git_repo(repo: Path) -> None:
     subprocess.run(["git", "-C", str(repo), "config", "user.email", "smoke@example.com"], check=True, capture_output=True, text=True)
 
 
+def verify_shared_index_commit_scope(repo: Path) -> None:
+    init_git_repo(repo)
+
+    def git(*args: str) -> str:
+        result = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            check=True, capture_output=True, text=True, encoding="utf-8",
+        )
+        return result.stdout.strip()
+
+    task_path = "task [1].md"
+    other_path = "other.md"
+    old_path = "old.md"
+    new_path = "renamed.md"
+    for name in (task_path, other_path, old_path):
+        (repo / name).write_text("original\n", encoding="utf-8", newline="\n")
+    commit_all(repo, "fixture: original")
+    parent = git("rev-parse", "HEAD")
+    (repo / other_path).write_text("other session\n", encoding="utf-8", newline="\n")
+    git("add", "--", other_path)
+    staged_other = git("rev-parse", f":{other_path}")
+    (repo / task_path).write_text("task staged\n", encoding="utf-8", newline="\n")
+    literal = f":(literal){task_path}"
+    git("add", "--", literal)
+    (repo / task_path).write_text("task current\n", encoding="utf-8", newline="\n")
+    git("commit", "--only", "-m", "fixture: task only", "--", literal)
+    if git("rev-parse", "HEAD^") != parent:
+        raise AssertionError("Path-limited commit must retain the expected parent")
+    if git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD") != task_path:
+        raise AssertionError("Task commit included unrelated staged paths")
+    if git("show", f"HEAD:{task_path}") != "task current":
+        raise AssertionError("--only must be documented as committing working-tree content")
+    if git("rev-parse", f":{other_path}") != staged_other or git("show", f"HEAD:{other_path}") != "original":
+        raise AssertionError("Unrelated staged content must remain staged, not committed")
+
+    git("mv", "--", old_path, new_path)
+    added_path = "new note.md"
+    (repo / added_path).write_text("new task\n", encoding="utf-8", newline="\n")
+    paths = [f":(literal){name}" for name in (old_path, new_path, added_path)]
+    git("add", "--", f":(literal){added_path}")
+    git("commit", "--only", "-m", "fixture: rename and new file", "--", *paths)
+    changed = set(git("diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", "HEAD").splitlines())
+    if changed != {old_path, new_path, added_path}:
+        raise AssertionError(f"Rename/new-file commit scope is wrong: {changed}")
+
+    # A coordinated message-only amend must not consume another session's index.
+    tree = git("rev-parse", "HEAD^{tree}")
+    parent = git("rev-parse", "HEAD^")
+    git("commit", "--amend", "--only", "-m", "fixture: corrected message")
+    if git("rev-parse", "HEAD^{tree}") != tree or git("rev-parse", "HEAD^") != parent:
+        raise AssertionError("Message-only amend changed the tree or parent")
+    if git("rev-parse", f":{other_path}") != staged_other:
+        raise AssertionError("Message-only amend consumed another session's staged content")
+    if git("diff", "--cached", "--name-only") != other_path:
+        raise AssertionError("Unrelated staged path did not survive the scoped commits")
+
+
 def commit_all(repo: Path, message: str) -> str:
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True, text=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-m", message], check=True, capture_output=True, text=True)
@@ -9858,6 +9915,7 @@ def main() -> int:
         copy_repo(multi_repo, inspect_repo_fixture)
         verify_inspect_repo(inspect_repo_fixture)
         verify_git_grouping(grouping_repo, today)
+        verify_shared_index_commit_scope(tmp_root / "shared-index-commit-demo")
         verify_chinese_slug_support(tmp_root / "unicode-course-demo", today)
         verify_install_manifest_generation(tmp_root / "install-manifest-demo")
         verify_dsh_skill_frontmatter_contract()
@@ -9894,6 +9952,7 @@ def main() -> int:
 
     print("OK single-semester-demo")
     print("OK generated-markdown-lf-demo")
+    print("OK shared-index-commit-demo")
     print("OK multi-semester-demo")
     print("OK legacy-layout-demo")
     print("OK unicode-course-demo")
