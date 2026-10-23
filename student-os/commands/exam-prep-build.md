@@ -24,6 +24,16 @@ Continue within the writing scope the user has already requested. A sample gate 
 
 For **improving existing pages**, open the page and relevant sources, edit locally, read every changed teaching page back as a beginner, then run a focused mechanical check. Do not force workspace initialization, new dossiers, or the whole staged pipeline. Keep type IDs stable; order learning by prerequisites and synchronize the entry, guide and speed cards.
 
+For **teacher-list-led revision**, use the supplied current announcement, review slides or corrections to check the existing handouts before expanding historical-paper analysis. Distinguish an explicit exam scope from a list of重点 and from "以……为主"; the latter two do not prove exclusivity. Map each relevant source item to the actual explanation, method and worked problem it needs, marking missing/mentioned/taught rather than treating a link or matching title as coverage. Revise affected concepts and method selection as well as solutions. Do not wait for the user to ask whether newly provided sources were really integrated.
+
+Match the deliverable to the user's requested footprint. If they want an entry and self-contained type pages, embed necessary mathematics, definitions and quick-reference material there instead of creating a glossary, timetable, mother-problem book and four separate summaries. The full-pack CLI still checks the standard pack/state contract; use focused Markdown checks plus AI reader audit for a deliberately smaller pack, and report that scope honestly rather than recreate rejected files to clear `final`. A reading sequence is not a calendar: do not invent daily study time, completion durations or timed drills without a planning request and usable constraints.
+
+When the user says the pages are incomprehensible or asks to follow another course's style, rewrite a representative existing page's concept explanation and complete example first. Identify what the student cannot execute (reading a symbol, choosing a variable, setting a limit, taking a derivative), demonstrate it, then revisit the real question. A new glossary, reordered headings, a decision-tree label or a source-position table cannot substitute for that revision. Borrow useful teaching decisions from the reference, not a compulsory chapter count or separate-file inventory.
+
+Writing is iterative: revisions to structure, depth or voice can be preference calibration, not evidence that every draft or tool failed. Apply the latest feedback and keep its reusable rationale in the course standard; do not repeatedly reset to the generic template. If the user rarely reads auxiliary pages, optimize where they actually read rather than minimizing file count as a goal. While a representative page's style is being reconsidered, do not propagate the rejected form across more drafts. An explicit instruction to stop subagents means stop their writers and do not relaunch them without renewed authorization; continue only the remaining authorized work.
+
+Use focused Markdown checks for page revisions. Do not backfill state JSON, rename completed pages, add examples to meet a count or batch-insert prose merely to turn the full pipeline report green. If the user asks for pipeline completion, maintain genuine evidence records separately, preserve compatible paths through manifest mappings, and review any added problem for teaching purpose and duplicate identity before writing it directly. A schema gap is not an instruction to read checker source and reverse-engineer its keyword requirements.
+
 For **a new study pack**, do not start with mechanical statistics, keyword parsing, or full-package generation. For messy papers, the default order is:
 
 ```text
@@ -36,11 +46,14 @@ For **a new study pack**, do not start with mechanical statistics, keyword parsi
 ```
 
 Before any content work, read `references/exam-prep-gold-standard.md`. Treat it as the writing standard.
+For a new or substantially rewritten type page, open [the handout reference](../templates/exam-type-handout.md): it describes concept explanation, method choice, complete worked problems and independent answers without prescribing a subject. Choose reasoning, calculation, argument, evidence analysis or other teaching forms appropriate to the actual course; do not force everything into a formula-substitution lesson. For an entry/README revision, use [the compact entry reference](../templates/exam-prep-entry.md). Adapt these references to the user's feedback. They do not require creating auxiliary files or replacing a course's already useful structure.
 Also read `references/agent-runtime-context.md` when using feedback, examples, or prior conversation as evidence. Do not assume access to hidden maintainer context, exported logs, or private sample vaults unless the user provides readable files.
 
 The core rule is simple: every explanation, worked solution, self-test answer, guide route, and type page paragraph must be written by the agent after reading source material. Do not use scripts, loops, state JSON, paper-cards, or dossiers to assemble body prose.
 
 Before paper writing, use the manifest's canonical exam grouping. One real exam gets one `试卷精析` and one paper-card; paper sidecars, answer sidecars, combined paper+answer files, review versions, PDFs, and text-layer repairs are evidence roles for that canonical exam, not separate exams.
+
+Inventory is not source reading: note whether each relevant source is text-readable, image-readable, not yet inspected or unavailable. Inspect actual chapter/slide contents; a deck named for one topic may include several, and a PDF labelled paper may contain both printed questions and student answers. For relevant scans, use available vision or prepare targeted OCR/extraction; if paid API use needs authorization, ask about that specific cost. Do not build a supposedly complete pack while treating a substantial uninspected source set as an optional afterthought. State partial coverage and its consequences instead of claiming unseen topics are absent.
 
 Copy a reference pack's useful teaching patterns, not its file count, type IDs, or unsupported priorities. A navigation stub may identify planned work; it is not a finished guide. Formula cards, templates and study priorities are condensed from analyzed problems and audited teaching pages, not written from memory first and justified afterward. Keep draft/partial labels until the dependencies actually exist.
 
@@ -131,7 +144,7 @@ python student-os/scripts/exam_prep_check.py /path/to/vault \
 
 ## Type Dossier Before Type Analysis
 
-Do not write `题型解析/*.md` from a blank template. For each taxonomy type:
+This section applies to a new full pipeline build, not mandatory state backfill for an existing-page or teacher-list-led revision. Do not write `题型解析/*.md` from a blank template. For each taxonomy type:
 
 1. Read the matching paper-card question refs, cross-paper analysis, and v1 `试卷精析`.
 2. Create `.student-os/state/exam-prep/<course>/<scope>/type-dossiers/<type-id>.json`.
@@ -149,11 +162,11 @@ python student-os/scripts/exam_prep_check.py /path/to/vault \
   --json
 ```
 
-Then write `题型解析/*.md` as tutoring handout pages from the dossier. The dossier is preparation, not page prose:
+Then write `题型解析/*.md` as tutoring handout pages from the dossier. The dossier is preparation, not page prose. Explain method selection, applicability, executable steps with reasons, and how variants change the approach. Personally walk every question in the selected type's inspected pool against those explanations; patch missing methods or prerequisites instead of merely attaching method labels. Audit worked-example coverage and independent self-test coverage separately, and disclose gaps when the authentic pool cannot support both. This is an AI reasoning audit, not a checker-generated guarantee:
 
 - Open the dossier and the referenced past-paper questions first.
 - Open the relevant textbook/lecture material before explaining concepts.
-- Start with cross-paper value: frequency, score band, difficulty, repeat/variant status, representative years, and review priority.
+- Give useful source-backed context. Include historical frequency, printed scores and repeat relationships only when supported; omit unsupported fields instead of inventing estimates or repeating unknown badges. A teacher-list item count is not exam frequency or a score weight. Keep AI study priorities distinct from official grading rules.
 - Offer two routes: beginners start with necessary concepts and concrete operations; exam revision jumps to the speed card. Teach recognition cues, concepts, operations/reasons, a minimal demonstration, real problems and transfer. Organize flexibly; these are teaching responsibilities, not eleven mandatory headings.
 - Read authoritative material before explaining concepts. Keep precise evidence in the associated source map, dossier or appendix; the prose must explain the idea, not send the student to a slide position. For linked grounding use `page_grounding: {<type-id>: [{"path": "vault-relative/source.md", "locator": "section/figure/example"}]}` in source-map, or the same records in a dossier's `textbook_refs`. Old body citations remain supported.
 - Allocate past-paper problems across methods before writing: each method needs a teaching example and an independent self-test where available. The same problem with another solution is still a duplicate. Reduce counts and describe gaps when evidence is insufficient. Label minimal concept demonstrations as demonstrations, not past-paper questions or self-tests.
@@ -189,10 +202,10 @@ Passing means the package passed tripwire evidence/structure/render checks. It d
 - Do not use batch scripts or loops to generate lecture body text, example explanations, self-test answers, or guide prose.
 - Do not use batch regex scripts to patch teaching prose after tripwire failures; open the page, read the context, and edit the local paragraph/solution/answer yourself.
 - Do not bulk-generate the whole pack before a gold sample passes.
-- Do not invent examples or self-tests; all examples and self-tests must come from past papers.
+- Do not invent examples or self-tests. Default to disjoint past-paper questions. When the user explicitly includes teacher-listed textbook exercises, label those accurately and do not call them past papers; a continuing past-paper-only restriction still takes precedence and any pool expansion needs agreement.
 - Do not cite only paper-card refs without including usable problem text.
 - Do not reuse the same past-paper question as both a worked example and a self-test.
-- Do not write a type-analysis page before the matching type dossier exists.
+- For a new full pipeline build, prepare the matching type dossier before the type-analysis page. Existing-page or teacher-list-led revisions do not require recreating that pipeline.
 - Do not use vague textbook grounding such as only "§2"; cite the usable section, figure, problem diagram, or lecture location when available.
 - Do not mark AI output as human verified.
 - Do not let scripts decide complex semantics.

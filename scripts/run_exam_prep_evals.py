@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -529,10 +530,10 @@ def verify_bold_human_sources_pass(tmp_root: Path) -> None:
     vault, _ = verify_init_and_initial_failure(tmp_root)
     write_ai_outputs(vault)
     add_cross_paper_backfill(vault)
-    type_page = vault / "courses" / "linear-algebra" / "reviews" / "期末" / "题型解析" / "01-matrix-equation.md"
-    text = type_page.read_text(encoding="utf-8")
-    text = text.replace("来源：2024-2025 期末 · 一", "**来源**：2024-2025 期末 · 一")
-    type_page.write_text(text, encoding="utf-8", newline="\n")
+    output = vault / "courses" / "linear-algebra" / "reviews" / "期末"
+    for page in output.rglob("*.md"):
+        text = page.read_text(encoding="utf-8").replace("来源：", "**来源**：")
+        page.write_text(text, encoding="utf-8", newline="\n")
     ok = run_student_script(
         "exam_prep_check.py",
         str(vault),
@@ -547,6 +548,74 @@ def verify_bold_human_sources_pass(tmp_root: Path) -> None:
     )
     if ok.get("ok") is not True:
         raise AssertionError(f"Bold human source labels should be accepted: {ok}")
+
+    analysis = output / "分析" / "02-跨年原题重复记录.md"
+    text = analysis.read_text(encoding="utf-8")
+    analysis.write_text(text.replace("**来源**：", "证据："), encoding="utf-8", newline="\n")
+    fail = run_student_script(
+        "exam_prep_check.py", str(vault), "--course", "linear-algebra",
+        "--exam-scope", "期末", "--stage", "final", "--json", cwd=ROOT, expect_ok=False,
+    )
+    if not any(issue.get("code") == "analysis-repeat-claim-missing-source" for issue in fail.get("issues", [])):
+        raise AssertionError("Supporting bold labels must not disable the source-label check")
+
+
+def verify_combined_paper_names(tmp_root: Path) -> None:
+    vault = tmp_root / "vault"
+    papers = build_fixture(vault)
+    for name in ("2024-final试卷含答案.pdf.md", "2025-final试题含答案复习版.pdf.md"):
+        write_text(papers / name, "# Combined exam\n\n一、题目与解答。\n")
+    payload = run_student_script(
+        "exam_prep_build.py", str(vault), "--course", "linear-algebra",
+        "--exam-scope", "期末", "--papers-dir", str(papers), "--json", cwd=ROOT,
+    )
+    if payload.get("raw_source_count") != 5 or payload.get("canonical_exam_count") != 2:
+        raise AssertionError(f"Combined answer papers must not create exams with a stray 含 suffix: {payload}")
+    manifest = json.loads((vault / ".student-os/state/exam-prep/linear-algebra/期末/manifest.json").read_text(encoding="utf-8"))
+    exams = {item["id"]: item for item in manifest["papers"]}
+    if set(exams) != {"2024-final", "2025-final"}:
+        raise AssertionError(f"Unexpected canonical combined-paper ids: {set(exams)}")
+    for exam_id, filename in (("2024-final", "2024-final试卷含答案.pdf.md"), ("2025-final", "2025-final试题含答案复习版.pdf.md")):
+        exam = exams[exam_id]
+        if not any(path.endswith(filename) for path in exam["source_roles"].get("combined", [])):
+            raise AssertionError(f"Combined paper incorrectly classified as answer-only: {exam}")
+        if not exam["canonical_answer_source"].endswith(filename):
+            raise AssertionError(f"Canonical answer should use the combined source: {exam}")
+
+
+def verify_natural_teaching_sections(tmp_root: Path) -> None:
+    vault, _ = verify_init_and_initial_failure(tmp_root)
+    write_ai_outputs(vault)
+    add_cross_paper_backfill(vault)
+    page = vault / "courses/linear-algebra/reviews/期末/题型解析/01-matrix-equation.md"
+    text = page.read_text(encoding="utf-8")
+    text = re.sub(r"(?m)^频率：[^\n]*\n", "", text)
+    for old, new in (
+        ("## 例题精讲", "## 真题例解"),
+        ("## 自测题", "## 真题自测"),
+        ("## 自测答案", "## 答案与解析"),
+        ("## 2 分钟下笔模板", "## 方法先手"),
+        ("验算或检查：", "代回原式："),
+        ("验算", "核对"),
+    ):
+        text = text.replace(old, new)
+    write_text(page, text)
+    ok = run_student_script(
+        "exam_prep_check.py", str(vault), "--course", "linear-algebra",
+        "--exam-scope", "期末", "--stage", "final", "--json", cwd=ROOT,
+    )
+    if ok.get("ok") is not True:
+        raise AssertionError(f"Natural headings and omitted unsupported frequency must not require filler: {ok}")
+
+    start = text.index("## 答案与解析")
+    end = text.index("## 快速得分技巧", start)
+    write_text(page, text[:start] + text[end:])
+    fail = run_student_script(
+        "exam_prep_check.py", str(vault), "--course", "linear-algebra",
+        "--exam-scope", "期末", "--stage", "final", "--json", cwd=ROOT, expect_ok=False,
+    )
+    if not any(issue.get("code") == "type-analysis-missing-self-test-answers" for issue in fail.get("issues", [])):
+        raise AssertionError("Heading aliases must not allow missing independent self-test answers")
 
 
 def verify_type_dossier_rejects_bad_refs_and_overlap(tmp_root: Path) -> None:
@@ -891,6 +960,12 @@ def verify_teaching_contract_docs() -> None:
     # This only guards instruction drift; it does not certify teaching quality.
     examples = ROOT / "student-os/references/exam-prep-reader-audit-examples.md"
     assert examples.is_file()
+    for filename in ("exam-type-handout.md", "exam-prep-entry.md"):
+        template = ROOT / "student-os/templates" / filename
+        assert template.is_file(), template
+        assert f"../templates/{filename}" in command, filename
+        assert f"../templates/{filename}" in standard, filename
+        assert b"\r" not in template.read_bytes(), template
 
 
 def main() -> int:
@@ -900,6 +975,8 @@ def main() -> int:
         verify_linked_textbook_grounding(tmp_root / "linked-grounding")
         verify_scope_specific_pack_names(tmp_root / "scope-names")
         verify_bold_human_sources_pass(tmp_root / "bold-sources")
+        verify_combined_paper_names(tmp_root / "combined-paper-names")
+        verify_natural_teaching_sections(tmp_root / "natural-teaching-sections")
         verify_type_dossier_rejects_bad_refs_and_overlap(tmp_root / "bad-dossier")
         verify_type_analysis_rejects_fabricated_and_duplicate_sources(tmp_root / "bad-type-page")
         verify_type_analysis_rejects_unlearnable_shell(tmp_root / "unlearnable-type-page")

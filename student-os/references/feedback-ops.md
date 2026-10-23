@@ -21,11 +21,17 @@ Use the feedback flow when the user explicitly asks to:
 - mark a previously recorded feedback item as resolved
 - turn the current workflow failure, poor result, or user correction into a feedback item
 
-For ordinary successful tasks, do not create feedback noise. When the user is dissatisfied or the agent observes workflow friction that should improve the skill, proactively create or offer a local feedback entry from the current conversation and output artifacts.
+For ordinary successful tasks, do not create feedback noise. Dissatisfaction during collaborative writing is not automatically a bug: first distinguish preference calibration from missing/incorrect teaching content and from tool/workflow failure. When there is an actionable skill/workflow defect, proactively create or offer a local feedback entry from the current conversation and output artifacts.
 
 Default to extracting the failure from the active workflow context: the current conversation, command summaries, file paths, visible artifact snippets, and the user's corrections.
 
 Fix the current task first. At a meaningful phase closure, save reusable explicit writing preferences in the course quality standard (not universal skill rules). Record actionable routing/tool/repeated-work defects as local feedback. Check existing raw/triaged entries before creating another: append new occurrences to the same problem with user wording, affected output, concrete fixes and skill-improvement candidate intact. Do not treat an old resolved entry as proof a new occurrence is fixed. Recording local feedback is not GitHub publication; publication still requires separate authorization and privacy checks.
+
+## Writing revisions and reading habits
+
+Treat requests to change a page's structure, depth, examples or voice as normal editing work. Update the actual page and retain the current preference plus its reason in the existing course standard at closure. For example, "I rarely open the separate cards; put the needed explanation in type pages" is a reading-habit preference, not proof that auxiliary files are always useless. Keep useful optional artifacts when requested; do not optimize for file count alone.
+
+Carry those choices into the next draft rather than repeatedly reverting to the generic template. A concise record can state the affected course/pages, the requested change, why it helps the reader, and whether it is provisional or supersedes an earlier choice. Do not archive the whole conversation as routine feedback or turn every revision into a new issue. Repeatedly ignoring an established preference, forcing a rejected layout, corrupting content or claiming unread work was reviewed is a separate workflow defect worth recording. Preferences describe the desired product; feedback diagnoses the failure to support it.
 
 ## Default storage
 

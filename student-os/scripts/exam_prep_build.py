@@ -149,7 +149,7 @@ def _sidecar_stem(path: Path) -> str:
 
 def _source_role(path: Path) -> str:
     stem = _sidecar_stem(path)
-    if "试卷及答案" in stem or "试题及答案" in stem or "试卷答案" in stem:
+    if any(marker in stem for marker in ("试卷及答案", "试题及答案", "试卷答案", "试卷含答案", "试题含答案")):
         return "combined"
     if "答案" in stem and "复习版" in stem:
         return "answer_review"
@@ -165,6 +165,10 @@ def _source_role(path: Path) -> str:
 def _canonical_exam_stem(path: Path) -> str:
     stem = _sidecar_stem(path)
     markers = (
+        "试卷含答案复习版",
+        "试题含答案复习版",
+        "试卷含答案",
+        "试题含答案",
         "试卷及答案复习版",
         "试题及答案复习版",
         "试卷答案复习版",

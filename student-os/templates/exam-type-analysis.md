@@ -16,6 +16,8 @@ source_summary: "共 {{paper_count}} 份试卷；详见 题型频率统计.md"
 
 > Legacy exam-census skeleton. This template is only for the explicit exam-census compatibility path. Do not use it as the AI-first tutoring handout source for high-quality exam-prep pages; AI-first pages must be written after reading real papers, answers, and textbook/lecture sources.
 
+AI-first 正文写法参考：[题型讲义](exam-type-handout.md)；入口页参考：[紧凑入口](exam-prep-entry.md)。以下旧骨架只供显式 census 路径兼容，不是必须填满的成品栏目。
+
 ## 元信息
 
 **频率**：{{appearance_rate}}

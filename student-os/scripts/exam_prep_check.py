@@ -54,7 +54,7 @@ REQUIRED_DOSSIER_FIELDS = (
     "self_test_candidates",
     "insufficient_evidence_notes",
 )
-SOURCE_RE = re.compile(r"来源\s*[：:]")
+SOURCE_RE = re.compile(r"来源\s*(?:\*\*)?\s*[：:]")
 PLACEHOLDER_RE = re.compile(r"\{\{[^}]+\}\}|TODO|TBD|待 AI|待整理|^\|\s*\|\s*\|", re.I | re.M)
 LOW_QUALITY_PHRASE_RE = re.compile(
     r"答案以.*为准|调用对应方法卡|矩阵或公式|先圈出对象|不要急着代数展开|自测答案?以.*来源|同型变式通常只换|详见来源|见原题答案|复核时对照\s*paper-card|题目较长.*关键条件",
@@ -391,8 +391,8 @@ def _validate_type_analysis_learning_quality(path: Path, refs_by_type: dict[str,
         )
     if OVERBROAD_SECTION_RE.search(text) and not grounded:
         issues.append(_issue("type-analysis-overbroad-textbook-ref", path, "Textbook grounding is too broad; cite a precise subsection, figure, or problem diagram"))
-    if "2 分钟" not in text and "下笔模板" not in text:
-        issues.append(_issue("type-analysis-missing-action-template", path, "Type analysis must include a 2-minute writing/action template"))
+    if not any(marker in text for marker in ("2 分钟", "下笔模板", "先手")):
+        issues.append(_issue("type-analysis-missing-action-template", path, "Include an executable first step or writing template; no timing claim is required"))
     examples_text = _section_text(text, "例题", stop_titles=("自测题", "自测答案", "快速得分", "易错点", "来源校对"))
     self_test_text = _section_text(text, "自测题", stop_titles=("自测答案", "快速得分", "易错点", "来源校对"))
     answers_text = _section_text(text, "自测答案", stop_titles=("快速得分", "易错点", "来源校对"))
@@ -505,6 +505,7 @@ def _validate_type_analysis(path: Path, refs_by_type: dict[str, set[str]], groun
         "核心概念": ("核心概念", "必要概念", "基础知识"),
         "核心方法": ("核心方法", "操作步骤", "方法选择"),
         "快速得分": ("快速得分", "抢分", "步骤分"),
+        "例题": ("例题", "真题例解"),
     }
     for marker in REQUIRED_TYPE_BLOCKS:
         if not any(alias in text for alias in block_aliases.get(marker, (marker,))):
@@ -555,13 +556,13 @@ def _validate_type_analysis(path: Path, refs_by_type: dict[str, set[str]], groun
         issues.append(_issue("type-analysis-too-few-worked-examples", path, "Default quality target is at least 5 past-paper worked examples, unless evidence is insufficient"))
     if len(set(self_refs)) < 4 and not insufficient:
         issues.append(_issue("type-analysis-too-few-self-tests", path, "Default quality target is at least 4 past-paper self-tests, unless evidence is insufficient"))
-    for marker in ("频率", "代表年份", "复习优先级"):
-        if marker not in text:
-            issues.append(_issue("type-analysis-missing-cross-paper-value", path, f"Opening section should mention {marker}"))
-    if "原题复现" not in text and "同型变式" not in text:
-        issues.append(_issue("type-analysis-missing-cross-paper-value", path, "Opening section should mention original repeats or same-type variants"))
-    for marker in ("看到", "方法引用", "验算", "易错"):
-        if marker not in examples_text:
+    for marker, aliases in (
+        ("看到", ("看到",)),
+        ("方法引用", ("方法引用",)),
+        ("数学检查说明", ("验算", "检查", "代回", "一致", "合理性")),
+        ("易错", ("易错",)),
+    ):
+        if not any(alias in examples_text for alias in aliases):
             issues.append(_issue("type-analysis-worked-example-too-thin", path, f"Worked examples should include {marker} guidance"))
     if "变式" not in examples_text and "举一反三" not in examples_text and "训练目标" not in examples_text:
         issues.append(
@@ -751,14 +752,24 @@ def _extract_frontmatter_field(text: str, field: str) -> str:
     return match.group(1).strip().strip('"\'')
 
 
+SECTION_TITLE_ALIASES = {
+    "例题": ("例题", "真题例解"),
+    "自测题": ("自测题", "真题自测"),
+    "自测答案": ("自测答案", "答案与解析", "答案与验算"),
+}
+
+
 def _section_text(text: str, title: str, *, stop_titles: tuple[str, ...] = ()) -> str:
-    start = re.search(rf"(?m)^#{{1,6}}\s+.*{re.escape(title)}.*$", text)
-    if not start:
+    titles = "|".join(re.escape(item) for item in SECTION_TITLE_ALIASES.get(title, (title,)))
+    starts = list(re.finditer(rf"(?m)^(#{{2,6}})\s+[^\n]*(?:{titles})[^\n]*$", text))
+    if not starts:
         return ""
+    # Prefer the section over a nested example/answer heading with the same words.
+    start = min(starts, key=lambda match: (len(match.group(1)), match.start()))
     tail = text[start.end() :]
     if stop_titles:
-        stop_re = "|".join(re.escape(item) for item in stop_titles)
-        stop = re.search(rf"(?m)^#{{1,6}}\s+.*(?:{stop_re}).*$", tail)
+        stop_re = "|".join(re.escape(alias) for item in stop_titles for alias in SECTION_TITLE_ALIASES.get(item, (item,)))
+        stop = re.search(rf"(?m)^#{{1,{len(start.group(1))}}}\s+[^\n]*(?:{stop_re})[^\n]*$", tail)
     else:
         stop = re.search(r"(?m)^#{1,6}\s+", tail)
     return tail[: stop.start()] if stop else tail
