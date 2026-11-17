@@ -17,6 +17,7 @@
 | **MinerU API** | `--method auto` / `--method api`；有 token 时走 v4 精准 API；`auto` 无 token 时 ≤10MB 文件可走 v1 Agent 免登录 API；PDF 按 ≤20 页/片限制自动拆分合并 |
 | **markdown repair** | `repair_markdown_import.py`；`materials_convert --repair` / `--repair-only`；AI 默认可直接编辑一个文件的局部 Obsidian 可见问题，再用 `repair_import_check.py` 做 compact/focused 机械审查；queue/case/proposal/review/apply 保留为审计与大范围修复 fallback |
 | **exam-census** | 辅助机器普查/频率统计与兼容 adapters；高质量讲义使用 AI-first：AI 阅读、亲自编辑、逐页读回审稿，机械检查不证明可读性 |
+| **AI-first 教学编排** | 代表性来源初读后，由 AI 在课程规范中编排单一突击资料阅读顺序；对外编号与内部 ID 分离，跨卷分析后校正，主 agent 按编号审阅受影响页面与衔接。脚本仅给任务说明，不自动推断教学顺序 |
 | **smoke tests / CI** | `scripts/run_smoke_tests.py`、`scripts/run_import_repair_evals.py`；`.github/workflows/smoke.yml` |
 
 ## 部分可用 / 需小心

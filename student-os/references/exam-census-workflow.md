@@ -4,6 +4,8 @@ Use this reference for legacy/auxiliary large-scale past-paper censuses: questio
 
 This is not the default route for high-quality study packs, tutoring handouts, or requests such as "整理历年卷 / 构建期中期末备考包 / 高质量题型解析". For those, use AI-first exam prep (`commands/exam-prep-build.md`). Exam-census outputs can support that workflow as evidence or rough statistics, but they must not replace agent-written study material.
 
+Census skeleton numbers are frequency ranks, not teaching positions. Do not reuse that rank as an AI-first handout's reading order: the agent plans knowledge/method dependencies and assigns independent public reading numbers while preserving internal type identities.
+
 ## Platform entry points
 
 Orchestration adapters live under `integrations/` in the skill and must be **installed into the learning vault** (not into the skill directory):

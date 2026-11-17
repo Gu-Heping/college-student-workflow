@@ -124,6 +124,24 @@ Weak: the reader asks for a different explanation order and says they rarely ope
 
 Repair direction: revise the affected pages, preserve useful material where the reader will use it, and record the local preference and its reason in the existing course standard. Distinguish normal iterative editing from factual errors or repeated disregard of an established choice. Do not turn a reading-habit preference into a universal ban or make feedback paperwork interrupt the writing.
 
+### Classification IDs Mistaken For Reading Order
+
+Weak: a pack opens with an advanced application because it was assigned internal ID T1; basic operations were added later as T10. The entry first says to read T1 through T10, then supplies a contradictory jumping route. A frequency-ranked skeleton is treated as a lesson plan without reading the prerequisite content.
+
+Repair direction: read representative sources, plan one exam catch-up sequence, and separate stable internal IDs from public reading positions. Put essentials before their first use and give filenames, headings and navigation the same order. Scope sets boundaries, dependencies set order, and importance and learning cost set depth. A reordered list alone does not repair missing explanations.
+
+### A Mixed Page Hiding A Dependency Cycle
+
+Weak: a page's foundations require a method on a later page, which itself links back to that page's advanced application. The agent tells the beginner to read each page twice and calls that inevitable. Examples use an unexplained operation, while independent tests require yet another method that appears nowhere.
+
+Repair direction: split, merge or move the mixed material and teach the necessary operation at first use. Read affected pages and their transitions in numbered order, then work through the selected problems using only what is actually taught. Repair the content or sequence, not by adding more detour links. This is AI teaching review; a graph, keyword count or passing mechanical report cannot establish learnability.
+
+### Old And New Navigation Left Together
+
+Weak: the agent renames pages into a new reading order but leaves the old entry directions, previous/next links and stored target paths unchanged. Each file exists, yet students follow contradictory routes. A subagent writes assuming knowledge that the preceding page never teaches.
+
+Repair direction: agree page responsibilities and an old-to-new mapping before moving files; resolve collisions and uncertain references, then synchronize links and stored paths after writer handoff. Tell each writer the page position, prior teaching, required methods and downstream uses. The main agent rereads the integrated sequence and removes stale directions; no second learning-versus-cram route is needed.
+
 ### A Concrete Teaching Repair
 
 This small demonstration is synthetic, not a past-paper example or a self-test.

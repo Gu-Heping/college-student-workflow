@@ -20,6 +20,14 @@ Subagents can write drafts when they receive a precise contract: target reader, 
 
 `issue_count: 0` means only that the tripwire did not catch obvious mechanical garbage. It is never a delivery standard.
 
+### Static Handouts, Not Adaptive Tutoring
+
+Borrow teaching decisions, not an interactive session protocol. Group authentic questions by the core method they actually use, rather than surface keywords. Choose a fully explained representative example and additional problems that teach a meaningful change in conditions, method choice or difficulty; do not prescribe two or three questions per group or treat a different year alone as a useful variation. Reserve disjoint tests for the same core methods. Where sources permit, a mixed-method self-test can ask the reader to choose a method without a revealing label, with the explanation in its separate answer; this does not require a new test file or route.
+
+Use a short necessary knowledge chain next to the problem and make likely errors actionable: identify the first invalid step, its consequence, the corrected reasoning and how to recognize the trap. Do not omit a difficult in-scope method merely because an imagined tired reader might dislike it; balance depth against actual scope, dependency and available evidence.
+
+Static pages can supply optional direction hints, then a local-step hint and a separate complete answer when useful. They cannot detect whether a reader attempted a problem, needed hints, is fatigued or has mastered a method. Never require the user to submit an attempt before writing full worked solutions. Keep independent test questions distinct from their answers and avoid presenting method labels or answers before a test when that would give away the decision being tested. Looking at an example, reading an answer and solving an unseen problem independently are different activities; the handout cannot certify that any happened. Do not generate learner ability scores, adaptive next steps or pass-probability estimates from the material's coverage. User-supplied learning evidence may inform a later requested revision, but building static material does not become live tutoring.
+
 ## Target Reader
 
 Assume the student:
@@ -39,9 +47,9 @@ For broad requests, do not generate a whole package at once. Complete one small 
 
 1. Inspect the vault and identify available papers, answers, textbook, lecture notes, homework, and existing high-quality references.
 2. Consolidate canonical exams: one real exam gets one deep dive and paper-card; answer/review/combined sidecars are evidence roles, not extra papers.
-3. Choose one high-value type or one representative paper.
-4. Open the actual sources.
-5. Write one useful page by hand in Markdown.
+3. Choose one high-value type or one representative paper and read its actual problem, answer and textbook/lecture sources.
+4. Plan a provisional teaching arrangement in the existing course standard: page purpose, dependencies, ordering reason and methods/problems taught. Scope sets content boundaries, dependencies set order, and importance and learning cost set depth; do not sort teaching pages automatically by frequency or taxonomy creation order.
+5. Write one useful page by hand in Markdown at its planned position.
 6. Read the page as a student.
 7. Edit the page until it teaches.
 8. Run mechanical tripwire checks.
@@ -51,19 +59,15 @@ Start teaching from a real exam problem: what is given, what is requested, what 
 
 Condense the guide, formula card and priorities from the completed analyses, not the reverse. If only a sample is done, deliver it as a sample and say which content remains unwritten; folder scaffolds and reachable README stubs do not make a usable pack. Continue the authorized work in manageable batches without repeatedly requiring the user to approve each internal stage.
 
+Reconcile the provisional teaching arrangement after cross-paper analysis, before bulk type-page writing. Integrate essential knowledge at its first use, followed by a concrete operation and real problem. When foundational and advanced content share a confusing page, split, merge or move it rather than insist that a reader visit half the page first and return much later. Existing-page work reviews only affected dependencies unless a broader restructuring was requested. Do not create another mandatory student-facing route report.
+
 ## Page Shapes
 
 ### Entry Page
 
-The top of the entry page must identify the first useful type page and a coherent prerequisite-based reading sequence. When the user requests time-budget routes, it may also answer:
+The first screen identifies where to start in one numbered exam catch-up sequence. The entry, filenames, titles and page navigation must agree. Necessary concepts lead into method selection, complete examples and independent tests, not a separate full-course detour. In-page quick reference is useful but must not become a second competing route. Do not invent calendars, durations, score gains or priorities without evidence.
 
-- I have 1 hour. What do I open first?
-- I have 1 day. What order do I study in?
-- I have 3 days. What is the route?
-- Which P0/P1 type page should I read first?
-- How do I use each type page: speed card, worked example, self-test, answer check?
-
-Provide two paths where useful: a beginner follows necessary concepts, a concrete calculation, method choice, examples and self-tests; a revision reader jumps to the speed card. Put purpose and the first useful destination on the first screen, not a prerequisite demand to memorize compressed formulas. Use the same prerequisite-based order across pages. Preserve stable IDs by default; if the user explicitly requests renumbering/restructuring, coordinate an old-to-new mapping and update links after writers hand off. Do not confuse a learning sequence with an invented calendar or mandatory practice schedule.
+Public reading positions use zero-padded names such as `01-主题.md` and `02-主题.md`. Preserve internal `exam_type_id` values independently; they do not dictate public order. For an authorized structural revision, record the old-to-new path mapping, resolve collisions and ambiguous references before renaming, and update incoming links, entry, previous/next links and stored paths after writer handoff. Mechanical path edits do not authorize scripted prose rewriting. Remove contradictory old directions instead of adding another explanation of why the learner should ignore the numbers. A local page repair does not require renumbering an entire existing pack.
 
 Prefer one maintained explanation to several parallel copies. If the user requests self-contained type pages, integrate prerequisites and quick-reference content there; keep an entry for navigation and facts, and separate evidence archives only when useful. Merge carefully, preserve unique material and update links before removing redundant files. Do not generalize one course's preferred file count into every user's required layout.
 
@@ -189,11 +193,11 @@ When a source reading changes an input, time shift, sign, scale or symbol, inspe
 
 For overlap/repeat analysis, distinguish identical questions, changed parameters, additional requirements, same-method variants and concept coverage. Name the observed denominator and known duplicate/uncertain sources. Do not promote a tiny historical sample to "the entire future question pool" or invent a current exam's score/format from old papers. A partial paper crop cannot establish the total question count; check the full layout before changing that fact.
 
-After correcting a source fact, revisit its downstream uses: problem text, derivation, answer, type page, formula card, priority table and entry. Replace contradicted statements rather than leave an old statement beside a new correction. Reconcile counts and learning routes across those pages before delivery.
+After correcting a source fact, revisit its downstream uses: problem text, derivation, answer, type page, formula card, priority table and entry. Replace contradicted statements rather than leave an old statement beside a new correction. Reconcile counts and the single numbered reading sequence across those pages before delivery.
 
 ## Delegation And Integration
 
-Subagents may write useful prose, but give them the same source and teaching constraints as the main agent. A compact contract names the exact output/write ownership, target reader, required problem/textbook/answer sources, reserved worked-example and self-test identities, human-readable citations and uncertainties. Do not quietly replace a past-paper-only self-test pool with textbook exercises; when the independent pool is insufficient, explain the gap or ask about a labelled supplementary exercise set.
+Subagents may write useful prose, but give them the same source and teaching constraints as the main agent. A compact contract names the exact output/write ownership, target reader, page's reading position, what earlier pages already teach, methods this page must teach and what later pages will need, required problem/textbook/answer sources, reserved worked-example and self-test identities, human-readable citations and uncertainties. Do not quietly replace a past-paper-only self-test pool with textbook exercises; when the independent pool is insufficient, explain the gap or ask about a labelled supplementary exercise set.
 
 Give actual source and output locations instead of guessed relative-link rules. Each writer resolves links relative to the file being written, including spaces/parentheses, and checks the destination. The coordinator owns shared entry pages while writers own disjoint drafts; coordinate handoff before either edits the other's file. Share corrected source facts and citations with the affected writers, not only in the final response.
 
@@ -253,6 +257,8 @@ Also read **every changed teaching page**, including all subagent drafts, from d
 Update the existing `reader-audit.md` for this round with reviewed paths, current page hashes or revision identifiers, specific findings, fixes and remaining risks. Preserve prior rounds as history; an old audit does not approve changed pages. These records support AI accountability, not automated proof of readability or human verification.
 
 Read the final entry table, one full guided solution and its independent test as a continuous learning route, not only file heads or grep matches. After a merge, reread the joins and repeated concepts: appending a slide-summary table is not teaching integration if the explanation the student needs is still absent. Check diagram dependencies and method conditions, not just algebra; a compressed catalogue of formulas cannot stand in for the first usable example. Record concrete corrections, not "links all reachable, therefore ready" or unsupported percentages of readiness.
+
+Read all affected pages in public numbered order, including the transitions from and to neighboring pages. Check that concepts precede use, methods have executable prerequisites, and examples prepare the independent tests. Repair missing or circular dependencies in the content or arrangement, not by adding a maze of "read this other page first" notes. Review the page's full method coverage against the inspected pool; a dependency table, reachable link or checker pass cannot establish that judgment.
 
 Check that each mathematical witness is meaningful under the definitions: a distribution is not an ordinary number to evaluate at a point, and a quick rule is not a substitute for testing the actual system or method's conditions. Do not protect a wrong argument because its final verdict agrees with another page. Read back after the last correction, including the file tail; presence of numbered sections or preserved numeric tokens cannot prove completeness or consistency.
 

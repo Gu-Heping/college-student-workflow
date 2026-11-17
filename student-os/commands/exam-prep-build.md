@@ -20,9 +20,11 @@ Confirm the target course, exam scope, files to edit, and the roles of textbook,
 
 The deliverable is usable teaching material, not a demand that the student first attempt questions. Treat existing homework answers as source material, not evidence of the student's competence. For exam catch-up, start from a representative real problem, show how to begin, and explain necessary concepts alongside its solution. A beginner may follow the worked example before trying an independent test. Do not replace one prerequisite wall with another by insisting either on reading a whole course first or on closed-book attempts before any explanation.
 
+This builds static handouts. When borrowing an interactive tutoring method, retain source verification, core-method grouping, short prerequisite explanations and specific error analysis; translate progressive hints into optional self-test hints followed by a separate complete answer. Do not wait for user attempts, prescribe a fixed number of problems to complete, infer mastery from page coverage, or promise performance/fatigue tracking, adaptive routing or pass-probability estimates. Interactive tutoring requires a separate user request, not a silent change of deliverable.
+
 Continue within the writing scope the user has already requested. A sample gate is the agent's self-review, not a mandatory human approval or a reason to ask "continue?" after every page. Ask when resolving a consequential source ambiguity or changing scope, not for routine reading, writing and revision. Do not invent separate lecture notes to compensate for missed classes; integrate useful textbook/slide explanations into the problem/type page, unless the user asked for notes.
 
-For **improving existing pages**, open the page and relevant sources, edit locally, read every changed teaching page back as a beginner, then run a focused mechanical check. Do not force workspace initialization, new dossiers, or the whole staged pipeline. Keep type IDs stable; order learning by prerequisites and synchronize the entry, guide and speed cards.
+For **improving existing pages**, open the page and relevant sources, review the affected teaching dependencies, edit locally, read every changed teaching page back as a beginner, then run a focused mechanical check. Do not force workspace initialization, new dossiers, or the whole staged pipeline. Preserve internal type IDs, not a broken public order. For an authorized whole-pack structural revision, map old paths to new numbered pages and update references and navigation together; a local content fix alone is not permission to rename the whole pack.
 
 For **teacher-list-led revision**, use the supplied current announcement, review slides or corrections to check the existing handouts before expanding historical-paper analysis. Distinguish an explicit exam scope from a list of重点 and from "以……为主"; the latter two do not prove exclusivity. Map each relevant source item to the actual explanation, method and worked problem it needs, marking missing/mentioned/taught rather than treating a link or matching title as coverage. Revise affected concepts and method selection as well as solutions. Do not wait for the user to ask whether newly provided sources were really integrated.
 
@@ -37,10 +39,10 @@ Use focused Markdown checks for page revisions. Do not backfill state JSON, rena
 For **a new study pack**, do not start with mechanical statistics, keyword parsing, or full-package generation. For messy papers, the default order is:
 
 ```text
-阶段 0：读取 gold standard → 资料盘点 → quality-standard.md → source-map.json
+阶段 0：读取 gold standard → 资料盘点与代表性真题/教材初读 → 教学编排（记入 quality-standard.md）→ source-map.json
 阶段 1：AI 亲自写一份试卷精析样板 + 一份题型解析 gold page → tripwire check → reader audit
 第一轮：逐卷精析 v0 → 题目卡
-第二轮：跨卷聚类/复现分析 → 回填精析 v1
+第二轮：跨卷聚类/复现分析 → 校正教学编排 → 回填精析 v1
 备课轮：type-dossiers 题型备课卡 → 题型解析讲义页
 收束轮：分析报告 → 四层备考包 → tripwire check → reader audit
 ```
@@ -75,11 +77,19 @@ This creates task/state files under `.student-os/state/exam-prep/...` and starte
 
 Before bulk generation, read the course sources and create a concrete local standard:
 
-- `quality-standard.md`: target reader, source priority, page style, examples/self-tests rules, textbook grounding rules, and sample gate.
+- `quality-standard.md`: target reader, source priority, teaching sequence with page responsibilities/dependencies and ordering reasons, page style, examples/self-tests rules, textbook grounding rules, and sample gate.
 - `.student-os/state/exam-prep/<course>/<scope>/source-map.json`: papers, textbook/lecture/homework sources, answer sources, and known high-quality references.
 - `.student-os/state/exam-prep/<course>/<scope>/gold-sample-task.json`: the first representative sample task.
 
-Then write exactly one representative `试卷精析` sample and one representative `题型解析` gold page. The default student has not attended lectures or done homework, so the sample must teach concepts before using them, include full past-paper problem text, and show full reasoning. The agent must open the actual paper, answer evidence, and textbook/lecture source before writing.
+### Teaching Arrangement Before Drafting
+
+After reading representative real problems and textbook/lecture material, plan one coherent sequence for exam catch-up. Scope decides what belongs; knowledge and method dependencies decide what comes first; importance, method reuse and learning cost decide depth. Do not use frequency rank, taxonomy creation order or the textbook contents as an automatic teaching order.
+
+Record each planned page's purpose, prerequisites, ordering reason and taught methods/problems briefly in the existing course quality standard. This is AI preparation, not another required report for the student. Teach essentials at first use next to a concrete operation and real problem; do not send the reader through a full prerequisite course. Split, merge or move material when one page mixes foundations with advanced applications. Revisit the provisional arrangement after synthesis and settle it before bulk type-page writing.
+
+Public filenames use zero-padded reading positions (`01-主题.md`, `02-主题.md`); titles, entry and previous/next navigation follow that same sequence. `exam_type_id` remains an independent internal identity. For restructuring existing packs, inspect references, record old-to-new paths, then update links and stored paths together after writer handoff; stop to resolve collisions or ambiguous targets. Renames and exact path replacements may be mechanical; body integration must be authored by AI. Do not retain conflicting old and new routes or explain database keys to the learner. Quick reference is an in-page aid, not a separate teaching route.
+
+Then write exactly one representative `试卷精析` sample and one representative `题型解析` gold page at its planned position. The default student has not attended lectures or done homework, so the sample must teach concepts before using them, include full past-paper problem text, and show full reasoning. The agent must open the actual paper, answer evidence, and textbook/lecture source before writing.
 
 Check the sample before expanding:
 
@@ -167,7 +177,7 @@ Then write `题型解析/*.md` as tutoring handout pages from the dossier. The d
 - Open the dossier and the referenced past-paper questions first.
 - Open the relevant textbook/lecture material before explaining concepts.
 - Give useful source-backed context. Include historical frequency, printed scores and repeat relationships only when supported; omit unsupported fields instead of inventing estimates or repeating unknown badges. A teacher-list item count is not exam frequency or a score weight. Keep AI study priorities distinct from official grading rules.
-- Offer two routes: beginners start with necessary concepts and concrete operations; exam revision jumps to the speed card. Teach recognition cues, concepts, operations/reasons, a minimal demonstration, real problems and transfer. Organize flexibly; these are teaching responsibilities, not eleven mandatory headings.
+- Follow the agreed numbered teaching sequence. Teach recognition cues, necessary concepts at first use, operations/reasons, suitable demonstrations, real problems and transfer. Organize flexibly; these are teaching responsibilities, not eleven mandatory headings. Reusable quick-reference sections must not introduce a competing reading order.
 - Read authoritative material before explaining concepts. Keep precise evidence in the associated source map, dossier or appendix; the prose must explain the idea, not send the student to a slide position. For linked grounding use `page_grounding: {<type-id>: [{"path": "vault-relative/source.md", "locator": "section/figure/example"}]}` in source-map, or the same records in a dossier's `textbook_refs`. Old body citations remain supported.
 - Allocate past-paper problems across methods before writing: each method needs a teaching example and an independent self-test where available. The same problem with another solution is still a duplicate. Reduce counts and describe gaps when evidence is insufficient. Label minimal concept demonstrations as demonstrations, not past-paper questions or self-tests.
 - Put the actual past-paper problem text in the page. Source links alone are not enough.
@@ -192,7 +202,7 @@ python student-os/scripts/exam_prep_check.py /path/to/vault \
   --json --write-report
 ```
 
-Passing means the package passed tripwire evidence/structure/render checks. It does **not** prove readability, teaching quality, or mathematical correctness. Before reporting completion, run reader audit from `references/exam-prep-gold-standard.md` and include the audit in your final message.
+Passing means the package passed tripwire evidence/structure/render checks. It does **not** prove readability, teaching quality, or mathematical correctness. Before reporting completion, run reader audit from `references/exam-prep-gold-standard.md`: read the entry and affected pages in numbered order, verify first-use concepts and method dependencies, and repair jumps or circular references in the prose or arrangement. Include concrete findings in the audit, not a claim that numbering proves learnability.
 
 ## Hard Rules
 

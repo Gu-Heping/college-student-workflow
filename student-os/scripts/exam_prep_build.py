@@ -244,14 +244,14 @@ def _initial_pack_text(kind: str, course: str, exam_scope: str) -> str:
             + f"# {course} · {exam_scope} · 考试备考指南\n\n"
             "## 怎么使用这套资料\n\n"
             "| 层级 | 文件 | 用途 |\n| --- | --- | --- |\n"
-            "| L1 | 本文件 | 复习优先级、时间分配、风险说明 |\n"
+            "| L1 | 本文件 | 第一份应读页面、统一阅读顺序、范围与缺口 |\n"
             "| L2 | [题型解析/](题型解析/) | 逐题型学习方法与真题例题 |\n"
             f"| L3 | [{pack_files['formula_card']}]({pack_files['formula_card']}) / [{pack_files['answer_templates']}]({pack_files['answer_templates']}) | 背公式与套模板 |\n"
             f"| L4 | [{pack_files['one_hour_checklist']}]({pack_files['one_hour_checklist']}) | 最后冲刺 |\n\n"
-            "## 题型优先级\n\n"
-            "> AI 读取 `试卷精析/` 与 `题目卡/` 后填写。不要只依据脚本统计。\n\n"
-            "## 复习时间分配\n\n"
-            "> AI 按高频题型、近年趋势和用户剩余时间填写。\n"
+            "## 阅读顺序\n\n"
+            "> 尚未编排：AI 初读代表性真题与教材，在课程质量规范中确定教学依赖后，亲自写出与文件编号一致的阅读入口。不要按频率或内部 ID 排序，也不另分学习与突击路线。\n\n"
+            "## 范围与缺口\n\n"
+            "> AI 依据实际来源记录；重要性决定讲解深度，不虚构分值、耗时或提分收益。速查资料只帮助回顾已讲内容，不另造顺序。\n"
         )
     if kind == "formula_card":
         return (
@@ -274,14 +274,9 @@ def _initial_pack_text(kind: str, course: str, exam_scope: str) -> str:
     return (
         _frontmatter("pre-exam-one-hour-checklist", course, exam_scope)
         + f"# {course} · {exam_scope} · 考前1小时清单\n\n"
-        "## 最后 60 分钟怎么用\n\n"
-        "| 时间 | 做什么 | 文件 | 目标 |\n"
-        "| --- | --- | --- | --- |\n"
-        f"| 60-45 分钟 | 看 P0 高频题型 | [{pack_files['guide']}]({pack_files['guide']}) | 明确先后顺序 |\n"
-        f"| 45-30 分钟 | 背公式 | [{pack_files['formula_card']}]({pack_files['formula_card']}) | 只背会用的公式 |\n"
-        f"| 30-15 分钟 | 背答题模板 | [{pack_files['answer_templates']}]({pack_files['answer_templates']}) | 保步骤分 |\n"
-        "| 15-5 分钟 | 看易错清单 | [题型解析/](题型解析/) | 避免低级错 |\n"
-        "| 5-0 分钟 | 停止刷新题 | 本文件 | 稳住 |\n"
+        "## 已学内容回顾\n\n"
+        "> 此兼容文件尚待 AI 从审阅过的讲义提炼，不是第二套学习路线。未给时间预算时不编造分钟分配；不以高频排名替代教学依赖。\n\n"
+        f"回顾来源：[{pack_files['guide']}]({pack_files['guide']})、[{pack_files['formula_card']}]({pack_files['formula_card']})、[{pack_files['answer_templates']}]({pack_files['answer_templates']})、[题型解析/](题型解析/)。\n"
     )
 
 
@@ -300,7 +295,8 @@ def _analysis_text(filename: str, course: str, exam_scope: str) -> str:
 def _readme_text(course: str, exam_scope: str) -> str:
     return (
         f"# {course} · {exam_scope} · AI-first exam prep workspace\n\n"
-        "默认顺序：读取 gold standard → 资料盘点 → 课程质量规范 → 样板页 → reader audit → 逐批扩展 → tripwire 检查。\n\n"
+        "默认顺序：读取 gold standard → 资料盘点与代表性真题/教材初读 → 教学编排（记入课程质量规范）→ 样板页 → reader audit → 跨卷分析后校正编排 → 逐批扩展 → tripwire 检查。\n\n"
+        "对外补零编号表示同一条突击资料阅读顺序，内部 exam_type_id 独立保留；入口与前后页导航一致，不另分学习与突击路线。\n\n"
         "脚本只管理任务、路径、证据索引和机械 tripwire；不要把脚本统计、state JSON 或 paper-card 拼成正文。\n\n"
         "正文必须由 AI 亲自打开来源、理解题目、编辑 Markdown、读回自审。宽泛构建请求先做一份试卷精析样板和一份题型解析 gold page。样板没通过 reader audit 前，不要批量铺开整套资料。\n"
     )
@@ -312,6 +308,10 @@ def _quality_standard_text(course: str, exam_scope: str) -> str:
         + f"# {course} · {exam_scope} · 质量规范\n\n"
         "## 目标读者\n\n"
         "默认学生没听过课、没做过作业，需要短时间速成。资料必须能直接学习、直接做题、直接复盘。\n\n"
+        "## 教学编排\n\n"
+        "AI 初读代表性真题和教材后，在此简记各页职责、必要前置、排序理由与覆盖的方法/问题。考试范围定边界，知识和方法依赖定先后，重要性、复用价值和学习成本定深度；不能按频率、分类创建次序或教材目录自动排序。\n\n"
+        "先拟顺序做样板，跨卷分析后校正，批量写题型页前确定。对外文件名和标题用 01-主题、02-主题 等补零编号表示阅读顺序；内部 exam_type_id 不变。已有包整体结构优化先记旧新路径映射，同步引用、入口、导航和状态路径；重名或归属不清先核对。\n\n"
+        "只保留一条可顺读的突击资料顺序，必要基础在首次使用处讲清并接真题。按需拆合页面，不用反复跳页掩盖循环依赖；速查只作页内回顾，不另造路线报告。\n\n"
         "## 写作规则\n\n"
         "- 先读课本、讲义、往年卷、答案和已有高质量参考，再写样板。\n"
         "- 不允许只写“参考某资料风格”；必须提炼成本课程可执行规则。\n"
@@ -321,7 +321,7 @@ def _quality_standard_text(course: str, exam_scope: str) -> str:
         "- 出现在题目、例题、自测中的概念、符号、公式、图形或电路，前文必须先讲清。\n"
         "- 解答使用动作句、算式、短注：先判什么、再列什么、如何代入、如何验算、最后答什么。\n"
         "- 每次交付前读回所有修改过的教学页，包括 subagent 草稿；沿实际做题过程审稿，更新本轮 reader-audit.md，旧记录只作历史。\n"
-        "- Subagent 可以写正文 draft，但主 agent 必须读回、审稿、局部编辑后才能交付。\n"
+        "- Subagent 任务写明页面位置、此前已讲、本页应教与后续用途；主 agent 按编号读回受影响页及前后衔接，审稿、局部编辑后才能交付。\n"
         "- 人看的 Markdown 使用 `2018-2019 第二学期 · 一.2` 这类来源标注；`.json#`、paper-card 等机器引用只能留在 state/dossier。\n"
         "- 禁止用批量正则脚本修补题型解析、例题、自测答案、First look、Answer、Check、Transfer 等正文段落。\n"
         "- `issue_count: 0` 只代表 tripwire 通过，不代表资料可读或数学正确。\n"
@@ -404,6 +404,7 @@ def _gold_sample_task_payload(repo: Path, output_root: Path, state: Path, course
         ],
         "instructions": [
             "Before bulk generation, write one representative paper deep-dive sample and one representative type-analysis sample.",
+            "Read representative problem and textbook sources first; record a provisional teaching arrangement in quality-standard.md before drafting the sample at its planned reading position.",
             "The sample type-analysis must include a full past-paper problem, textbook-grounded concept explanation, full solution, self-test, answer, human-readable source citations, and readable short blocks.",
             "Run exam_prep_check.py --stage gold-sample --json. Do not expand to the full pack until the sample passes.",
         ],
@@ -540,7 +541,7 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             "semantic_owner": "ai-agent",
             "script_role": "workspace-initialization-state-and-tripwire-only",
             "content_authoring_rule": "AI must personally read sources and edit Markdown body text; scripts must not generate lecture prose, worked solutions, self-test answers, or guide content.",
-            "subagent_rule": "Subagents may draft body text only from explicit contracts; the main agent must read back, review, and locally edit drafts before delivery.",
+            "subagent_rule": "Subagent contracts specify page position, prior knowledge, methods to teach and downstream uses; the main agent reads affected pages in numbered order, reviews transitions, and locally edits drafts before delivery.",
             "citation_rule": "Machine refs such as paper-card JSON anchors stay in state/dossiers. Human-facing Markdown uses readable sources such as 2018-2019 第二学期 · 一.2.",
             "canonical_exam_rule": "Group duplicate sidecars for the same exam into one canonical paper task with source roles before writing deep dives.",
             "body_patch_rule": "Do not use batch regex scripts to patch teaching prose, worked examples, answers, First look, Check, or Transfer sections; open the page and edit the local prose.",
@@ -549,11 +550,14 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
                 "source_inventory",
                 "canonical_exam_manifest",
                 "quality_standard",
+                "representative_source_reading",
+                "teaching_arrangement",
                 "gold_sample",
                 "reader_audit",
                 "paper_deep_dive_v0",
                 "paper_card",
                 "cross_paper_synthesis",
+                "teaching_arrangement_reconciliation",
                 "paper_deep_dive_v1_backfill",
                 "type_dossier",
                 "type_analysis",
@@ -605,6 +609,7 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             "instructions": [
                 "Read all paper-card JSONs and representative v0 paper deep dives.",
                 "Cluster same-type questions and identify original repeats or close variants with confidence.",
+                "Reconcile the teaching arrangement in quality-standard.md after synthesis and before bulk type-page writing: dependencies set reading order, not frequency or taxonomy IDs.",
                     "Every cross-paper conclusion must cite human-readable year/term/question sources in Markdown and paper-card question refs in state JSON.",
             ],
         },
@@ -681,11 +686,12 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             "outputs": [relative_posix(output_root / "题型解析", repo)],
             "instructions": [
                 "Write type-analysis pages from the matching type dossier, not from a blank template.",
+                "Follow the reconciled teaching arrangement in quality-standard.md. Public filenames/titles use zero-padded reading positions (01-主题.md); exam_type_id remains an independent internal identity. Keep one catch-up reading sequence across the entry and page navigation.",
                 "Follow the passed gold sample. Do not bulk-fill pages with generic placeholders.",
                 "Every worked example and self-test must use a past-paper question from the dossier, but cite it in human-facing form, not as .json#.",
                 "Do not reuse the same question ref across examples and self-tests.",
                 "Write a tutoring handout: recognition cues, method choice, worked reasoning, scoring, checks, and pitfalls.",
-                "Subagent drafts are allowed only as drafts; the main agent must read them back and edit weak prose before marking the page done.",
+                "Subagent contracts specify page position, what earlier pages teach, methods this page teaches and what later pages need. The main agent reads affected pages and transitions in numbered order and fixes missing or circular prerequisites before delivery.",
             ],
         },
     )
@@ -768,7 +774,7 @@ def build(repo: Path, args: argparse.Namespace) -> dict[str, Any]:
             str(output_root / "题型解析"),
             str(output_root / "分析"),
         ],
-        "next_action": "AI should read student-os/references/exam-prep-gold-standard.md, write one gold sample by hand from real sources, run gold-sample tripwire, then perform reader audit before expanding.",
+        "next_action": "AI should read student-os/references/exam-prep-gold-standard.md and representative real problem/textbook sources, record a provisional teaching arrangement in quality-standard.md, write one gold sample by hand at its planned position, run gold-sample tripwire, then perform reader audit before expanding; reconcile the arrangement after synthesis.",
         "check_argv": [
             "python",
             "student-os/scripts/exam_prep_check.py",

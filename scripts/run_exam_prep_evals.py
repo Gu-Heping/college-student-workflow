@@ -86,6 +86,26 @@ def verify_init_and_initial_failure(tmp_root: Path) -> tuple[Path, dict[str, obj
     paper_2024 = next((item for item in manifest.get("papers", []) if item.get("id") == "2024-final"), None)
     if not paper_2024 or "answer_review" not in paper_2024.get("source_roles", {}):
         raise AssertionError(f"Canonical exam manifest should retain answer/review sidecar roles: {manifest}")
+    contract = manifest["agent_contract"]
+    order = contract["default_order"]
+    assert order.index("representative_source_reading") < order.index("teaching_arrangement") < order.index("gold_sample")
+    assert order.index("cross_paper_synthesis") < order.index("teaching_arrangement_reconciliation") < order.index("type_analysis")
+    assert "page position" in contract["subagent_rule"]
+    state = vault / manifest["state_dir"]
+    sample = json.loads((state / "gold-sample-task.json").read_text(encoding="utf-8"))
+    assert "teaching arrangement" in " ".join(sample["instructions"])
+    synthesis_tasks = json.loads((state / "synthesis-tasks.json").read_text(encoding="utf-8"))
+    assert "Reconcile the teaching arrangement" in " ".join(synthesis_tasks["instructions"])
+    type_tasks = json.loads((state / "type-analysis-tasks.json").read_text(encoding="utf-8"))
+    instructions = " ".join(type_tasks["instructions"])
+    assert "zero-padded reading positions" in instructions
+    assert "exam_type_id remains an independent internal identity" in instructions
+    assert "numbered order" in instructions
+    assert "teaching arrangement" in payload["next_action"]
+    standard = (vault / "courses/linear-algebra/reviews/期末/quality-standard.md").read_text(encoding="utf-8")
+    assert "## 教学编排" in standard and "内部 exam_type_id 不变" in standard
+    # Arrangement is an AI preparation step, not a new CLI stage or mandatory file.
+    assert not (state / "teaching-arrangement.json").exists()
     for rel in (
         "courses/linear-algebra/reviews/期末/quality-standard.md",
         "courses/linear-algebra/reviews/期末/试卷精析",
@@ -298,9 +318,9 @@ def write_ai_outputs(vault: Path) -> None:
     write_text(
         reviews / "期末考试备考指南.md",
         "---\ntype: exam-prep-guide\ncourse: linear-algebra\nexam_scope: 期末\nstatus: active\nreview_scope: exam-prep\n---\n\n"
-        "# 线性代数期末考试备考指南\n\n## 怎么使用这套资料\n\n先看 [题型解析/01-matrix-equation.md](题型解析/01-matrix-equation.md)，再看 [期末公式总卡.md](期末公式总卡.md)、[期末答题模板速查.md](期末答题模板速查.md)、[考前1小时清单.md](考前1小时清单.md)。\n\n"
+        "# 线性代数期末考试备考指南\n\n## 怎么使用这套资料\n\n先看 [题型解析/01-matrix-equation.md](题型解析/01-matrix-equation.md)，再看 [期末公式总卡.md](期末公式总卡.md)、[期末答题模板速查.md](期末答题模板速查.md)、[期末考前1小时清单.md](期末考前1小时清单.md)。\n\n"
         "## 题型优先级\n\n| 优先级 | 题型 | 来源 |\n| --- | --- | --- |\n| P0 | 矩阵方程 | 2024-final 第 一 题 |\n\n"
-        "## 复习时间分配\n\n1 小时先掌握矩阵方程的下笔模板。1 天路线是先读题型页，再做自测并核对答案。3 天路线是第一天补核心概念，第二天刷例题，第三天限时做往年题。\n",
+        "## 阅读顺序\n\n先读上面的矩阵方程题型页：从已知关系选择左乘或右乘，跟着完整例题操作，再做独立自测并核对答案。速查卡只回顾该页已经讲过的方法。\n",
     )
     write_text(
         reviews / "期末公式总卡.md",
@@ -313,9 +333,9 @@ def write_ai_outputs(vault: Path) -> None:
         "# 期末答题模板速查\n\n## 标准答题模板\n\n| 题型 | 模板 | 来源 |\n| --- | --- | --- |\n| [矩阵方程](题型解析/01-matrix-equation.md) | 由[条件]，若 $A$ 可逆，则 $X=A^{-1}[表达式]$，因此[答案]。 | 2024-final 第 一 题 |\n",
     )
     write_text(
-        reviews / "考前1小时清单.md",
+        reviews / "期末考前1小时清单.md",
         "---\ntype: pre-exam-one-hour-checklist\ncourse: linear-algebra\nexam_scope: 期末\nstatus: active\nreview_scope: exam-prep\n---\n\n"
-        "# 考前1小时清单\n\n| 时间 | 做什么 | 文件 |\n| --- | --- | --- |\n| 60-45 分钟 | 看矩阵方程 | [题型解析/01-matrix-equation.md](题型解析/01-matrix-equation.md) |\n| 45-30 分钟 | 背公式 | [期末公式总卡.md](期末公式总卡.md) |\n| 30-15 分钟 | 背模板 | [期末答题模板速查.md](期末答题模板速查.md) |\n| 15-5 分钟 | 查易错点 | [期末考试备考指南.md](期末考试备考指南.md) |\n| 5-0 分钟 | 停止刷新题 | 本文件 |\n",
+        "# 考前回顾\n\n回看 [矩阵方程](题型解析/01-matrix-equation.md) 中左右乘的选择和维度检查，再用 [期末公式总卡.md](期末公式总卡.md) 核对已学关系；不改变讲义阅读顺序。\n",
     )
 
 
@@ -887,7 +907,7 @@ def verify_guide_rejects_artifact_list_only(tmp_root: Path) -> None:
         expect_ok=False,
     )
     codes = {issue["code"] for issue in fail.get("issues", []) if isinstance(issue, dict)}
-    required = {"guide-missing-start-route", "guide-missing-study-route", "guide-artifact-list-only"}
+    required = {"guide-missing-start-route", "guide-artifact-list-only"}
     if not required <= codes:
         raise AssertionError(f"Artifact-list-only guide should fail: {fail}")
 
@@ -947,11 +967,50 @@ def verify_linked_textbook_grounding(tmp_root: Path) -> None:
     assert "type-analysis-missing-textbook-grounding" in {item["code"] for item in failure["issues"]}
 
 
+def verify_public_reading_positions_preserve_identity(tmp_root: Path) -> None:
+    vault, _ = verify_init_and_initial_failure(tmp_root)
+    write_ai_outputs(vault)
+    add_cross_paper_backfill(vault)
+    output = vault / "courses/linear-algebra/reviews/期末"
+    old_name = "01-matrix-equation.md"
+    original = output / "题型解析" / old_name
+    original_text = original.read_text(encoding="utf-8")
+    state = vault / ".student-os/state/exam-prep/linear-algebra/期末"
+    original_taxonomy = (state / "taxonomy.json").read_bytes()
+    original_dossier = (state / "type-dossiers/matrix-equation.json").read_bytes()
+    guide = output / "期末考试备考指南.md"
+    assert not any(marker in guide.read_text(encoding="utf-8") for marker in ("1 小时", "1 天", "3 天"))
+    # Test path/ID compatibility only, not whether these synthetic positions teach well.
+    for new_name in ("02-矩阵方程.md", "T9-矩阵方程.md"):
+        original.rename(original.with_name(new_name))
+        for page in output.rglob("*.md"):
+            text = page.read_text(encoding="utf-8")
+            if old_name in text:
+                write_text(page, text.replace(old_name, new_name))
+        moved = original.with_name(new_name)
+        assert moved.read_text(encoding="utf-8") == original_text
+        assert (state / "taxonomy.json").read_bytes() == original_taxonomy
+        assert (state / "type-dossiers/matrix-equation.json").read_bytes() == original_dossier
+        checked = run_student_script(
+            "exam_prep_check.py", str(vault), "--course", "linear-algebra", "--exam-scope", "期末",
+            "--stage", "final", "--json", cwd=ROOT,
+        )
+        assert checked["ok"] is True
+        original = moved
+        old_name = new_name
+    # Old time-budget prose remains compatible; it is simply no longer mandatory.
+    write_text(guide, guide.read_text(encoding="utf-8") + "\n历史备考安排：1 小时回顾、1 天练习、3 天复盘。\n")
+    assert run_student_script(
+        "exam_prep_check.py", str(vault), "--course", "linear-algebra", "--exam-scope", "期末",
+        "--stage", "final", "--json", cwd=ROOT,
+    )["ok"] is True
+
+
 def verify_teaching_contract_docs() -> None:
     command = (ROOT / "student-os/commands/exam-prep-build.md").read_text(encoding="utf-8")
     standard = (ROOT / "student-os/references/exam-prep-gold-standard.md").read_text(encoding="utf-8")
     feedback = (ROOT / "student-os/references/feedback-ops.md").read_text(encoding="utf-8")
-    for marker in ("improving existing pages", "Do not force workspace initialization", "two routes"):
+    for marker in ("improving existing pages", "Do not force workspace initialization", "Teaching Arrangement Before Drafting", "Public filenames use zero-padded", "Quick reference is an in-page aid"):
         assert marker in command, marker
     for marker in ("every changed teaching page", "old audit does not approve", "numerical spot check", "export copy", "same question does not"):
         assert marker in standard, marker
@@ -960,6 +1019,20 @@ def verify_teaching_contract_docs() -> None:
     # This only guards instruction drift; it does not certify teaching quality.
     examples = ROOT / "student-os/references/exam-prep-reader-audit-examples.md"
     assert examples.is_file()
+    examples_text = examples.read_text(encoding="utf-8")
+    for title in ("Classification IDs Mistaken For Reading Order", "A Mixed Page Hiding A Dependency Cycle", "Old And New Navigation Left Together"):
+        assert title in examples_text
+    skill = (ROOT / "student-os/SKILL.md").read_text(encoding="utf-8")
+    assert "one sequential exam catch-up handout" in skill
+    assert "one numbered exam catch-up sequence" in standard
+    # Guard the static-writing contract, not the quality of teaching or hints.
+    assert "static study material, not a live adaptive tutor" in skill
+    assert "Static Handouts, Not Adaptive Tutoring" in standard
+    assert "cannot certify that any happened" in standard
+    assert "Do not wait for user attempts" in command
+    for text in (skill, command, standard):
+        for obsolete in ("Offer two routes", "Provide two paths", "separate exam-speed route"):
+            assert obsolete not in text, obsolete
     for filename in ("exam-type-handout.md", "exam-prep-entry.md"):
         template = ROOT / "student-os/templates" / filename
         assert template.is_file(), template
@@ -977,6 +1050,7 @@ def main() -> int:
         verify_bold_human_sources_pass(tmp_root / "bold-sources")
         verify_combined_paper_names(tmp_root / "combined-paper-names")
         verify_natural_teaching_sections(tmp_root / "natural-teaching-sections")
+        verify_public_reading_positions_preserve_identity(tmp_root / "public-reading-positions")
         verify_type_dossier_rejects_bad_refs_and_overlap(tmp_root / "bad-dossier")
         verify_type_analysis_rejects_fabricated_and_duplicate_sources(tmp_root / "bad-type-page")
         verify_type_analysis_rejects_unlearnable_shell(tmp_root / "unlearnable-type-page")

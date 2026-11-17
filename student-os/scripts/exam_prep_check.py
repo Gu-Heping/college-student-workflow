@@ -73,7 +73,7 @@ HEADING_ONLY_PROBLEM_RE = re.compile(
     re.I,
 )
 RAW_OCR_DUMP_LINE_RE = re.compile(r"(?:\*\*)?题目(?:\*\*)?\s*[：:].{240,}(?:解\s*[：:：]|答案\s*[：:：]|\\\\begin\{array\})")
-GUIDE_ROUTE_MARKERS = ("我现在", "先读", "先看", "1 小时", "1天", "1 天", "3天", "3 天", "P0", "P1")
+GUIDE_ROUTE_MARKERS = ("我现在", "先读", "先看", "第一步", "从这里开始", "1 小时", "1天", "1 天", "3天", "3 天", "P0", "P1")
 SELF_QUESTION_TITLE_RE = re.compile(r"^#{1,6}\s*\d+(?:\.\d+)*\s*为什么", re.M)
 TEXTBOOK_GROUNDING_RE = re.compile(r"(?:课本|教材|讲义).{0,24}(?:§\s*\d+(?:\.\d+)+|图\s*\d+(?:\.\d+)+|题图\s*\d+(?:\.\d+)+|第\s*\d+\s*章)")
 OVERBROAD_SECTION_RE = re.compile(r"(?:课本|教材|讲义).{0,16}§\s*\d+(?:\.\d+)?(?:\s|[，,、。；;]|$)")
@@ -904,10 +904,6 @@ def _validate_guide(path: Path) -> list[dict[str, str]]:
                 "Entry page must tell the student what to open first, not only list artifacts",
             )
         )
-    for marker in ("1 小时", "1 天", "3 天"):
-        compact = marker.replace(" ", "")
-        if marker not in text and compact not in text:
-            issues.append(_issue("guide-missing-study-route", path, f"Entry page should include a {marker} route"))
     if ("文件" in text or "统计" in text or "产物" in text) and not any(marker in text for marker in ("先读", "第一步", "从这里开始")):
         issues.append(
             _issue(
