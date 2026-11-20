@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -51,11 +51,32 @@ function requireTool(ctx, name) {
 }
 
 function runOptionalDshCliOverlayCheck(vault) {
-  const versionProbe = spawnSync('dsh', ['--version'], {
+  let command = 'dsh'
+  let prefix = []
+  let cliLocated = false
+  if (process.platform === 'win32') {
+    // Node does not execute npm's .cmd shim directly. Resolve its installed CLI,
+    // rather than treating an available Windows CLI as absent.
+    const located = spawnSync('where.exe', ['dsh'], { encoding: 'utf8' })
+    if (located.status === 0) {
+      cliLocated = true
+      const shim = located.stdout.trim().split(/\r?\n/).find(path => path.endsWith('.cmd'))
+      if (shim) {
+        const packageRoot = join(dirname(shim), 'node_modules', '@deepseek-ai', 'dsh')
+        const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'))
+        command = process.execPath
+        prefix = [resolve(packageRoot, manifest.bin.dsh)]
+      }
+    } else if (located.error || located.status !== 1) {
+      throw located.error ?? new Error(`where.exe dsh failed: ${located.stderr}`)
+    }
+  }
+  const versionProbe = spawnSync(command, [...prefix, '--version'], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   if (versionProbe.error?.code === 'ENOENT') {
+    if (cliLocated) throw new Error('DSH CLI exists but cannot be executed; this is not an absent-CLI skip.')
     console.log('SKIP dsh-overlay-config (dsh executable not found)')
     return
   }
@@ -70,7 +91,7 @@ function runOptionalDshCliOverlayCheck(vault) {
     'utf8',
   )
   assert.match(readFileSync(overlay, 'utf8'), /name: 'file:\/\//)
-  execFileSync('dsh', ['web', '--patch', overlay, '--dump-config'], {
+  execFileSync(command, [...prefix, 'web', '--patch', overlay, '--dump-config'], {
     cwd: vault,
     env: { ...process.env, DSH_HOME: join(tmpRoot, 'dsh-cli-home') },
     stdio: 'pipe',
@@ -221,6 +242,7 @@ try {
   assert.equal(defaultGrouped.value.payload.is_git_repo, true)
   assert.equal(defaultGrouped.value.command.includes(vault), true)
   assert.equal(defaultGrouped.value.vault_resolution_source, 'config.vaultRoot')
+  assert.deepEqual(defaultGrouped.value.activation, { mode: 'catalog', status: 'catalog-only' })
 
   const slowRepoRoot = join(tmpRoot, 'slow-repo')
   const slowScripts = join(slowRepoRoot, 'student-os', 'scripts')

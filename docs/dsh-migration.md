@@ -2,8 +2,13 @@
 
 This page describes the minimal Claude Code to DeepSeek Harness path for Student OS.
 
-Official DSH reference checked: `deepseek-ai/deepseek-harness` commit `99f6f02fecdb7dff40c3fbc9470f5907c29f74ca`.
-The plugin is built against the matching published packages `@deepseek-ai/dsh-tools@0.1.0-rc.7` and `@deepseek-ai/cordis@4.0.1`.
+Runtime activation targets the official `deepseek-ai/deepseek-harness` published
+`0.2.1-rc.2` packages and `@deepseek-ai/cordis@4.0.5`, locked in the plugin lockfile.
+The earlier `99f6f02fecdb7dff40c3fbc9470f5907c29f74ca` / `0.1.0-rc.7` baseline did
+not implement required activation. This is a deliberate compatibility update,
+not a claim of compatibility with all release candidates or current master.
+DSH service packages are peers supplied by the host; matching dev dependencies
+compile and test against the real APIs, not local interface replicas.
 
 ## Prerequisites
 
@@ -50,6 +55,39 @@ Start DSH from the vault root with the returned argv. Bootstrap does not hot-loa
 
 The overlay sets `vaultRoot` to the project and `skillRoot` to its installed `.dsh/skills/student-os`. Native tools return the actual `skill_root` and call Python there, so installed local script changes are observable. An invalid explicit `skillRoot` returns `invalid-skill-root`; it never silently switches to repository scripts. Omitting `skillRoot` preserves the older repository-source behavior.
 
+New overlays also set `activationMode: required`. Before each model step inside
+`vaultRoot`, the adapter resolves `student-os` through the official skill registry,
+verifies its actual directory against `skillRoot`, and injects the official
+`renderSkillContent` plus `references/exam-prep-execution-core.md` when absent
+from effective context. Missing, mismatched or unreadable instructions fail before
+the model request. A ToolRuntime guard denies that agent's tool executions while
+activation is pending/failed, including nested dispatches. It does not parse shell
+commands or certify educational quality. Other workspaces are unaffected.
+
+The automatic context source is `student-os-activation`, not `skill-invocation`:
+it records no fictional user gesture or model tool call. Its metadata contains the
+actual skill path and SHA-256 body/core hashes. Native results expose `activation`
+with mode/status/path/hashes. Context loss, compaction and changed instructions
+cause reloading; a historical loaded flag alone is insufficient. Independent
+subagents must pass the same per-step check.
+
+An overlay without `activationMode` remains `catalog` (discovery only). Existing
+overlays/installations are never silently upgraded. Review local edits, explicitly
+update the installed Skill (including the new core reference), rebuild the plugin,
+and update the overlay using the backed-up `--force-overlay` flow, then restart.
+Do not overwrite a locally customized installation just to enable activation.
+
+Read-only local configuration check:
+
+```bash
+python scripts/bootstrap_dsh.py --project-root /path/to/vault --check --json
+```
+
+This compares the expected bootstrap overlay and required files. Custom but valid
+overlays may not match. It does not boot plugins or know another process's active
+context: `active_in_current_process:null/status:unknown` is intentional. Runtime
+metadata, rather than file presence or `--dump-config`, is the activation evidence.
+
 To update an older overlay, inspect its custom configuration first, then rerun bootstrap with `--force-overlay`; the existing backup mechanism preserves it. Restart DSH with the returned `--patch` argv to activate the change. Do not change global profiles. Census adapters remain auxiliary statistics routes; refresh an existing adapter explicitly with the adapter installer only after reviewing local customizations.
 
 Bootstrap performs:
@@ -69,6 +107,12 @@ test -f "/path/to/vault/.dsh/skills/student-os/SKILL.md"
 ```
 
 Inside DSH, ask it to use the `student-os` skill for the current vault. The skill catalog should expose `student-os` from the project install.
+
+Catalog discovery alone is not activation. With a required overlay, use an ordinary
+request such as "Improve this study page so someone who missed class can learn it."
+Confirm an automatic activation context and loaded metadata without manually asking
+for a skill invocation. Read the actual output: correct loading cannot guarantee
+source fidelity, useful teaching or mathematical correctness.
 
 Confirm native tools by asking DSH to call:
 
@@ -129,6 +173,7 @@ cat > /path/to/vault/.dsh/student-os.cordis.yml <<EOF
     - id: student-os-native
       name: 'file:///absolute/path/to/college-student-workflow/integrations/dsh/dist/index.js'
       config:
+        activationMode: required
         vaultRoot: '/absolute/path/to/your/learning-vault'
         skillRoot: '/absolute/path/to/your/learning-vault/.dsh/skills/student-os'
       # Windows example:
@@ -145,7 +190,7 @@ Avoid running destructive npm maintenance commands concurrently against the same
 | --- | --- |
 | `~/.claude/skills/student-os` user Skill | `$DSH_HOME/skills/student-os` user Skill |
 | `<vault>/.claude/skills/student-os` project Skill | `<vault>/.dsh/skills/student-os` project Skill |
-| Claude Code reads `student-os/SKILL.md` | DSH discovers the same installed `SKILL.md` |
+| Claude Code reads `student-os/SKILL.md` | DSH discovers it; the required overlay loads its body and execution core |
 | Shelling out to `inspect_repo.py` | native `student_os_inspect` tool |
 | Shelling out to `group_git_changes.py` | native `student_os_group_changes` tool |
 | Shelling out to `ensure_frontmatter.py` | native `student_os_frontmatter` tool |
@@ -153,3 +198,5 @@ Avoid running destructive npm maintenance commands concurrently against the same
 ## Fallback
 
 To return to pure Skill mode, start DSH without the Student OS patch overlay. The installed Skill still works through the same portable Python core; only the native DSH tools are disabled.
+Automatic required activation is also disabled in this fallback: the agent must
+load the Skill normally, and catalog presence alone proves nothing about loading.

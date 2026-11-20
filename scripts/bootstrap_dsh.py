@@ -28,6 +28,7 @@ def parse_args() -> argparse.Namespace:
         help="Target learning vault / current DSH workspace. This is not the college-student-workflow checkout.",
     )
     parser.add_argument("--json", action="store_true", help="Print machine-readable output.")
+    parser.add_argument("--check", action="store_true", help="Read-only check of local configuration; does not prove current-session activation.")
     parser.add_argument(
         "--force-overlay",
         action="store_true",
@@ -55,6 +56,7 @@ def overlay_text(plugin_entry: Path, *, project_root: Path) -> str:
         "    - id: student-os-native\n"
         f"      name: {yaml_single_quote(plugin_url)}\n"
         "      config:\n"
+        "        activationMode: required\n"
         f"        vaultRoot: {yaml_single_quote(json_safe_path(project_root))}\n"
         f"        skillRoot: {yaml_single_quote(json_safe_path(project_root / SKILL_RELATIVE))}\n"
     )
@@ -348,6 +350,13 @@ def bootstrap(project_root: Path, *, force_overlay: bool) -> tuple[int, dict[str
 
     try:
         skill = install_skill(project_root)
+        for relative in ("SKILL.md", "references/exam-prep-execution-core.md"):
+            required = project_root / SKILL_RELATIVE / relative
+            if not required.is_file() or not required.read_text(encoding="utf-8").strip():
+                raise RuntimeError(
+                    f"Installed skill lacks required activation content: {required}. "
+                    "Explicitly update the installed skill after reviewing local changes, then retry; bootstrap will not overwrite local customizations."
+                )
     except Exception as exc:
         return 1, fail(
             "skill-install",
@@ -400,16 +409,48 @@ def bootstrap(project_root: Path, *, force_overlay: bool) -> tuple[int, dict[str
     }
 
 
+def check_configuration(project_root: Path) -> tuple[int, dict[str, Any]]:
+    """Report expected local artifacts without booting DSH or changing the vault."""
+    project_root = project_root.resolve()
+    overlay = project_root / OVERLAY_RELATIVE
+    skill_root = project_root / SKILL_RELATIVE
+    expected = overlay_text(PLUGIN_ENTRY, project_root=project_root)
+    configured = overlay.is_file() and overlay.read_text(encoding="utf-8") == expected
+    files = [skill_root / "SKILL.md", skill_root / "references" / "exam-prep-execution-core.md", PLUGIN_ENTRY]
+    missing = [json_safe_path(path) for path in files if not path.is_file()]
+    ok = configured and not missing
+    return (0 if ok else 1), {
+        "ok": ok,
+        "check_only": True,
+        "project_root": json_safe_path(project_root),
+        "overlay": {"path": json_safe_path(overlay), "matches_bootstrap_configuration": configured},
+        "missing_files": missing,
+        "activation": {"mode": "required", "active_in_current_process": None, "status": "unknown"},
+        "next_action": "Restart with the project --patch overlay and confirm runtime activation metadata." if ok else "Review the installed skill and overlay; refresh explicitly, with --force-overlay only after reviewing its backup policy.",
+    }
+
+
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", newline="\n")
     args = parse_args()
-    exit_code, payload = bootstrap(Path(args.project_root), force_overlay=args.force_overlay)
+    if args.check:
+        try:
+            exit_code, payload = check_configuration(Path(args.project_root))
+        except (OSError, UnicodeError) as exc:
+            exit_code, payload = 1, fail("configuration-check", str(exc), check_only=True)
+    else:
+        exit_code, payload = bootstrap(Path(args.project_root), force_overlay=args.force_overlay)
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
-    elif payload.get("ok"):
+    elif payload.get("ok") and not args.check:
         argv = payload["activation"]["argv"]
         print("Student OS DSH bootstrap complete.")
         print("Restart DSH with:")
         print(" ".join(argv))
+    elif args.check:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         print(f"Student OS DSH bootstrap failed at {payload.get('stage')}: {payload.get('error')}", file=sys.stderr)
     return exit_code

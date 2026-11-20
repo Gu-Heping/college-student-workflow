@@ -2,6 +2,10 @@
 
 Intent: build high-quality exam review material from messy past papers.
 
+Load `references/exam-prep-execution-core.md` first unless already supplied by the
+runtime activation context. It is the compact execution contract shared by runtimes;
+this command supplies detail, not a mandatory sequence of scripts or human approvals.
+
 Use when the user asks to:
 - 整理历年试卷为期中/期末复习资料
 - 构建考试备考包、真题精析、题型解析、公式卡、答题模板

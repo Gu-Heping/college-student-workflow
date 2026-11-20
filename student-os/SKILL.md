@@ -1,11 +1,18 @@
 ---
 name: student-os
-description: Git-first student knowledge base operating system for Claude Code, Codex, OpenCode, and similar agents. Use when an agent needs to initialize or govern a markdown-first knowledge repository; create course spaces, semester overviews, lecture notes, homework pages, review sheets, lab reports, weekly plans, inbox tasks, dashboards, and learning summaries; import or transform PDF, DOCX, XLSX, and PPTX materials into the repository; route work across coordinator, course tutor, project helper, review coach, planning assistant, file operator, and feedback operator roles; inspect git status and separate task-specific changes from pre-existing dirty work; prepare branch names, commit messages, and grouped change summaries for day-to-day student workflows; safely update the installed student-os skill itself without touching the managed vault; or turn structured local feedback into privacy-checked GitHub issue drafts.
+description: Build and improve exam study packs, teaching handouts and course notes in Markdown vaults. Use for 整理复习资料、题型解析、期中期末备考, homework, planning, material import/repair, vault Git governance, skill updates and workflow feedback. AI reads sources, writes and reviews teaching; scripts check mechanical limits. Supports Codex, Claude Code, OpenCode and DeepSeek Harness.
 ---
 
 # Student OS
 
 Run this skill as the single entry point for a university knowledge repository. Treat the target vault as a git-backed working tree where every academic or planning task should leave a clear markdown trail and a reviewable change set.
+
+For exam study packs or existing teaching-page improvements, read
+`references/exam-prep-execution-core.md` before acting, then use
+`commands/exam-prep-build.md` as needed. Discovery in a skill catalog is not loading
+these instructions. A native DSH required-mode activation may already supply both
+the full skill and execution core; do not reload identical content just to simulate
+a skill invocation. Other runtimes should load them through their normal skill/read APIs.
 
 ## Hard boundaries
 

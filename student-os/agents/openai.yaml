@@ -1,7 +1,7 @@
 interface:
   display_name: "Student Knowledge Base Assistant"
-  short_description: "Git-first student knowledge and workflow assistant"
-  default_prompt: "Use $student-os to manage a git-backed student knowledge base and handle course, project, review, and planning work."
+  short_description: "Exam teaching, course notes and Markdown vault workflows"
+  default_prompt: "Use $student-os for this vault task. For exam material, load the exam-prep execution core, read the actual sources, edit teaching directly and read it back before delivery."
 
 policy:
   allow_implicit_invocation: true

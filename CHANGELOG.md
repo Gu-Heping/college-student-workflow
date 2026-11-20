@@ -6,6 +6,8 @@
 
 ### Changed
 
+- DSH native adapter targets official 0.2.1-rc.2 / Cordis 4.0.5. New bootstrap overlays explicitly require registry-backed Student OS instruction loading before managed-vault model steps, with path/hash metadata and a pending/failed activation tool guard. Existing overlays stay catalog-only until explicitly updated. Add a compact cross-runtime exam execution core and read-only bootstrap configuration check; loading and mechanical checks do not prove teaching quality.
+
 - 从真题辅导方法中吸收按核心方法成组选题、必要知识链、具体错因讲解及可选分层提示；明确备考构建交付静态讲义，不以读过资料推断掌握，不承诺动态批改、疲劳追踪、自适应选题或及格概率评估。
 
 - AI-first 考试资料先由 AI 分析教学依赖，在现有课程规范中编排一条可顺读的突击资料顺序；对外补零编号与内部题型 ID 分离，移除双路线及指南必须包含 1 小时/1 天/3 天路线的要求，同步初始化任务、委派合同、参考模板和跨页读回审稿。频率统计不再充当教学排序依据，机械检查仍不证明顺序合理或内容可学。

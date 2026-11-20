@@ -4,8 +4,11 @@ import { homedir } from 'node:os'
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool, type JsonValue } from '@deepseek-ai/dsh-tools'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { installActivation } from './activation.js'
 
 export const name = 'student-os'
 export const inject = ['tools', 'systemPrompt']
@@ -16,6 +19,7 @@ export interface Config {
   skillRoot?: string
   python?: string
   timeoutMs?: number
+  activationMode?: 'required' | 'catalog'
 }
 
 export interface StudentOsToolResult {
@@ -34,6 +38,7 @@ export interface StudentOsToolResult {
   stage?: string
   signal?: string
   payload?: JsonValue
+  activation?: JsonValue
 }
 
 interface ScriptRunOptions {
@@ -69,6 +74,7 @@ const toolResultSchema = {
     stage: { type: 'string' },
     signal: { type: 'string' },
     payload: { type: 'json' },
+    activation: { type: 'json' },
   },
 } as const
 
@@ -350,6 +356,7 @@ function renderResult(toolName: string, value: StudentOsToolResult): { type: 'te
       `plugin: student-os ${value.plugin_version} (${value.repo_commit})`,
       `repo: ${value.repo_root}`,
       `skill: ${value.skill_root}`,
+      value.activation === undefined ? '' : `activation: ${payloadField(value.activation, 'mode')} / ${payloadField(value.activation, 'status')}`,
       value.vault === undefined ? '' : `vault: ${value.vault} (${value.vault_resolution_source ?? 'unknown'})`,
       `command: ${value.command.join(' ')}`,
       value.stage === 'missing-vault' ? 'next: pass vault explicitly or restart DSH from the vault workspace with the Student OS overlay.' : '',
@@ -366,6 +373,9 @@ function renderResult(toolName: string, value: StudentOsToolResult): { type: 'te
 }
 
 export function apply(ctx: Context, config: Config = {}): void {
+  const activationStatus = installActivation(ctx, config)
+  const withActivation = (result: StudentOsToolResult, agent?: Agent): StudentOsToolResult =>
+    ({ ...result, activation: { ...activationStatus(agent) } })
   ctx.systemPrompt?.section({
     name: 'student-os',
     order: 118,
@@ -397,7 +407,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     isConcurrencySafe: () => true,
     execute(args, exec) {
       const vault = resolveVaultArg(args.vault, exec, config)
-      if ('ok' in vault) return Promise.resolve(vault)
+      if ('ok' in vault) return Promise.resolve(withActivation(vault, exec.agent))
       const compact = args.compact !== false
       const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? Math.max(1, Math.trunc(args.limit)) : 20
       const scope = typeof args.scope === 'string' && ['repo', 'git', 'hygiene'].includes(args.scope) ? args.scope : 'hygiene'
@@ -413,7 +423,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         vault: vault.path,
         vaultResolutionSource: vault.source,
         signal: exec.signal,
-      })
+      }).then(result => withActivation(result, exec.agent))
     },
   }))
 
@@ -433,7 +443,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     isConcurrencySafe: () => true,
     execute(args, exec) {
       const vault = resolveVaultArg(args.vault, exec, config)
-      if ('ok' in vault) return Promise.resolve(vault)
+      if ('ok' in vault) return Promise.resolve(withActivation(vault, exec.agent))
       const compact = args.compact !== false
       const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? Math.max(1, Math.trunc(args.limit)) : 20
       const timeoutMs = typeof args.timeout_ms === 'number' && Number.isFinite(args.timeout_ms)
@@ -447,7 +457,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         vault: vault.path,
         vaultResolutionSource: vault.source,
         signal: exec.signal,
-      })
+      }).then(result => withActivation(result, exec.agent))
     },
   }))
 
@@ -469,7 +479,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     execute(args, exec) {
       const vault = resolveVaultArg(args.vault, exec, config)
-      if ('ok' in vault) return Promise.resolve(vault)
+      if ('ok' in vault) return Promise.resolve(withActivation(vault, exec.agent))
       const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? Math.max(1, Math.trunc(args.limit)) : 1
       const timeoutMs = typeof args.timeout_ms === 'number' && Number.isFinite(args.timeout_ms)
         ? Math.max(1, Math.trunc(args.timeout_ms))
@@ -482,7 +492,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         vault: vault.path,
         vaultResolutionSource: vault.source,
         signal: exec.signal,
-      })
+      }).then(result => withActivation(result, exec.agent))
     },
   }))
 
@@ -507,7 +517,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     execute(args, exec) {
       const vault = resolveVaultArg(args.vault, exec, config)
-      if ('ok' in vault) return Promise.resolve(vault)
+      if ('ok' in vault) return Promise.resolve(withActivation(vault, exec.agent))
       const timeoutMs = typeof args.timeout_ms === 'number' && Number.isFinite(args.timeout_ms)
         ? Math.max(1, Math.trunc(args.timeout_ms))
         : config.timeoutMs
@@ -523,7 +533,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         vault: vault.path,
         vaultResolutionSource: vault.source,
         signal: exec.signal,
-      })
+      }).then(result => withActivation(result, exec.agent))
     },
   }))
 
@@ -552,6 +562,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (args.status !== undefined) scriptArgs.push('--status', requireString(args.status, 'status'))
       scriptArgs.push(target)
       return runStudentOsScript('ensure_frontmatter.py', scriptArgs, { ...config, signal: exec.signal })
+        .then(result => withActivation(result, exec.agent))
     },
   }))
 }

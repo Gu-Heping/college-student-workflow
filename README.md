@@ -208,6 +208,12 @@ DSH 运行时发现项目 skill 时，会使用最近的 `.git` 祖先作为 pro
 
 ### Install with DeepSeek Harness
 
+DSH native activation targets official `0.2.1-rc.2`. New project overlays use
+`activationMode: required`: instructions are loaded before in-vault model steps,
+with actual path/hash metadata. Older overlays remain discovery-only until explicitly
+updated and restarted. Loading does not certify writing or mathematical quality.
+See [runtime checks and migration](docs/dsh-migration.md).
+
 一句话示例：
 
 ```text

@@ -4,6 +4,11 @@
 
 ## 已可用
 
+DSH required activation targets `0.2.1-rc.2` / Cordis `4.0.5`: new bootstrap
+overlays request pre-step registry loading; old overlays default to catalog-only.
+Official runtime contracts use an offline adapter, not a real model quality test.
+Activation metadata proves instructions entered context, not semantic compliance.
+
 | 能力 | 说明 |
 | --- | --- |
 | **install** | `install.sh` / `install.ps1` / `scripts/install_student_os.py`；支持 Codex / Claude Code / OpenCode / DeepSeek Harness (DSH)，写入 `.student-os-install.json` |

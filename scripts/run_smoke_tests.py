@@ -9338,6 +9338,28 @@ def verify_dsh_bootstrap(tmp_root: Path, native_plugin_available: bool) -> bool:
         raise AssertionError(f"DSH bootstrap overlay should bind the project vaultRoot:\n{overlay}")
     if "skillRoot:" not in overlay or str(skill_path.resolve()) not in overlay:
         raise AssertionError(f"DSH bootstrap overlay should bind the installed skillRoot:\n{overlay}")
+    if "activationMode: required" not in overlay:
+        raise AssertionError("New DSH overlays must opt into required activation")
+    check_before = {str(p): p.read_bytes() for p in (vault / ".dsh").rglob("*") if p.is_file()}
+    checked = run_root_script("bootstrap_dsh.py", "--project-root", str(vault), "--check", "--json")
+    check_payload = json.loads(checked)
+    if not check_payload.get("ok") or check_payload["activation"]["active_in_current_process"] is not None:
+        raise AssertionError(f"Read-only bootstrap check must not claim live activation: {check_payload}")
+    check_after = {str(p): p.read_bytes() for p in (vault / ".dsh").rglob("*") if p.is_file()}
+    if check_before != check_after:
+        raise AssertionError("Bootstrap --check changed installed project files")
+    activation_core = skill_path / "references" / "exam-prep-execution-core.md"
+    saved_core = activation_core.read_bytes()
+    activation_core.unlink()
+    try:
+        missing_check = json.loads(run_root_script_failure("bootstrap_dsh.py", "--project-root", str(vault), "--check", "--json"))
+        if missing_check.get("ok") or str(activation_core.resolve()) not in missing_check.get("missing_files", []):
+            raise AssertionError(f"Configuration check must report missing activation core: {missing_check}")
+        old_install = json.loads(run_root_script_failure("bootstrap_dsh.py", "--project-root", str(vault), "--json"))
+        if old_install.get("ok") or old_install.get("stage") != "skill-install":
+            raise AssertionError(f"Bootstrap must reject an outdated install without silently overwriting it: {old_install}")
+    finally:
+        activation_core.write_bytes(saved_core)
     if str(plugin_entry) in overlay and "\\" in str(plugin_entry):
         raise AssertionError("DSH bootstrap overlay should not use backslash-escaped Windows paths")
     if len(list((vault / ".dsh").glob("student-os*.cordis.yml"))) != 1:
